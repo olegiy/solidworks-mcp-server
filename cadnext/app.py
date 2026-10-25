@@ -73,6 +73,11 @@ class ConfirmationBody(BaseModel):
     images: bool = False
 
 
+class AppSettingsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    python_execution_allowed: bool
+
+
 def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Provider,
                ui_dir: Path | None = None) -> FastAPI:
     ui_dir = Path(ui_dir) if ui_dir is not None else ROOT / "ui" / "dist"
@@ -87,7 +92,7 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         app.state.stopped_requests = set()
         app.state.reasoning = ReasoningCatalog(public_model_catalog)
         async with mcp_factory() as mcp:
-            app.state.agent = Agent(mcp)
+            app.state.agent = Agent(mcp, settings=app.state.settings)
             try:
                 yield
             finally:
@@ -152,6 +157,15 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     @app.get("/api/profiles")
     def profiles():
         return [store().public(profile) for profile in store().list()]
+
+    @app.get("/api/settings")
+    def app_settings():
+        return {"python_execution_allowed": store().python_execution_allowed}
+
+    @app.put("/api/settings")
+    def update_app_settings(body: AppSettingsBody):
+        store().set_python_execution_allowed(body.python_execution_allowed)
+        return app_settings()
 
     @app.post("/api/profiles", status_code=201)
     def add_profile(body: ProfileBody):

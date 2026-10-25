@@ -94,8 +94,30 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [pythonAllowed, setPythonAllowed] = useState<boolean | null>(null);
+  const [savingPermission, setSavingPermission] = useState(false);
   const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => { closeButton.current?.focus(); }, []);
+  useEffect(() => {
+    const controller = new AbortController();
+    api<{ python_execution_allowed: boolean }>('/settings', { signal: controller.signal })
+      .then(result => setPythonAllowed(result.python_execution_allowed))
+      .catch(error => { if (!controller.signal.aborted) setError(errorText(error)); });
+    return () => controller.abort();
+  }, []);
+
+  async function changePythonPermission(allowed: boolean) {
+    const previous = pythonAllowed;
+    setPythonAllowed(allowed);
+    setSavingPermission(true); setError('');
+    try {
+      const result = await api<{ python_execution_allowed: boolean }>('/settings', {
+        method: 'PUT', body: JSON.stringify({ python_execution_allowed: allowed }),
+      });
+      setPythonAllowed(result.python_execution_allowed);
+    } catch (error) { setPythonAllowed(previous); setError(errorText(error)); }
+    finally { setSavingPermission(false); }
+  }
 
   function edit(id: string) {
     setEditing(id); setForm(profiles.find(p => p.id === id) ?? blank);
@@ -200,6 +222,11 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
     </div>
     <div className="run-settings">
       <h3>Параметры запросов</h3>
+      <label className="check"><input type="checkbox" checked={pythonAllowed === true}
+        disabled={pythonAllowed === null || savingPermission}
+        onChange={event => void changePythonPermission(event.target.checked)} />Всегда разрешать выполнение Python</label>
+      <p className="hint">Действует для всех диалогов и подключений и сохраняется после перезапуска.
+        {' '}Изменение сохраняется сразу. Снятие флажка возвращает запрос разрешения перед следующим Python-кодом.</p>
       <label>Лимит вызовов<input type="number" min={1} max={1000} value={maxCalls}
         onChange={e => onMaxCallsChange(Number(e.target.value))} /></label>
     </div>
@@ -220,10 +247,10 @@ function ConfirmationPanel({ confirmation, onAnswer }: {
     className="confirmation panel">
     <div className="eyebrow">Нужно ваше решение</div>
     <h2>Выполнение Python-кода</h2>
-    <p>Разрешить выполнение Python-кода в этом диалоге для выбранного подключения? Следующие фрагменты будут выполняться без повторного вопроса. Код имеет доступ к SolidWorks и системе.</p>
+    <p>Разрешить выполнение Python-кода постоянно для всех диалогов и подключений, включая перезапуск приложения? Код имеет доступ к SolidWorks и системе. Разрешение можно отозвать в настройках.</p>
     <pre tabIndex={0}>{confirmation.code}</pre>
     <div className="actions"><button ref={firstButton} className="primary" disabled={busy}
-      onClick={() => answer(true)}>Разрешить в этом диалоге</button>
+      onClick={() => answer(true)}>Разрешить постоянно</button>
       <button disabled={busy} onClick={() => answer(false)}>Отклонить</button></div>
   </section>;
 }

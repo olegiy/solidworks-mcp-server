@@ -129,8 +129,10 @@ def _file_signature(path: str):
 
 
 class Agent:
-    def __init__(self, mcp, *, max_history_bytes=8 * 1024 * 1024, max_catalog_bytes=256 * 1024):
+    def __init__(self, mcp, *, settings=None, max_history_bytes=8 * 1024 * 1024,
+                 max_catalog_bytes=256 * 1024):
         self.mcp = mcp
+        self.settings = settings
         self.runs: dict[str, Run] = {}
         self._history: dict[str, list[dict]] = {}
         self._python_approved: set[tuple] = set()
@@ -454,11 +456,17 @@ class Agent:
         before = None
         if name == "execute_python":
             scope = (run.session_id, provider.profile)
-            if scope not in self._python_approved:
+            approved = (self.settings.python_execution_allowed if self.settings is not None
+                        else scope in self._python_approved)
+            if not approved:
                 await self._confirmation(run, "python", tool_call_id=call_id, code=arguments["code"],
-                    message="Разрешить Python-код в этом диалоге и подключении? "
-                            "Следующие фрагменты будут выполняться без повторного подтверждения.")
-                self._python_approved.add(scope)
+                    message="Разрешить выполнение Python-кода постоянно? Разрешение действует "
+                            "для всех диалогов и подключений, включая перезапуск приложения."
+                            if self.settings is not None else "Разрешить Python-код в этом диалоге и подключении?")
+                if self.settings is not None:
+                    self.settings.set_python_execution_allowed(True)
+                else:
+                    self._python_approved.add(scope)
         if name in _FEATURE_RESULTS:
             tree = await self._read(run, catalog, "get_feature_tree", {}, call_id, evidence)
             if len(tree["features"]) >= _TREE_LIMIT:

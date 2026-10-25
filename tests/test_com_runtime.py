@@ -129,7 +129,8 @@ def test_screenshot_temp_cleanup(monkeypatch, tmp_path):
         return True
 
     monkeypatch.setattr(server.tempfile, "tempdir", str(tmp_path))
-    monkeypatch.setattr(server, "_model", lambda: SimpleNamespace(SaveBMP=save))
+    monkeypatch.setattr(server, "_model", lambda: SimpleNamespace(SaveBMP=save,
+        ViewZoomtofit2=lambda: None, GraphicsRedraw2=lambda: None))
     monkeypatch.setattr(server, "com_call", lambda job: job())
     server.screenshot(zoom_to_fit=False)
     server.screenshot(zoom_to_fit=False)

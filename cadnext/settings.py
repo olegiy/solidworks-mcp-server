@@ -66,11 +66,16 @@ class SettingsStore:
         self._secrets = secrets
         self._lock = RLock()
         self._profiles: dict[str, Profile] = {}
+        self._python_execution_allowed = False
         if self.path.exists():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
                 if data["version"] != 1:
                     raise ValueError
+                permission = data.get("python_execution_allowed", False)
+                if type(permission) is not bool:
+                    raise ValueError
+                self._python_execution_allowed = permission
                 profiles = [Profile(**item) for item in data["profiles"]]
                 self._profiles = {p.id: p for p in profiles}
                 if len(self._profiles) != len(profiles):
@@ -107,14 +112,32 @@ class SettingsStore:
         except Exception:
             raise RuntimeError("Не удалось изменить ключ в Windows Credential Manager.") from None
 
-    def _write(self, profiles: dict[str, Profile]):
+    @property
+    def python_execution_allowed(self) -> bool:
+        with self._lock:
+            return self._python_execution_allowed
+
+    def set_python_execution_allowed(self, allowed: bool):
+        if type(allowed) is not bool:
+            raise ValueError("Разрешение Python должно быть логическим значением.")
+        with self._lock:
+            try:
+                self._write(self._profiles, python_execution_allowed=allowed)
+            except OSError:
+                raise OSError("Не удалось сохранить разрешение Python; настройка не изменена.") from None
+            self._python_execution_allowed = allowed
+
+    def _write(self, profiles: dict[str, Profile], *, python_execution_allowed=None):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent,
                                              prefix=".settings-", suffix=".tmp", delete=False) as f:
                 temporary = Path(f.name)
-                json.dump({"version": 1, "profiles": [asdict(p) for p in profiles.values()]},
+                permission = (self._python_execution_allowed if python_execution_allowed is None
+                              else python_execution_allowed)
+                json.dump({"version": 1, "profiles": [asdict(p) for p in profiles.values()],
+                           "python_execution_allowed": permission},
                           f, ensure_ascii=False, indent=2)
                 f.flush()
                 os.fsync(f.fileno())

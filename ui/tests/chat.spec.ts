@@ -34,13 +34,14 @@ test('сохранить подключение, получить CAD-резул
   await expect(page.getByText('screenshot', { exact: true })).toBeVisible();
 });
 
-test('Python подтверждается один раз за диалог, новый диалог снова спрашивает', async ({ page }) => {
+test('разрешение Python постоянно для новых диалогов и отзывается в настройках', async ({ page }) => {
+  await page.request.put('/api/settings', { data: { python_execution_allowed: false } });
   await page.goto('/');
   await connection(page, 'Код');
   await send(page, 'Выполни код');
   const dialog = page.getByRole('dialog', { name: 'Подтверждение Python-кода' });
   await expect(dialog.getByText('result = 62\nprint(result)', { exact: true })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Разрешить в этом диалоге' }).click();
+  await dialog.getByRole('button', { name: 'Разрешить постоянно' }).click();
   await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
   await expect(page.getByText('Результат требует проверки', { exact: true }).last()).toBeVisible();
   await send(page, 'Ещё код');
@@ -52,6 +53,17 @@ test('Python подтверждается один раз за диалог, н�
   await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'Новый диалог', exact: true }).click();
   await send(page, 'Другой код');
+  await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  const permission = page.getByRole('checkbox', { name: 'Всегда разрешать выполнение Python' });
+  await expect(permission).toBeChecked();
+  await permission.uncheck();
+  await expect(permission).not.toBeChecked();
+  await expect(permission).toBeEnabled();
+  await page.getByRole('button', { name: 'Закрыть настройки' }).click();
+  await page.reload();
+  await send(page, 'После отзыва код');
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Отклонить' }).click();
   await expect(page.getByTestId('run-status').last()).toHaveText('Отклонён');

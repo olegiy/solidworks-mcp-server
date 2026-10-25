@@ -54,6 +54,27 @@ def test_health_profiles_crud_and_secret_never_returned(api):
     assert backend.settings.secret(saved["id"]) is None
 
 
+def test_global_python_permission_is_persisted_and_validated(api):
+    from cadnext.settings import SettingsStore
+    from tests.test_settings import MemorySecrets
+
+    client, backend = api
+    assert client.get('/api/settings').json() == {'python_execution_allowed': False}
+    response = client.put('/api/settings', json={'python_execution_allowed': True})
+    assert response.status_code == 200
+    assert response.json() == {'python_execution_allowed': True}
+    restored = SettingsStore(backend.settings.path.parent, MemorySecrets())
+    assert restored.python_execution_allowed is True
+    saved = profile(client)
+    run = start(client, saved['id'], message='Выполни код').json()
+    assert wait(client, run['id'])['status'] == 'completed'
+    assert backend.calls[0][0] == 'execute_python'
+    assert client.put('/api/settings', json={'python_execution_allowed': 'true'}).status_code == 422
+    assert client.put('/api/settings', json={'python_execution_allowed': False}).status_code == 200
+    assert client.get('/api/settings').json() == {'python_execution_allowed': False}
+    assert client.put('/api/settings', json={'python_execution_allowed': True, 'extra': 1}).status_code == 422
+
+
 def test_profile_api_saves_reasoning_and_probe_uses_it(api):
     client, backend = api
     saved = profile(client, reasoning_effort="max")

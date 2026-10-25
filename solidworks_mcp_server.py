@@ -604,8 +604,12 @@ def close_document(title: str = "") -> str:
 def screenshot(width: int = 1000, height: int = 750, zoom_to_fit: bool = True,
                isometric: bool = False):
     """Скриншот активной модели (текущий вид). Используй после каждой операции,
-    чтобы видеть результат построения."""
+    чтобы видеть результат построения. Перед снимком модель всегда вписывается
+    в окно; width/height ограничивают размер PNG без обрезки. zoom_to_fit
+    сохранён для совместимости, отключение подгонки не применяется."""
     def job():
+        if not 64 <= int(width) <= 2048 or not 64 <= int(height) <= 2048:
+            raise ValueError("Размер изображения должен быть от 64 до 2048 пикселей.")
         model = _model()
         if isometric:
             for view_name in ("*Изометрия", "*Isometric"):
@@ -614,17 +618,20 @@ def screenshot(width: int = 1000, height: int = 750, zoom_to_fit: bool = True,
                     break
                 except Exception:
                     continue
-        if zoom_to_fit:
-            _get(model, "ViewZoomtofit2")
-        if not 64 <= int(width) <= 2048 or not 64 <= int(height) <= 2048:
-            raise ValueError("Размер изображения должен быть от 64 до 2048 пикселей.")
+        # Эти команды возвращают void: COM может выполнить их при чтении свойства
+        # либо вернуть метод. Каждый вариант выполняется ровно один раз.
+        for command in ("ViewZoomtofit2", "GraphicsRedraw2"):
+            action = getattr(model, command)
+            if callable(action):
+                action()
         from PIL import Image as PILImage
         with tempfile.TemporaryDirectory(prefix="cadnext-view-") as folder:
             tmp_bmp = os.path.join(folder, "view.bmp")
-            ok = model.SaveBMP(tmp_bmp, int(width), int(height))
+            ok = model.SaveBMP(tmp_bmp, 0, 0)
             if not ok or not os.path.isfile(tmp_bmp):
                 raise RuntimeError("SaveBMP не смог сохранить изображение.")
             with PILImage.open(tmp_bmp) as bitmap:
+                bitmap.thumbnail((int(width), int(height)), PILImage.Resampling.LANCZOS)
                 buf = io.BytesIO()
                 bitmap.save(buf, "PNG")
                 return buf.getvalue()
