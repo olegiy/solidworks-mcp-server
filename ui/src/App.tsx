@@ -25,8 +25,9 @@ const localAddress = (value: string) => {
   catch { return false; }
 };
 
-function Connections({ profiles, selected, onSaved, onClose }: {
+function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCallsChange }: {
   profiles: Profile[]; selected: string; onSaved: (id: string) => Promise<void>; onClose: () => void;
+  maxCalls: number; onMaxCallsChange: (value: number) => void;
 }) {
   const blank = { name: '', base_url: 'http://127.0.0.1:8080/v1', model: '', vision: false, local: true,
     reasoning_effort: null as string | null };
@@ -69,9 +70,11 @@ function Connections({ profiles, selected, onSaved, onClose }: {
     try { await api(`/profiles/${editing}`, { method: 'DELETE' }); await onSaved(''); edit(''); }
     catch (error) { setError(errorText(error)); } finally { setBusy(false); }
   }
-  return <section className="settings panel" aria-label="Подключения моделей">
-    <div className="section-title"><h2>Подключения</h2>
+  return <section id="app-settings" className="settings panel" aria-label="Настройки">
+    <div className="section-title"><h2>Настройки</h2>
       <button ref={closeButton} onClick={onClose}>Закрыть настройки</button></div>
+    <p className="local-badge">На этом компьютере</p>
+    <h3>Подключения</h3>
     <p className="muted">OpenAI-совместимый API с вызовами инструментов. Изменения действуют со следующего запроса.</p>
     <div className="settings-layout">
       <nav aria-label="Сохранённые подключения">
@@ -116,6 +119,11 @@ function Connections({ profiles, selected, onSaved, onClose }: {
           <button className="danger" disabled={busy || !editing} type="button" onClick={remove}>Удалить подключение</button>
         </div>
       </form>
+    </div>
+    <div className="run-settings">
+      <h3>Параметры запросов</h3>
+      <label>Лимит вызовов<input type="number" min={1} max={1000} value={maxCalls}
+        onChange={e => onMaxCallsChange(Number(e.target.value))} /></label>
     </div>
   </section>;
 }
@@ -301,8 +309,9 @@ export default function App() {
   return <div className="shell">
     <header className="app-header"><div className="brand"><div className="brand-icon" aria-hidden="true">C</div>
       <div><h1>CAD-Agent-Next</h1><p>Рабочий чат SolidWorks</p></div></div>
-      <div className="header-actions"><span className="local-badge">На этом компьютере</span>
-        <button onClick={() => setSettings(value => !value)}>Подключения</button></div></header>
+      <div className="header-actions">
+        <button aria-expanded={settings} aria-controls="app-settings"
+          onClick={() => setSettings(value => !value)}>Настройки</button></div></header>
     <main>
       <div className="toolbar"><label>Активное подключение<select value={selected}
         onChange={e => { setSelected(e.target.value); remember('profile', e.target.value); }} disabled={loading}>
@@ -312,7 +321,8 @@ export default function App() {
       {currentProfile ? <p className="connection-note">{currentProfile.local ? 'Локальная модель' : 'Внешний провайдер'}
         {' · '}{currentProfile.vision ? 'Принимает изображения' : 'Текстовая модель'}
         {active ? ' · Текущий запрос сохраняет своё подключение' : ''}</p> : null}
-      {settings ? <Connections profiles={profiles} selected={selected} onSaved={reloadProfiles} onClose={() => setSettings(false)} /> : null}
+      {settings ? <Connections profiles={profiles} selected={selected} onSaved={reloadProfiles}
+        maxCalls={maxCalls} onMaxCallsChange={setMaxCalls} onClose={() => setSettings(false)} /> : null}
       {error ? <p role="alert" className="error panel">{error}</p> : null}
       <section className="chat panel" aria-label="Чат">
         {loading ? <p role="status">Загружаем состояние приложения…</p> : null}
@@ -334,10 +344,6 @@ export default function App() {
             disabled={active.status === 'stopping'}>Остановить</button> : null}
             <button className="primary" type="submit" disabled={loading || sending || !!active || !selected || !message.trim() || uncertain}>
               {sending ? 'Отправляем…' : 'Отправить'}</button></div></div>
-        <details className="request-options"><summary>Параметры запроса</summary>
-          <label>Лимит вызовов<input type="number" min={1} max={1000} value={maxCalls}
-            onChange={e => setMaxCalls(Number(e.target.value))} /></label>
-        </details>
       </form>
     </main>
   </div>;

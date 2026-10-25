@@ -11,7 +11,7 @@ test('новое подключение загружает модели при �
     await route.fulfill({ json: ['GPT-Sol-6.1', 'gpt-4.1', 'qwen3'] });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByRole('button', { name: 'Новое подключение' }).click();
   await expect(page.getByRole('button', { name: 'Загрузить модели', exact: true })).toHaveCount(0);
   await page.getByLabel('Адрес API').fill('https://catalog.test/v1');
@@ -58,7 +58,7 @@ test('смена адреса API отбрасывает предыдущий к
     }
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByRole('button', { name: 'Новое подключение' }).click();
   await page.getByLabel('Адрес API').fill('https://old.test/v1');
   const model = page.getByRole('combobox', { name: 'Имя модели', exact: true });
@@ -84,7 +84,7 @@ test('ошибка каталога оставляет ручной ввод и 
       : { json: ['recovered-model'] });
   });
   await page.goto('/');
-  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   const model = page.getByRole('combobox', { name: 'Имя модели', exact: true });
   await model.click();
   await expect(page.getByRole('alert')).toContainText('HTTP 401');
@@ -101,7 +101,7 @@ test('ошибка каталога оставляет ручной ввод и 
 
 test('сила рассуждения сохраняется для следующего входа и сбрасывается на настройку API', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByRole('button', { name: 'Новое подключение' }).click();
   await page.getByLabel('Название подключения').fill('Сохранённые рассуждения');
   await page.getByLabel('Имя модели', { exact: true }).fill('fake-model');
@@ -114,12 +114,12 @@ test('сила рассуждения сохраняется для следую
   const selected = await page.getByLabel('Активное подключение').inputValue();
   await page.reload();
   await expect(page.getByLabel('Активное подключение')).toHaveValue(selected);
-  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await expect(reasoning).toHaveValue('max');
   await reasoning.selectOption('');
   await page.getByRole('button', { name: 'Сохранить подключение' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Подключение сохранено' })).toBeVisible();
   await page.reload();
-  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await expect(reasoning).toHaveValue('');
 });

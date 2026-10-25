@@ -56,9 +56,9 @@ summary { cursor: pointer; color: #48664f; padding: 7px 0; }
 .composer textarea { background: #fbfcf9; }
 .composer-label { font-size: 12px; }
 .composer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 12px; }
-.request-options { font-size: 12px; margin-top: 8px; }
-.request-options label { margin: 12px 0; }
-.request-options input { max-width: 130px; }
+.run-settings { border-top: 1px solid #d9e1d5; margin-top: 24px; padding-top: 8px; }
+.run-settings label { max-width: 140px; }
+.settings h3 { font-size: 16px; margin: 16px 0 12px; }
 .hint { font-weight: 400; font-size: 12px; color: #647469; }
 .muted { color: #697a6c; font-size: 13px; }
 .warning { color: #826222; }
@@ -97,7 +97,6 @@ figcaption { font-size: 12px; color: #6b7a6d; margin-top: 5px; }
   .app-header { padding: 18px 0; gap: 10px; }
   h1 { font-size: 18px; }
   .brand-icon { width: 34px; height: 34px; font-size: 21px; }
-  .local-badge { display: none; }
   .app-header button { padding: 8px 10px; font-size: 13px; }
   .toolbar { flex-wrap: wrap; gap: 9px; }
   .toolbar label { flex-basis: 100%; }

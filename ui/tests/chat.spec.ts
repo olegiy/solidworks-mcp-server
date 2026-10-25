@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 async function connection(page: Page, name: string, remote = false) {
-  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByRole('button', { name: 'Новое подключение' }).click();
   await page.getByLabel('Название подключения').fill(name);
   await page.getByLabel('Адрес API').fill(remote ? 'https://example.test/v1' : 'http://localhost/v1');
@@ -129,7 +129,7 @@ test('восстановление обновляет незавершённый
 
 test('DNS-имя с префиксом 127 требует согласия как внешний провайдер', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByRole('button', { name: 'Новое подключение' }).click();
   await page.getByLabel('Название подключения').fill('Внешний DNS');
   await page.getByLabel('Адрес API').fill('https://127.example.com/v1');
