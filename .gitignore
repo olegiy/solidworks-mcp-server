@@ -41,3 +41,33 @@ credentials.json
 secrets.json
 settings.json
 .credentials/
+
+# прочие форматы SolidWorks/CAD, которые может создать live_smoke или экспорт
+*.sldasm
+*.SLDASM
+*.slddrw
+*.SLDDRW
+*.step
+*.stp
+
+# Playwright: кэш браузеров и blob-отчёты
+playwright/.cache/
+blob-report/
+
+# Python: артефакты сборки и покрытия
+build/
+*.egg-info/
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+
+# любые логи (помимо уже перечисленных конкретных имён)
+*.log
+
+# редакторы и ОС
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
