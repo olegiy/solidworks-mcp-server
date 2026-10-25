@@ -1,5 +1,8 @@
+import ast
+import inspect
 import json
 import math
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
@@ -7,6 +10,41 @@ from types import SimpleNamespace
 import pytest
 
 import solidworks_mcp_server as server
+
+
+def test_documented_python_inspection_reads_body_box_and_point_objects(monkeypatch):
+    default_calls = []
+
+    class Point:
+        def __init__(self, x, y, z):
+            self.X, self.Y, self.Z = x, y, z
+
+        def __call__(self):
+            default_calls.append(True)
+            raise RuntimeError("COM point has no default member")
+
+    line = SimpleNamespace(GetType=0, GetStartPoint2=Point(.001, .002, 0),
+                           GetEndPoint2=Point(.061, .002, 0))
+    sketch = SimpleNamespace(GetSketchSegments=[line, SimpleNamespace(GetType=1)])
+    feature = SimpleNamespace(Name="Эскиз1", GetTypeName2="ProfileFeature",
+                              GetSpecificFeature2=sketch, GetNextFeature=None)
+    body = SimpleNamespace(GetBodyBox=(0, -.002, 0, .062, .04, .062))
+    model = SimpleNamespace(GetType=1, GetBodies2=lambda kind, visible: [body], FirstFeature=feature)
+    monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(ActiveDoc=model))
+    monkeypatch.setattr(server, "_nothing", lambda: None)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    # Execute the example actually supplied to the model, against COM-shaped objects.
+    example = re.search(r"```python\n(.*?)\n```", inspect.getdoc(server.execute_python), re.S)
+    assert example is not None, "The model needs an executable inspection example"
+    response = json.loads(server.execute_python(example.group(1)))
+    assert response["status"] == "ok", response
+    result = ast.literal_eval(response["result"])
+    assert result["bbox_mm"] == [[0, -2, 0, 62, 40, 62]]
+    assert result["bbox_approximate"] is True
+    assert result["sketch_name"] == "Эскиз1"
+    assert result["segments"] == [{"type": "line", "start_mm": [1, 2, 0], "end_mm": [61, 2, 0]},
+                                  {"type": "unsupported", "segment_type": 1}]
+    assert default_calls == []
 
 
 def test_timeout_blocks_followup_even_after_call_finishes(monkeypatch):

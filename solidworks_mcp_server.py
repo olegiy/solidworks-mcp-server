@@ -272,6 +272,7 @@ _AS_PROPERTY = {
     # возвращают COM-объект — именно они ломались
     "FirstFeature", "GetNextFeature", "GetFirstDocument", "GetNext",
     "CreateMassProperty", "GetBodies2", "GetDefinition", "GetSpecificFeature2",
+    "GetStartPoint2", "GetEndPoint2",
     # возвращают скаляр
     "GetTitle", "GetPathName", "GetType", "GetTypeName2", "Name", "Name2",
     "IsSuppressed", "EditRebuild3", "ForceRebuild3", "ViewZoomtofit2",
@@ -1012,9 +1013,45 @@ def add_mate(mate_type: str = "coincident", alignment: str = "closest",
 def execute_python(code: str) -> str:
     """Выполнить произвольный Python-код с доступом к SolidWorks COM API.
     Доступные переменные: swApp (ISldWorks), model (активный документ или None),
-    win32com, pythoncom, VARIANT, MM (мм→м: MM(25.4)==0.0254).
+    win32com, pythoncom, VARIANT, MM (мм→м: MM(25.4)==0.0254),
+    GET(obj, name, *args) для методов/свойств pywin32, byref_i4, NOTHING.
     Результат: положи значение в переменную result и/или используй print().
-    Применяй, когда готового инструмента нет или сигнатура API отличается."""
+    Применяй, когда готового инструмента нет или сигнатура API отличается.
+    Не угадывай API: у IBody2 есть GetBodyBox, а не GetBoundingBox.
+    GetBodyBox возвращает приблизительный bbox в метрах: не используй его
+    как точное доказательство размеров/геометрии. GetStartPoint2/GetEndPoint2
+    возвращают ISketchPoint: читай X/Y/Z, не перебирай объект как массив.
+    Имя эскиза бери у feature.Name, не у sketch.GetName(). Координаты точек
+    эскиза локальные; для совмещения с bbox в системе модели нужно преобразование.
+    Пример только чтения (имя нужного эскиза укажи явно):
+    ```python
+    if model is None or GET(model, "GetType") != 1:
+        raise RuntimeError("Нужна активная деталь.")
+    bodies = model.GetBodies2(0, False) or ()
+    result = {"bodies": len(bodies), "bbox_approximate": True,
+              "bbox_mm": [[round(v * 1000, 4) for v in GET(b, "GetBodyBox")] for b in bodies],
+              "sketch_name": None, "segments": [], "point_coordinates": "sketch"}
+    target_sketch = "Эскиз1"
+    feat = GET(model, "FirstFeature")
+    while feat is not None:
+        if GET(feat, "GetTypeName2") == "ProfileFeature" and feat.Name == target_sketch:
+            sketch = GET(feat, "GetSpecificFeature2")
+            result["sketch_name"] = feat.Name
+            for segment in GET(sketch, "GetSketchSegments") or ():
+                kind = GET(segment, "GetType")
+                if kind != 0:
+                    result["segments"].append({"type": "unsupported", "segment_type": kind})
+                    continue
+                start = GET(segment, "GetStartPoint2")
+                end = GET(segment, "GetEndPoint2")
+                result["segments"].append({"type": "line",
+                    "start_mm": [round(v * 1000, 3) for v in (start.X, start.Y, start.Z)],
+                    "end_mm": [round(v * 1000, 3) for v in (end.X, end.Y, end.Z)]})
+            break
+        feat = GET(feat, "GetNextFeature")
+    print(result)
+    ```
+    """
     def job():
         import win32com.client
         import pythoncom
