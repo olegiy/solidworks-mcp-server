@@ -176,7 +176,8 @@ def test_invalid_payload_and_internal_errors_do_not_expose_secrets(api, monkeypa
 def test_models_probe_and_static_page_do_not_touch_cad(api):
     client, backend = api
     saved = profile(client)
-    assert client.get("/api/models", params={"profile_id": saved["id"]}).json() == ["fake-model"]
+    assert client.get("/api/models", params={"profile_id": saved["id"]}).json() == {
+        "models": [{"id": "fake-model", "reasoning": None}]}
     assert client.post(f'/api/profiles/{saved["id"]}/test').json()["ok"]
     assert backend.calls == []
     assert client.get("/api/nonexistent").status_code == 404
@@ -187,7 +188,7 @@ def test_models_for_unsaved_connection_use_current_url_and_key_without_saving(ap
     response = client.post("/api/models", json={
         "base_url": "https://catalog.test/v1/", "api_key": "draft-key"})
     assert response.status_code == 200, response.text
-    assert response.json() == ["fake-model"]
+    assert response.json() == {"models": [{"id": "fake-model", "reasoning": None}]}
     request, = backend.model_requests
     assert str(request.url) == "https://catalog.test/v1/models"
     assert request.headers["authorization"] == "Bearer draft-key"
@@ -196,6 +197,32 @@ def test_models_for_unsaved_connection_use_current_url_and_key_without_saving(ap
     assert backend.closed == 1
     assert backend.calls == []
     assert "draft-key" not in response.text
+
+
+def test_openrouter_model_catalog_returns_reasoning_metadata_without_secret(api):
+    client, backend = api
+    saved = profile(client, base_url="https://openrouter.ai/api/v1", model="deepseek/test",
+                    api_key="openrouter-secret")
+    response = client.get("/api/models", params={"profile_id": saved["id"]})
+    assert response.status_code == 200
+    assert response.json() == {"models": [{"id": "fake-model", "reasoning": {
+        "mandatory": False, "default_effort": "high",
+        "supported_efforts": ["max", "high", "low", "none"]}}]}
+    assert "openrouter-secret" not in response.text
+
+
+def test_reasoning_lookup_uses_public_openrouter_without_saved_provider_key(api):
+    client, backend = api
+    profile(client, base_url='https://another.test/v1', api_key='only-for-other-provider')
+    response = client.get('/api/reasoning', params={'model': 'fake-model'})
+    assert response.status_code == 200
+    assert response.json()['reasoning']['supported_efforts'] == ['max', 'high', 'low', 'none']
+    request, = backend.model_requests
+    assert str(request.url) == 'https://openrouter.ai/api/v1/models'
+    assert 'authorization' not in request.headers
+    assert not request.content
+    assert 'only-for-other-provider' not in response.text
+    assert backend.calls == []
 
 
 @pytest.mark.parametrize(("changes", "expected_url", "authorization"), [

@@ -161,6 +161,95 @@ async def test_models_and_manual_model_request_without_auth():
         await client.aclose()
 
 
+async def test_openrouter_model_catalog_exposes_model_specific_reasoning_levels():
+    from cadnext.provider import Provider
+    from cadnext.settings import Profile
+
+    def respond(request):
+        assert request.url.path == "/api/v1/models"
+        return httpx.Response(200, json={"data": [
+            {"id": "deepseek/deepseek-v4.1-flash-1017", "reasoning": {
+                "mandatory": False, "default_effort": "high",
+                "supported_efforts": ["max", "high", "low", "none"]}},
+            {"id": "plain/model"},
+        ]})
+
+    client = Provider(Profile(name="P", base_url="https://openrouter.ai/api/v1", model="manual"),
+                      transport=httpx.MockTransport(respond))
+    try:
+        assert await client.list_model_catalog() == {"models": [
+            {"id": "deepseek/deepseek-v4.1-flash-1017", "reasoning": {
+                "mandatory": False, "default_effort": "high",
+                "supported_efforts": ["max", "high", "low", "none"]}},
+            {"id": "plain/model", "reasoning": None},
+        ]}
+        assert await client.list_models() == ["deepseek/deepseek-v4.1-flash-1017", "plain/model"]
+    finally:
+        await client.aclose()
+
+
+async def test_openrouter_catalog_discards_unknown_reasoning_values():
+    from cadnext.provider import Provider
+    from cadnext.settings import Profile
+
+    response = httpx.Response(200, json={"data": [{"id": "m", "reasoning": {
+        "mandatory": True, "default_effort": "unsupported",
+        "supported_efforts": ["high", "high", "budget_tokens", 7, "none"]}}]})
+    client = Provider(Profile(name="P", base_url="https://openrouter.ai/api/v1", model="m"),
+                      transport=httpx.MockTransport(lambda _: response))
+    try:
+        assert await client.list_model_catalog() == {"models": [{"id": "m", "reasoning": {
+            "mandatory": True, "default_effort": None,
+            "supported_efforts": ["high"]}}]}
+    finally:
+        await client.aclose()
+
+
+async def test_openrouter_catalog_removes_none_for_mandatory_reasoning():
+    from cadnext.provider import Provider
+    from cadnext.settings import Profile
+
+    response = httpx.Response(200, json={"data": [{"id": "m", "reasoning": {
+        "mandatory": True, "default_effort": "high",
+        "supported_efforts": ["high", "none"]}}]})
+    client = Provider(Profile(name="P", base_url="https://openrouter.ai/api/v1", model="m"),
+                      transport=httpx.MockTransport(lambda _: response))
+    try:
+        assert await client.list_model_catalog() == {"models": [{"id": "m", "reasoning": {
+            "mandatory": True, "default_effort": "high", "supported_efforts": ["high"]}}]}
+    finally:
+        await client.aclose()
+
+
+async def test_openrouter_catalog_ignores_malformed_reasoning_list():
+    from cadnext.provider import Provider
+    from cadnext.settings import Profile
+
+    response = httpx.Response(200, json={"data": [{"id": "m", "reasoning": {
+        "mandatory": "yes", "default_effort": "high", "supported_efforts": None}}]})
+    client = Provider(Profile(name="P", base_url="https://openrouter.ai/api/v1", model="m"),
+                      transport=httpx.MockTransport(lambda _: response))
+    try:
+        assert await client.list_model_catalog() == {"models": [{"id": "m", "reasoning": {
+            "mandatory": False, "default_effort": None, "supported_efforts": None}}]}
+    finally:
+        await client.aclose()
+
+
+async def test_non_openrouter_catalog_keeps_reasoning_metadata_out_of_response():
+    from cadnext.provider import Provider
+    from cadnext.settings import Profile
+
+    response = httpx.Response(200, json={"data": [{"id": "m", "reasoning": {
+        "mandatory": True, "supported_efforts": ["max"]}}]})
+    client = Provider(Profile(name="P", base_url="https://provider.test/v1", model="m"),
+                      transport=httpx.MockTransport(lambda _: response))
+    try:
+        assert await client.list_model_catalog() == {"models": [{"id": "m", "reasoning": None}]}
+    finally:
+        await client.aclose()
+
+
 @pytest.mark.parametrize("response", [
     {"choices": []},
     {"choices": [{"message": {"content": "cut"}, "finish_reason": "length"}]},

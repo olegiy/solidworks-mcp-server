@@ -19,6 +19,7 @@ from cadnext.attachments import AttachmentError
 from cadnext.mcp import ROOT, SolidWorksMcp
 from cadnext.privacy import PrivacyContext
 from cadnext.provider import Provider, ProviderError
+from cadnext.reasoning import ReasoningCatalog
 from cadnext.settings import Profile, ReasoningEffort, SettingsStore
 
 
@@ -84,6 +85,7 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         app.state.cleanups = set()
         app.state.request_runs = {}
         app.state.stopped_requests = set()
+        app.state.reasoning = ReasoningCatalog(public_model_catalog)
         async with mcp_factory() as mcp:
             app.state.agent = Agent(mcp)
             try:
@@ -174,11 +176,26 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
                                      profile_id=profile.id)
         return provider_factory(profile, store().secret(profile.id), privacy=privacy)
 
+    async def public_model_catalog():
+        profile = Profile(name="Публичный каталог OpenRouter", base_url="https://openrouter.ai/api/v1",
+                          model="catalog")
+        privacy = PrivacyContext(local=False, consent=True, profile_id=profile.id)
+        # A separate provider has no access to any saved connection's credentials or messages.
+        provider = provider_factory(profile, None, privacy=privacy)
+        try:
+            return await asyncio.wait_for(provider.list_model_catalog(), timeout=12)
+        finally:
+            await provider.aclose()
+
+    @app.get("/api/reasoning")
+    async def reasoning(model: str = Query(min_length=1, max_length=300)):
+        return await app.state.reasoning.lookup(model)
+
     @app.get("/api/models")
     async def models(profile_id: str):
         provider = provider_for(store().get(profile_id))
         try:
-            return await provider.list_models()
+            return await provider.list_model_catalog()
         finally:
             await provider.aclose()
 
@@ -193,7 +210,7 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         privacy = PrivacyContext(local=draft.local, consent=True, profile_id=draft.id)
         provider = provider_factory(draft, secret, privacy=privacy)
         try:
-            return await provider.list_models()
+            return await provider.list_model_catalog()
         finally:
             await provider.aclose()
 

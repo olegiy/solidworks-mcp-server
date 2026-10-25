@@ -73,6 +73,7 @@ test('Enter отправляет один запрос, Shift+Enter сохран
   await input.pressSequentially('размер');
   await expect(input).toHaveValue('Прочитай\nразмер');
   expect(sent).toBe(0);
+  await expect(page.getByRole('button', { name: 'Отправить', exact: true })).toBeEnabled();
   await input.press('Enter');
   await expect(page.getByText('Размер 62 мм. Готово.', { exact: true })).toBeVisible();
   await expect(input).toHaveValue('');

@@ -3,6 +3,18 @@ export interface Profile {
   vision: boolean; local: boolean; has_key: boolean;
   reasoning_effort: string | null;
 }
+export interface ReasoningMetadata {
+  mandatory: boolean;
+  default_effort: string | null;
+  supported_efforts: string[] | null;
+}
+export interface ModelInfo {
+  id: string;
+  reasoning: ReasoningMetadata | null;
+}
+export interface ModelCatalog {
+  models: ModelInfo[];
+}
 export interface Confirmation {
   id: string; kind: 'python'; code?: string; message: string;
 }

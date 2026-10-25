@@ -1,24 +1,25 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { api } from './api';
+import type { ModelCatalog, ModelInfo } from './api';
 
 interface Props {
   baseUrl: string; profileId: string; apiKey?: string;
-  value: string; onChange: (value: string) => void; disabled: boolean;
+  value: string; onChange: (value: string) => void; onCatalog?: (catalog: ModelCatalog) => void; disabled: boolean;
 }
 
-export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChange, disabled }: Props) {
+export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChange, onCatalog, disabled }: Props) {
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const request = useRef<AbortController | null>(null);
   const loaded = useRef(false);
-  const [models, setModels] = useState<string[]>([]);
+  const [models, setModels] = useState<ModelInfo[]>([]);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(-1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const matching = models.filter(name => name.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const matching = models.filter(model => model.id.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
 
   useEffect(() => {
     loaded.current = false; request.current = null;
@@ -35,12 +36,13 @@ export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChang
     const controller = new AbortController();
     request.current = controller; setLoading(true); setError('');
     try {
-      const result = await api<string[]>('/models', { method: 'POST', signal: controller.signal,
+      const result = await api<ModelCatalog | string[]>('/models', { method: 'POST', signal: controller.signal,
         body: JSON.stringify({ base_url: baseUrl, ...(profileId ? { profile_id: profileId } : {}),
           ...(apiKey !== undefined ? { api_key: apiKey } : {}) }),
       });
       if (controller.signal.aborted) return;
-      setModels(result); loaded.current = true; setActive(-1);
+      const catalog = Array.isArray(result) ? { models: result.map(id => ({ id, reasoning: null })) } : result;
+      setModels(catalog.models); onCatalog?.(catalog); loaded.current = true; setActive(-1);
     } catch (error) {
       if (!controller.signal.aborted) {
         setError(error instanceof Error ? error.message : 'Не удалось загрузить модели.');
@@ -69,7 +71,7 @@ export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChang
         placeholder="Выберите модель или введите название"
         onFocus={show} onClick={() => { if (!open) show(); }}
         onChange={event => {
-          onChange(event.target.value); setQuery(event.target.value); setOpen(true); setActive(-1);
+            onChange(event.target.value); setQuery(event.target.value); setOpen(true); setActive(-1);
         }}
         onKeyDown={event => {
           if (event.nativeEvent.isComposing) return;
@@ -84,7 +86,7 @@ export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChang
             }
           } else if (event.key === 'Enter' && open) {
             event.preventDefault();
-            if (active >= 0 && matching[active]) choose(matching[active]); else setOpen(false);
+            if (active >= 0 && matching[active]) choose(matching[active].id); else setOpen(false);
           } else if (event.key === 'Escape' && open) {
             event.preventDefault(); setOpen(false);
           }
@@ -95,9 +97,9 @@ export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChang
       {open ? <div className="model-dropdown">
         {loading ? <p role="status">Загружаем модели…</p> : null}
         <div id={`${id}-list`} ref={list} role="listbox" aria-label="Модели API" aria-busy={loading}>
-          {matching.map((name, index) => <div role="option" id={`${id}-option-${index}`} key={name}
+          {matching.map((model, index) => <div role="option" id={`${id}-option-${index}`} key={model.id}
             aria-selected={active === index} className={active === index ? 'active' : ''}
-            onMouseDown={event => event.preventDefault()} onClick={() => choose(name)}>{name}</div>)}
+            onMouseDown={event => event.preventDefault()} onClick={() => choose(model.id)}>{model.id}</div>)}
         </div>
         {!loading && !error && matching.length === 0 ? <p role="status">{models.length
           ? 'Модели не найдены. Можно сохранить введённое имя.'

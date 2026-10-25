@@ -1,11 +1,13 @@
 """One OpenAI-compatible native-tools transport with no retries or routing."""
 
 import json
+from typing import get_args
+from urllib.parse import urlsplit
 
 import httpx
 
 from cadnext.privacy import PrivacyContext
-from cadnext.settings import Profile
+from cadnext.settings import Profile, ReasoningEffort
 
 
 class ProviderError(RuntimeError):
@@ -51,15 +53,54 @@ class Provider:
         except ValueError:
             raise ProviderError("API модели вернул некорректный JSON.") from None
 
-    async def list_models(self) -> list[str]:
+    def _is_openrouter(self) -> bool:
+        return urlsplit(self.profile.base_url).hostname == "openrouter.ai"
+
+    @staticmethod
+    def _reasoning_metadata(item: dict) -> dict | None:
+        source = item.get("reasoning")
+        if not isinstance(source, dict):
+            return None
+        allowed = get_args(ReasoningEffort)
+        supported = []
+        values = source.get("supported_efforts", [])
+        if not isinstance(values, list):
+            values = []
+        for value in values:
+            if isinstance(value, str) and value in allowed and value not in supported:
+                supported.append(value)
+        mandatory = source.get("mandatory") is True
+        if mandatory:
+            supported = [value for value in supported if value != "none"]
+        return {
+            "mandatory": mandatory,
+            "default_effort": source.get("default_effort") if source.get("default_effort") in supported else None,
+            "supported_efforts": supported or None,
+        }
+
+    async def list_model_catalog(self) -> dict:
         data = await self._request("GET", "models")
         try:
-            models = [item["id"] for item in data["data"]]
-            if not all(isinstance(name, str) and name for name in models):
+            items = data["data"]
+            if not isinstance(items, list):
                 raise ValueError
-            return sorted(set(models))
+            models = []
+            seen = set()
+            for item in items:
+                if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"]:
+                    raise ValueError
+                if item["id"] in seen:
+                    continue
+                seen.add(item["id"])
+                models.append({"id": item["id"], "reasoning":
+                               self._reasoning_metadata(item) if self._is_openrouter() else None})
+            return {"models": models}
         except (KeyError, TypeError, ValueError):
             raise ProviderError("Не удалось прочитать список моделей; имя можно ввести вручную.") from None
+
+    async def list_models(self) -> list[str]:
+        catalog = await self.list_model_catalog()
+        return sorted(model["id"] for model in catalog["models"])
 
     async def complete(self, messages, tools) -> dict:
         payload = {"model": self.profile.model, "messages": self.privacy.outgoing_messages(messages)}

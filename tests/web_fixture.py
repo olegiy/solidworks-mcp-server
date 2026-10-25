@@ -67,7 +67,11 @@ class Backend:
         def respond(request):
             if request.url.path.endswith("/models"):
                 self.model_requests.append(request)
-                return httpx.Response(200, json={"data": [{"id": "fake-model"}]})
+                item = {"id": "fake-model"}
+                if profile.base_url.startswith("https://openrouter.ai"):
+                    item["reasoning"] = {"mandatory": False, "default_effort": "high",
+                                          "supported_efforts": ["max", "high", "low", "none"]}
+                return httpx.Response(200, json={"data": [item]})
             payload = json.loads(request.content)
             self.requests.append(payload)
             messages = payload["messages"]

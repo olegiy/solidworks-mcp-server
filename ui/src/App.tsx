@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { api, remember, stored, terminal } from './api';
-import type { Attachment, Confirmation, Profile, Run, RunEvent } from './api';
+import type { Attachment, Confirmation, ModelCatalog, Profile, ReasoningMetadata, Run, RunEvent } from './api';
 import { imageTypes, readImages, type DraftAttachment } from './attachments';
 import ModelPicker from './ModelPicker';
+import useReasoning from './useReasoning';
 import MessageContent, { CopyButton } from './MessageContent';
 import Icon from './Icon';
 import ActivityIndicator from './ActivityIndicator';
@@ -20,10 +21,33 @@ const toolNames: Record<string, string> = {
   get_feature_tree: 'Чтение дерева', execute_python: 'Python-код', save_document: 'Сохранение',
 };
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Неизвестная ошибка.';
-const reasoningOptions = [
+const fallbackReasoningOptions = [
   ['', 'По умолчанию API'], ['none', 'Без рассуждения'], ['minimal', 'Минимальная'],
   ['low', 'Низкая'], ['medium', 'Средняя'], ['high', 'Высокая'], ['xhigh', 'Очень высокая'], ['max', 'Максимальная'],
-];
+] as const;
+const reasoningLabels: Record<string, string> = Object.fromEntries(fallbackReasoningOptions
+  .filter(([value]) => value).map(([value, label]) => [value, label]));
+function reasoningOptionsFor(metadata: ReasoningMetadata | null | undefined) {
+  const mandatory = metadata?.mandatory === true;
+  const supported = metadata?.supported_efforts?.filter(value =>
+    Object.prototype.hasOwnProperty.call(reasoningLabels, value) && (!mandatory || value !== 'none')) ?? [];
+  if (!supported.length) {
+    if (mandatory) return [['', 'По умолчанию API']] as const;
+    return fallbackReasoningOptions;
+  }
+  const options = mandatory ? [] : [['', 'По умолчанию API'] as const];
+  return [...options, ...supported.map(value => [value,
+    reasoningLabels[value] ?? value] as const)];
+}
+function selectedReasoning(metadata: ReasoningMetadata | null | undefined, value: string | null | undefined) {
+  const options = reasoningOptionsFor(metadata);
+  if (options.some(([option]) => option === value)) return value ?? '';
+  if (metadata?.mandatory) {
+    if (options.some(([option]) => option === metadata.default_effort)) return metadata.default_effort ?? '';
+    return options[0]?.[0] ?? '';
+  }
+  return '';
+}
 const localAddress = (value: string) => {
   try {
     const host = new URL(value).hostname;
@@ -53,14 +77,18 @@ function SettingsDialog({ children, onClose, returnFocusTo, fallbackFocusTo }: {
     onClick={event => { if (event.target === event.currentTarget) onClose(); }}>{children}</dialog>;
 }
 
-function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCallsChange }: {
+function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, onClose, maxCalls, onMaxCallsChange }: {
   profiles: Profile[]; selected: string; onSaved: (id: string) => Promise<void>; onClose: () => void;
+  profileCatalog: ModelCatalog | null; onCatalog: (profileId: string, catalog: ModelCatalog | null) => void;
   maxCalls: number; onMaxCallsChange: (value: number) => void;
 }) {
   const blank = { name: '', base_url: 'http://127.0.0.1:8080/v1', model: '', vision: false, local: true,
     reasoning_effort: null as string | null };
   const [editing, setEditing] = useState(selected);
   const [form, setForm] = useState(() => profiles.find(p => p.id === selected) ?? blank);
+  const lookup = useReasoning(form.model);
+  const [catalog, setCatalog] = useState<ModelCatalog | null>(profileCatalog);
+  const catalogRef = useRef<ModelCatalog | null>(profileCatalog);
   const [key, setKey] = useState('');
   const [clearKey, setClearKey] = useState(false);
   const [notice, setNotice] = useState('');
@@ -71,13 +99,31 @@ function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCall
 
   function edit(id: string) {
     setEditing(id); setForm(profiles.find(p => p.id === id) ?? blank);
+    const nextCatalog = id === selected ? profileCatalog : null;
+    setCatalog(nextCatalog); catalogRef.current = nextCatalog;
     setKey(''); setClearKey(false); setError(''); setNotice('');
   }
+  function modelChanged(model: string) {
+    const modelInfo = catalog?.models.find(item => item.id === model);
+    const metadata = modelInfo?.reasoning;
+    const selectedValue = form.reasoning_effort;
+    const keep = model === form.model || !catalog ||
+      Boolean(metadata?.supported_efforts?.includes(selectedValue ?? ''));
+    setForm({ ...form, model, reasoning_effort: keep ? selectedValue : null });
+  }
+  function catalogChanged(next: ModelCatalog) {
+    setCatalog(next); catalogRef.current = next;
+  }
+  const metadata = catalog?.models.find(item => item.id === form.model)?.reasoning ?? lookup.reasoning;
+  const options = reasoningOptionsFor(metadata);
   async function save(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError(''); setNotice('');
+    event.preventDefault();
+    if (lookup.loading && !metadata) return;
+    setBusy(true); setError(''); setNotice('');
     try {
+      const savedReasoning = selectedReasoning(metadata, form.reasoning_effort);
       const body = { name: form.name, base_url: form.base_url, model: form.model,
-        local: form.local, vision: form.vision, reasoning_effort: form.reasoning_effort,
+        local: form.local, vision: form.vision, reasoning_effort: savedReasoning || null,
         ...(key || clearKey ? { api_key: clearKey ? '' : key } : {}) };
       const result = await api<Profile>(editing ? `/profiles/${editing}` : '/profiles', {
         method: editing ? 'PUT' : 'POST', body: JSON.stringify(body),
@@ -85,6 +131,7 @@ function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCall
       const previous = profiles.find(profile => profile.id === editing);
       const keyRemoved = previous?.has_key && previous.base_url !== result.base_url && !result.has_key;
       setEditing(result.id); setForm(result); setKey(''); setClearKey(false);
+      onCatalog(result.id, catalogRef.current);
       await onSaved(result.id);
       setNotice(keyRemoved
         ? 'Подключение сохранено. Адрес API изменён: прежний ключ удалён. Укажите ключ нового сервера, если он нужен.'
@@ -119,15 +166,17 @@ function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCall
         <label>Название подключения<input required maxLength={200} value={form.name}
           onChange={e => setForm({ ...form, name: e.target.value })} /></label>
         <label>Адрес API<input required type="url" value={form.base_url} placeholder="https://api.example.com/v1"
-          onChange={e => setForm({ ...form, base_url: e.target.value, local: localAddress(e.target.value) })} /></label>
+          onChange={e => { setCatalog(null); catalogRef.current = null;
+            setForm({ ...form, base_url: e.target.value, local: localAddress(e.target.value) }); }} /></label>
         <ModelPicker baseUrl={form.base_url} profileId={editing} value={form.model} disabled={busy}
-          apiKey={clearKey ? '' : key || undefined} onChange={model => setForm({ ...form, model })} />
-        <label>Сила рассуждения<select value={form.reasoning_effort ?? ''} disabled={busy}
+          apiKey={clearKey ? '' : key || undefined} onChange={modelChanged} onCatalog={catalogChanged} />
+        <label>Сила рассуждения<select value={selectedReasoning(metadata, form.reasoning_effort)} disabled={busy || (lookup.loading && !metadata)}
           aria-describedby="reasoning-hint"
           onChange={e => setForm({ ...form, reasoning_effort: e.target.value || null })}>
-          {reasoningOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+          {options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
-        <p id="reasoning-hint" className="hint">Доступные уровни зависят от модели и API. Выбор сохраняется кнопкой «Сохранить подключение».</p>
+        <p id="reasoning-hint" className="hint">{lookup.hint} Выбор сохраняется кнопкой «Сохранить подключение».</p>
+        <button type="button" disabled={busy || !form.model.trim()} onClick={lookup.refresh}>Обновить уровни</button>
         <label>Ключ API<input type="password" autoComplete="new-password" value={key}
           placeholder={profiles.find(p => p.id === editing)?.has_key ? 'Ключ сохранён. Оставьте пустым, чтобы сохранить его.' : 'Для локального API необязателен'}
           onChange={e => { setKey(e.target.value); setClearKey(false); }} /></label>
@@ -143,7 +192,7 @@ function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCall
           {' '}Отмечайте сервер локальным, только если доверяете ему.</p>
         {notice ? <p role="status" className="notice">{notice}</p> : null}
         {error ? <p role="alert" className="error">{error}</p> : null}
-        <div className="actions"><button className="primary" disabled={busy} type="submit">Сохранить подключение</button>
+        <div className="actions"><button className="primary" disabled={busy || (lookup.loading && !metadata)} type="submit">Сохранить подключение</button>
           <button disabled={busy || !editing} type="button" onClick={probe}>Проверить подключение</button>
           <button className="danger" disabled={busy || !editing} type="button" onClick={remove}>Удалить подключение</button>
         </div>
@@ -262,6 +311,7 @@ export default function App() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [pendingActivity, setPendingActivity] = useState<PendingActivity | null>(null);
   const [runContact, setRunContact] = useState<RunContact | null>(null);
+  const [catalogs, setCatalogs] = useState<Record<string, ModelCatalog>>({});
   const [error, setError] = useState('');
   const [maxCalls, setMaxCalls] = useState(80);
   const end = useRef<HTMLDivElement>(null);
@@ -276,8 +326,14 @@ export default function App() {
   const active = runs.find(run => !terminal(run.status));
   const uncertain = runs.some(run => run.status === 'uncertain');
   const currentProfile = profiles.find(profile => profile.id === selected);
+  const lookup = useReasoning(currentProfile?.model ?? '');
+  const currentReasoning = catalogs[selected]?.models.find(model => model.id === currentProfile?.model)?.reasoning
+    ?? lookup.reasoning;
+  const currentReasoningOptions = reasoningOptionsFor(currentReasoning);
+  const currentReasoningValue = selectedReasoning(currentReasoning, currentProfile?.reasoning_effort);
   const imagesAllowed = currentProfile?.vision === true;
   const canSend = !loading && !sending && !active && !!currentProfile && !uncertain && !readingImages && !savingProfile
+    && !(lookup.loading && !currentReasoning)
     && (!!message.trim() || attachments.length > 0) && (!attachments.length || imagesAllowed);
 
   function merge(snapshot: Run) {
@@ -365,6 +421,13 @@ export default function App() {
     const profiles = await api<Profile[]>('/profiles'); setProfiles(profiles);
     const selected = id || profiles[0]?.id || ''; setSelected(selected); remember('profile', selected);
   }
+  function rememberCatalog(profileId: string, catalog: ModelCatalog | null) {
+    if (!profileId) return;
+    setCatalogs(previous => {
+      if (catalog) return { ...previous, [profileId]: catalog };
+      const next = { ...previous }; delete next[profileId]; return next;
+    });
+  }
   async function changeReasoning(value: string) {
     if (!selected || profileLock.current) return;
     profileLock.current = true; setSavingProfile(true); setError('');
@@ -397,6 +460,11 @@ export default function App() {
       bytes: attachments.reduce((sum, image) => sum + image.size, 0) });
     pendingRequest.current = crypto.randomUUID();
     try {
+      if (currentProfile && (currentReasoningValue || null) !== currentProfile.reasoning_effort) {
+        const updated = await api<Profile>(`/profiles/${selected}`, { method: 'PUT',
+          body: JSON.stringify({ reasoning_effort: currentReasoningValue || null }) });
+        setProfiles(previous => previous.map(profile => profile.id === updated.id ? updated : profile));
+      }
       const run = await api<Run>('/runs', { method: 'POST', body: JSON.stringify({
         session_id: sessionId, profile_id: selected, message, max_calls: maxCalls,
         attachments: attachments.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
@@ -498,23 +566,25 @@ export default function App() {
               <option value="">Выберите модель</option>{profiles.map(profile => <option key={profile.id}
                 value={profile.id}>{profile.model} · {profile.name}</option>)}</select></label>
             <label className="reasoning-switcher"><span className="sr-only">Сила рассуждения</span>
-              <select value={currentProfile?.reasoning_effort ?? ''} title="Сила рассуждения"
-                disabled={loading || sending || savingProfile || !currentProfile || !!active}
+              <select value={currentReasoningValue} title="Сила рассуждения"
+                disabled={loading || sending || savingProfile || !currentProfile || !!active || (lookup.loading && !currentReasoning)}
                 onChange={event => void changeReasoning(event.target.value)}>
-                {reasoningOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                {currentReasoningOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select></label>
           </div>
           <div className="actions">{active ? <button type="button" className="stop-button" onClick={stop}
             aria-label="Остановить" title="Остановить" disabled={active.status === 'stopping'}><Icon name="stop" size={18} /></button>
             : <button className="send-button" type="submit" aria-label="Отправить" title={sending ? 'Отправляем…' : 'Отправить'} disabled={!canSend}>
               <Icon name="send" size={22} /></button>}</div></div>
-        <p className="composer-hint">{readingImages ? 'Читаем изображения…' : savingProfile ? 'Сохраняем выбор…'
+        <p className="composer-hint" title={lookup.hint}><span>{readingImages ? 'Читаем изображения…' : savingProfile ? 'Сохраняем выбор…'
           : attachments.length && !imagesAllowed ? 'Выбранное подключение не поддерживает изображения.'
-          : active ? 'Работаем с вашей деталью…' : 'Enter — отправить · Shift+Enter — новая строка'}</p>
+          : active ? 'Работаем с вашей деталью…' : 'Enter — отправить · Shift+Enter — новая строка'}</span>
+          {currentProfile ? ` · ${lookup.hint}` : ''}</p>
       </form>
     </main>
     {settings ? <SettingsDialog onClose={() => setSettings(false)} returnFocusTo={settingsOpener} fallbackFocusTo={settingsButton}>
-      <Connections profiles={profiles} selected={selected} onSaved={reloadProfiles}
+      <Connections profiles={profiles} selected={selected} profileCatalog={catalogs[selected] ?? null}
+      onCatalog={rememberCatalog} onSaved={reloadProfiles}
       maxCalls={maxCalls} onMaxCallsChange={setMaxCalls} onClose={() => setSettings(false)} /></SettingsDialog> : null}
   </div>;
 }
