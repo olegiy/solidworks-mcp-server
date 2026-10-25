@@ -94,9 +94,9 @@ test('настройки возвращают фокус после Escape и к
   await expect(opener).toBeFocused();
 });
 
-test('выбор модели в шапке сохраняется, копирование находится в строке автора', async ({ page }) => {
+test('выбор модели внизу сохраняется, копирование находится в строке автора', async ({ page }) => {
   await prepare(page);
-  const selector = page.getByRole('banner').getByLabel('Активное подключение');
+  const selector = page.getByRole('form', { name: 'Отправка сообщения' }).getByLabel('Активное подключение');
   await expect(selector).toBeVisible();
   const other = await page.request.post('/api/profiles', { data: {
     name: 'Другая модель', base_url: 'http://localhost/v1', model: 'another-model', local: true, vision: true,

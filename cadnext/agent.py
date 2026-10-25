@@ -14,6 +14,7 @@ from uuid import uuid4
 from jsonschema import Draft202012Validator
 from referencing import Registry
 
+from cadnext.attachments import AttachmentError, normalize_attachments
 from cadnext.provider import ProviderError
 
 _LOG = logging.getLogger(__name__)
@@ -124,7 +125,7 @@ class Agent:
         self.max_history_bytes = max_history_bytes
         self.max_catalog_bytes = max_catalog_bytes
 
-    def start(self, *, session_id: str, provider, message: str, max_calls=80) -> Run:
+    def start(self, *, session_id: str, provider, message: str, attachments=None, max_calls=80) -> Run:
         if self._closed:
             raise RuntimeError("Агент завершает работу.")
         if self._uncertain or getattr(self.mcp, "uncertain", False):
@@ -132,19 +133,29 @@ class Agent:
         if self._active is not None and not self._active.done:
             raise AgentBusy("Уже выполняется CAD-запрос.")
         if (not isinstance(session_id, str) or not session_id.strip()
-                or not isinstance(message, str) or not message.strip()
+                or not isinstance(message, str) or (not message.strip() and not attachments)
                 or type(max_calls) is not int or not 1 <= max_calls <= 1000):
             raise ValueError("Укажите диалог, текст запроса и лимит от 1 до 1000 вызовов.")
+        attachments = normalize_attachments([] if attachments is None else attachments)
+        if attachments and not provider.profile.vision:
+            raise AttachmentError("Для отправки изображений включите Vision в настройках подключения.")
         provider.privacy.bind_session(session_id)
         profile = provider.profile
         provider.privacy.bind_profile(profile.id, base_url=profile.base_url, model=profile.model)
         provider.privacy.grant(session_id=session_id, profile_id=profile.id, images=profile.vision)
         messages = deepcopy(self._history.get(session_id, [{"role": "system", "content": _SYSTEM}]))
-        messages.append({"role": "user", "content": message})
+        content = message
+        if attachments:
+            content = ([{"type": "text", "text": message}] if message.strip() else []) + [
+                {"type": "image_url", "image_url": {
+                    "url": f'data:{image["mimeType"]};base64,{image["data"]}'}} for image in attachments]
+        messages.append({"role": "user", "content": content})
+        if len(_json(messages).encode("utf-8")) > self.max_history_bytes:
+            raise AttachmentError("История превысила лимит контекста. Начните новый диалог.")
         run = Run(session_id=session_id, profile_id=profile.id, messages=messages, max_calls=max_calls)
         self.runs[run.id] = run
         self._active = run
-        run._emit("message", role="user", content=message)
+        run._emit("message", role="user", content=message, **({"attachments": attachments} if attachments else {}))
         run._task = asyncio.create_task(self._run(run, provider))
         return run
 
@@ -500,6 +511,8 @@ class Agent:
                 used_ids = {call["id"] for previous in run.messages
                             for call in previous.get("tool_calls", [])}
                 message, calls = self._prepare(response, provider, catalog, used_ids)
+                if len(_json([*run.messages, message]).encode("utf-8")) > self.max_history_bytes:
+                    raise _EndRun("failed", "История превысила лимит контекста. Начните новый диалог.")
                 run.messages.append(message)
                 if message["content"]:
                     run._emit("message", role="assistant", content=message["content"])

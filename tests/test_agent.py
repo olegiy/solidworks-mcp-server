@@ -494,6 +494,12 @@ async def test_context_and_catalog_limits_stop_before_model_or_cad(size):
     model = ScriptedProvider([reply(content="Не должен вызываться")])
     agent = Agent(mcp, **({"max_history_bytes": 10} if size == "history"
                          else {"max_catalog_bytes": 10}))
+    if size == "history":
+        with pytest.raises(ValueError, match="История"):
+            agent.start(session_id="s", provider=model, message="Прочитай")
+        assert agent.runs == {}
+        assert mcp.calls == [] and model.requests == []
+        return
     run = agent.start(session_id="s", provider=model, message="Прочитай")
     await settle(agent, run)
     assert run.status == "failed"

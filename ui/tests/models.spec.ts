@@ -106,7 +106,7 @@ test('сила рассуждения сохраняется для следую
   await page.getByLabel('Название подключения').fill('Сохранённые рассуждения');
   await page.getByLabel('Имя модели', { exact: true }).fill('fake-model');
   await page.getByLabel('Имя модели', { exact: true }).press('Escape');
-  const reasoning = page.getByRole('combobox', { name: 'Сила рассуждения', exact: true });
+  const reasoning = page.getByRole('dialog', { name: 'Настройки', exact: true }).getByRole('combobox', { name: 'Сила рассуждения', exact: true });
   await expect(reasoning).toHaveValue('');
   await reasoning.selectOption('max');
   await page.getByRole('button', { name: 'Сохранить подключение' }).click();

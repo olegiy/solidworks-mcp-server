@@ -6,6 +6,9 @@ export interface Profile {
 export interface Confirmation {
   id: string; kind: 'python'; code?: string; message: string;
 }
+export interface Attachment {
+  name: string; mimeType: string; data: string;
+}
 export interface RunEvent {
   seq: number; type: string; data: Record<string, unknown>;
 }

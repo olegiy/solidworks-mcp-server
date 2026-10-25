@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { api, remember, stored, terminal } from './api';
-import type { Confirmation, Profile, Run, RunEvent } from './api';
+import type { Attachment, Confirmation, Profile, Run, RunEvent } from './api';
+import { imageTypes, readImages, type DraftAttachment } from './attachments';
 import ModelPicker from './ModelPicker';
 import MessageContent, { CopyButton } from './MessageContent';
 import Icon from './Icon';
@@ -17,6 +18,10 @@ const toolNames: Record<string, string> = {
   get_feature_tree: 'Чтение дерева', execute_python: 'Python-код', save_document: 'Сохранение',
 };
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Неизвестная ошибка.';
+const reasoningOptions = [
+  ['', 'По умолчанию API'], ['none', 'Без рассуждения'], ['minimal', 'Минимальная'],
+  ['low', 'Низкая'], ['medium', 'Средняя'], ['high', 'Высокая'], ['xhigh', 'Очень высокая'], ['max', 'Максимальная'],
+];
 const localAddress = (value: string) => {
   try {
     const host = new URL(value).hostname;
@@ -118,14 +123,7 @@ function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCall
         <label>Сила рассуждения<select value={form.reasoning_effort ?? ''} disabled={busy}
           aria-describedby="reasoning-hint"
           onChange={e => setForm({ ...form, reasoning_effort: e.target.value || null })}>
-          <option value="">По умолчанию API</option>
-          <option value="none">Без рассуждения</option>
-          <option value="minimal">Минимальная</option>
-          <option value="low">Низкая</option>
-          <option value="medium">Средняя</option>
-          <option value="high">Высокая</option>
-          <option value="xhigh">Очень высокая</option>
-          <option value="max">Максимальная</option>
+          {reasoningOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
         <p id="reasoning-hint" className="hint">Доступные уровни зависят от модели и API. Выбор сохраняется кнопкой «Сохранить подключение».</p>
         <label>Ключ API<input type="password" autoComplete="new-password" value={key}
@@ -138,7 +136,8 @@ function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCall
         <label className="check"><input type="checkbox" checked={form.local}
           onChange={e => setForm({ ...form, local: e.target.checked })} />Локальное подключение</label>
         <p className="hint">Снимки SolidWorks передаются модели при включённой поддержке изображений.
-          {' '}Загрузка ваших изображений с компьютера пока недоступна. Данные отправляются выбранному API.
+          {' '}Ваши изображения можно прикрепить скрепкой рядом с отправкой: PNG, JPEG или WebP.
+          {' '}Данные отправляются выбранному API. Текст внутри изображений не маскируется.
           {' '}Отмечайте сервер локальным, только если доверяете ему.</p>
         {notice ? <p role="status" className="notice">{notice}</p> : null}
         {error ? <p role="alert" className="error">{error}</p> : null}
@@ -218,7 +217,14 @@ function RunView({ run }: { run: Run }) {
         className={`message ${event.data.role === 'user' ? 'user' : 'assistant'}`}>
         <div className="message-heading"><span className="message-author">{event.data.role === 'user' ? 'Вы' : 'CAD-агент'}</span>
           {event.data.role === 'user' ? null : <CopyButton text={String(event.data.content)} label="Копировать ответ" />}</div>
-        {event.data.role === 'user' ? <p className="user-text">{String(event.data.content)}</p>
+        {event.data.role === 'user' ? <>
+          {event.data.content ? <p className="user-text">{String(event.data.content)}</p> : null}
+          {Array.isArray(event.data.attachments) ? <div className="user-attachments">
+            {(event.data.attachments as Attachment[]).map((image, index) => <a key={index}
+              href={`data:${image.mimeType};base64,${image.data}`} download={image.name}>
+              <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} />
+              <span>{image.name}</span></a>)}
+          </div> : null}</>
           : <MessageContent text={String(event.data.content)} />}
       </div>;
       if (event.type === 'image') return <figure key={event.seq}><a target="_blank" rel="noreferrer"
@@ -249,6 +255,9 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
+  const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+  const [readingImages, setReadingImages] = useState(false);
+  const [savingProfile, setSavingProfile] = useState(false);
   const [error, setError] = useState('');
   const [maxCalls, setMaxCalls] = useState(80);
   const end = useRef<HTMLDivElement>(null);
@@ -256,9 +265,16 @@ export default function App() {
   const settingsOpener = useRef<HTMLElement | null>(null);
   const settingsButton = useRef<HTMLButtonElement>(null);
   const pendingRequest = useRef('');
+  const fileInput = useRef<HTMLInputElement>(null);
+  const draftRevision = useRef(0);
+  const readingLock = useRef(false);
+  const profileLock = useRef(false);
   const active = runs.find(run => !terminal(run.status));
   const uncertain = runs.some(run => run.status === 'uncertain');
-  const canSend = !loading && !sending && !active && !!selected && !!message.trim() && !uncertain;
+  const currentProfile = profiles.find(profile => profile.id === selected);
+  const imagesAllowed = currentProfile?.vision === true;
+  const canSend = !loading && !sending && !active && !!currentProfile && !uncertain && !readingImages && !savingProfile
+    && (!!message.trim() || attachments.length > 0) && (!attachments.length || imagesAllowed);
 
   function merge(snapshot: Run) {
     setRuns(previous => {
@@ -328,6 +344,26 @@ export default function App() {
     const profiles = await api<Profile[]>('/profiles'); setProfiles(profiles);
     const selected = id || profiles[0]?.id || ''; setSelected(selected); remember('profile', selected);
   }
+  async function changeReasoning(value: string) {
+    if (!selected || profileLock.current) return;
+    profileLock.current = true; setSavingProfile(true); setError('');
+    try {
+      const updated = await api<Profile>(`/profiles/${selected}`, { method: 'PUT',
+        body: JSON.stringify({ reasoning_effort: value || null }) });
+      setProfiles(previous => previous.map(profile => profile.id === updated.id ? updated : profile));
+    } catch (error) { setError(errorText(error)); }
+    finally { profileLock.current = false; setSavingProfile(false); }
+  }
+  async function attach(files: File[]) {
+    if (!files.length || !imagesAllowed || readingLock.current || sending || active) return;
+    readingLock.current = true; setReadingImages(true); setError('');
+    const revision = draftRevision.current;
+    try {
+      const images = await readImages(files, attachments);
+      if (revision === draftRevision.current) setAttachments(previous => [...previous, ...images]);
+    } catch (error) { if (revision === draftRevision.current) setError(errorText(error)); }
+    finally { readingLock.current = false; setReadingImages(false); }
+  }
   async function send(event: FormEvent) {
     event.preventDefault(); if (!canSend) return;
     setSending(true); setError('');
@@ -335,9 +371,10 @@ export default function App() {
     try {
       const run = await api<Run>('/runs', { method: 'POST', body: JSON.stringify({
         session_id: sessionId, profile_id: selected, message, max_calls: maxCalls,
+        attachments: attachments.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
         request_id: pendingRequest.current,
       }) });
-      merge(run); setStreamId(run.id); setMessage(''); remember('session', sessionId);
+      merge(run); setStreamId(run.id); setMessage(''); setAttachments([]); remember('session', sessionId);
     } catch (error) { setError(errorText(error)); } finally { setSending(false); }
   }
   async function stop() {
@@ -354,9 +391,11 @@ export default function App() {
   function newDialogue() {
     const id = crypto.randomUUID(); setSessionId(id); remember('session', id);
     setStreamId(''); setRuns([]); setError('');
+    draftRevision.current++; setAttachments([]); setMessage('');
     input.current?.focus();
   }
   function openSettings() {
+    if (profileLock.current) return;
     settingsOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSettings(true);
   }
@@ -364,16 +403,12 @@ export default function App() {
   return <div className="shell">
     <header className="app-header"><div className="header-context">
       <div className="brand"><div className="brand-icon"><Icon name="cube" size={24} /></div>
-        <h1>CAD-Agent-Next</h1></div>
-      <label className="model-switcher"><span className="sr-only">Активное подключение</span><select value={selected}
-        onChange={e => { setSelected(e.target.value); remember('profile', e.target.value); }} disabled={loading}>
-        <option value="">Выберите модель</option>{profiles.map(profile => <option key={profile.id}
-          value={profile.id}>{profile.model} · {profile.name}</option>)}</select></label></div>
+        <h1>CAD-Agent-Next</h1></div></div>
       <div className="header-actions">
         <button className="header-button" aria-label="Новый диалог" disabled={!!active || sending} onClick={newDialogue}>
           <Icon name="plus" size={18} /><span className="button-label">Новый диалог</span></button>
         <button ref={settingsButton} className="header-button" aria-label="Настройки" aria-expanded={settings} aria-controls="app-settings"
-          onClick={openSettings}><Icon name="settings" size={18} />
+          disabled={savingProfile} onClick={openSettings}><Icon name="settings" size={18} />
           <span className="button-label">Настройки</span></button></div></header>
     <main>
       {error ? <p role="alert" className="error panel">{error}</p> : null}
@@ -396,7 +431,15 @@ export default function App() {
           confirmation={active.confirmation} onAnswer={confirm} /> : null}
         <div ref={end} />
       </section>
-      <form className="composer" onSubmit={send}>
+      <form className="composer" aria-label="Отправка сообщения" onSubmit={send}>
+        {attachments.length ? <div className="attachment-previews" role="region" aria-label="Вложения к сообщению">
+          {attachments.map((image, index) => <div className="attachment-preview" key={index}>
+            <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} />
+            <span title={image.name}>{image.name}</span>
+            <button type="button" aria-label={`Удалить ${image.name}`} disabled={sending || readingImages}
+              onClick={() => setAttachments(previous => previous.filter((_, i) => i !== index))}>
+              <Icon name="close" size={14} /></button></div>)}
+        </div> : null}
         <div className="composer-label"><label className="sr-only" htmlFor="chat-message">Сообщение</label>
           <textarea id="chat-message" ref={input} rows={1} value={message} maxLength={20000}
           onChange={e => setMessage(e.target.value)} placeholder="Спросите о детали или опишите задачу…"
@@ -408,11 +451,36 @@ export default function App() {
           }}
           disabled={loading} /></div>
         <div className="composer-footer">
-          <span className="composer-hint">{active ? 'Работаем с вашей деталью…' : 'Enter — отправить · Shift+Enter — новая строка'}</span>
+          <div className="composer-controls">
+            <input ref={fileInput} type="file" hidden multiple accept={imageTypes.join(',')} aria-label="Файлы изображений"
+              disabled={!imagesAllowed || loading || sending || !!active || readingImages}
+              onChange={event => {
+                const files = Array.from(event.currentTarget.files ?? []);
+                event.currentTarget.value = ''; void attach(files);
+              }} />
+            <button type="button" className="attach-button" aria-label="Прикрепить изображение"
+              title={imagesAllowed ? 'PNG, JPEG, WebP · до 3 файлов по 2 МБ, всего до 4 МБ' : 'Выбранное подключение не поддерживает изображения'}
+              disabled={!imagesAllowed || loading || sending || !!active || readingImages} onClick={() => fileInput.current?.click()}>
+              <Icon name="paperclip" size={20} /></button>
+            <label className="model-switcher"><span className="sr-only">Активное подключение</span><select value={selected}
+              title="Модель" onChange={e => { setSelected(e.target.value); remember('profile', e.target.value); }}
+              disabled={loading || sending || savingProfile || !!active}>
+              <option value="">Выберите модель</option>{profiles.map(profile => <option key={profile.id}
+                value={profile.id}>{profile.model} · {profile.name}</option>)}</select></label>
+            <label className="reasoning-switcher"><span className="sr-only">Сила рассуждения</span>
+              <select value={currentProfile?.reasoning_effort ?? ''} title="Сила рассуждения"
+                disabled={loading || sending || savingProfile || !currentProfile || !!active}
+                onChange={event => void changeReasoning(event.target.value)}>
+                {reasoningOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select></label>
+          </div>
           <div className="actions">{active ? <button type="button" className="stop-button" onClick={stop}
             aria-label="Остановить" title="Остановить" disabled={active.status === 'stopping'}><Icon name="stop" size={18} /></button>
             : <button className="send-button" type="submit" aria-label="Отправить" title={sending ? 'Отправляем…' : 'Отправить'} disabled={!canSend}>
               <Icon name="send" size={22} /></button>}</div></div>
+        <p className="composer-hint">{readingImages ? 'Читаем изображения…' : savingProfile ? 'Сохраняем выбор…'
+          : attachments.length && !imagesAllowed ? 'Выбранное подключение не поддерживает изображения.'
+          : active ? 'Работаем с вашей деталью…' : 'Enter — отправить · Shift+Enter — новая строка'}</p>
       </form>
     </main>
     {settings ? <SettingsDialog onClose={() => setSettings(false)} returnFocusTo={settingsOpener} fallbackFocusTo={settingsButton}>

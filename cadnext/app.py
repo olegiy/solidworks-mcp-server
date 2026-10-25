@@ -15,6 +15,7 @@ from sse_starlette.sse import EventSourceResponse
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from cadnext.agent import Agent, AgentBusy
+from cadnext.attachments import AttachmentError
 from cadnext.mcp import ROOT, SolidWorksMcp
 from cadnext.privacy import PrivacyContext
 from cadnext.provider import Provider, ProviderError
@@ -38,11 +39,19 @@ class ProfileBody(BaseModel):
         return values
 
 
+class AttachmentBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    name: str
+    mimeType: str
+    data: str
+
+
 class RunBody(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     session_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
     profile_id: str = Field(min_length=1, max_length=100)
-    message: str = Field(min_length=1, max_length=20000)
+    message: str = Field(max_length=20000)
+    attachments: list[AttachmentBody] = Field(default_factory=list)
     max_calls: int = Field(default=80, ge=1, le=1000)
     sensitive: list[str] = Field(default_factory=list, max_length=100)
     request_id: str | None = Field(default=None, min_length=1, max_length=100,
@@ -113,6 +122,10 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     @app.exception_handler(ValueError)
     async def invalid_value(request, error):
         return JSONResponse({"detail": "Некорректные настройки или параметры запроса."}, status_code=422)
+
+    @app.exception_handler(AttachmentError)
+    async def invalid_attachment(request, error):
+        return JSONResponse({"detail": str(error)}, status_code=422)
 
     @app.exception_handler(KeyError)
     async def missing(request, error):
@@ -215,6 +228,8 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
                                 or body.request_id in app.state.request_runs):
             raise HTTPException(status_code=409, detail="Запрос уже отправлен или остановлен.")
         profile = store().get(body.profile_id)
+        if body.attachments and not profile.vision:
+            raise AttachmentError("Для отправки изображений включите Vision в настройках подключения.")
         key = (body.session_id, *asdict(profile).values(), tuple(body.sensitive))
         privacy = app.state.contexts.get(key)
         if privacy is None:
@@ -224,7 +239,8 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         provider = provider_for(profile, privacy=privacy)
         try:
             run = agent().start(session_id=body.session_id, provider=provider,
-                                message=body.message, max_calls=body.max_calls)
+                                message=body.message, attachments=[item.model_dump() for item in body.attachments],
+                                max_calls=body.max_calls)
         except (AgentBusy, RuntimeError) as error:
             await provider.aclose()
             raise HTTPException(status_code=409, detail=str(error)) from None

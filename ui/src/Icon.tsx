@@ -1,6 +1,8 @@
 const paths = {
   cube: <><path d="m12 3 9 5v8l-9 5-9-5V8l9-5Z" /><path d="m3 8 9 5 9-5M12 13v8M7.5 5.5l9 5" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
+  paperclip: <path d="m8 12 7-7a3 3 0 0 1 4 4L9 19a5 5 0 0 1-7-7L12 2m-4 10-2 2a2 2 0 0 0 3 3L19 7" />,
+  close: <path d="m6 6 12 12M6 18 18 6" />,
   settings: <><path d="m9 4 .7-2h4.6l.7 2 2 .9 2.1-.4 2.3 4-1.4 1.6v2.3l1.4 1.6-2.3 4-2.1-.4-2 .9-.7 2H9.7l-.7-2-2-.9-2.1.4-2.3-4L4 12.4v-2.3L2.6 8.5l2.3-4L7 4.9 9 4Z" /><circle cx="12" cy="11.3" r="3" /></>,
   send: <path d="M12 19V5m-6 6 6-6 6 6" />,
   stop: <rect x="6" y="6" width="12" height="12" rx="2" />,

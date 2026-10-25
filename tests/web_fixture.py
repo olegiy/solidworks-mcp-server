@@ -1,13 +1,16 @@
 """Real API/agent/provider with deterministic HTTP and CAD boundaries for browser tests."""
 
 import asyncio
+import base64
 import json
 import sys
 import tempfile
 from contextlib import asynccontextmanager
+from io import BytesIO
 from pathlib import Path
 
 import httpx
+from PIL import Image
 
 from cadnext.provider import Provider
 from cadnext.settings import SettingsStore
@@ -72,6 +75,14 @@ class Backend:
             content = latest.get("content", "")
             if payload.get("tools", [{}])[0].get("function", {}).get("name") == "cadnext_connection_test":
                 name, arguments = "cadnext_connection_test", {}
+            elif isinstance(content, list) and not any(message["role"] == "tool" for message in messages):
+                images = [part for part in content if part.get("type") == "image_url"]
+                with Image.open(BytesIO(base64.b64decode(images[0]["image_url"]["url"].split(",", 1)[1]))) as image:
+                    image.load()
+                    width, height = image.size
+                answer = f"Получено изображений: {len(images)}. Размер: {width} × {height}."
+                return httpx.Response(200, json={"choices": [{"message": {
+                    "role": "assistant", "content": answer}, "finish_reason": "stop"}]})
             elif latest["role"] == "tool" or isinstance(content, list):
                 return httpx.Response(200, json={"choices": [{"message": {
                     "role": "assistant", "content": "Размер 62 мм. Готово."}, "finish_reason": "stop"}]})
