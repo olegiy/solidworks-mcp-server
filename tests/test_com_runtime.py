@@ -153,6 +153,71 @@ def test_failed_save_is_not_retried(monkeypatch, tmp_path):
     assert len(calls) == 1
 
 
+@pytest.mark.parametrize("sheet_metal_bodies,normal_cut", [
+    ([False], False), ([True], True), ([True, False], False),
+])
+@pytest.mark.parametrize("reverse", [False, True])
+def test_cut_through_uses_sheet_metal_flags_only_for_sheet_metal_bodies(
+        monkeypatch, sheet_metal_bodies, normal_cut, reverse):
+    calls = []
+    selections = []
+
+    def cut(*args):
+        calls.append(args)
+        if args[17] != normal_cut or args[26] != normal_cut:
+            return None
+        return SimpleNamespace(Name="Cut1")
+
+    model = SimpleNamespace(
+        GetBodies2=lambda kind, visible: [SimpleNamespace(IsSheetMetal=flag)
+                                         for flag in sheet_metal_bodies],
+        ClearSelection2=lambda clear: None,
+        FeatureManager=SimpleNamespace(FeatureCut4=cut))
+    monkeypatch.setattr(server, "_model", lambda *args: model)
+    monkeypatch.setattr(server, "_feature_names", lambda *args: [("Sketch4", "ProfileFeature")])
+    monkeypatch.setattr(server, "_select", lambda *args: selections.append(args[1:]))
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+
+    response = json.loads(server.cut_through(reverse=reverse))
+    assert response["status"] == "ok", response
+    assert response["feature"] == "Cut1"
+    assert selections == [("Sketch4", "SKETCH")]
+    assert len(calls) == 1
+    assert len(calls[0]) == 27
+    assert calls[0][:5] == (True, False, reverse, 1, 0)
+
+
+@pytest.mark.parametrize("raises", [False, True])
+def test_failed_cut_through_is_not_retried(monkeypatch, raises):
+    calls = []
+
+    def cut(*args):
+        calls.append(args)
+        if raises:
+            raise RuntimeError("COM failure")
+        return None
+
+    model = SimpleNamespace(
+        GetBodies2=lambda kind, visible: [SimpleNamespace(IsSheetMetal=False)],
+        ClearSelection2=lambda clear: None,
+        FeatureManager=SimpleNamespace(FeatureCut4=cut))
+    monkeypatch.setattr(server, "_model", lambda *args: model)
+    monkeypatch.setattr(server, "_select", lambda *args: True)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+
+    response = json.loads(server.cut_through("Sketch4", reverse=True))
+    assert response["status"] == "error"
+    assert response["error_code"] == "CAD_ERROR"
+    assert len(calls) == 1
+    if raises:
+        assert response["error"] == "COM failure"
+    else:
+        assert "Sketch4" in response["error"]
+        assert "reverse=True" in response["error"]
+        assert "FeatureCut4" in response["error"]
+        assert "None" in response["error"]
+
+
 def test_attach_never_launches_or_switches_process(monkeypatch):
     import win32com.client
 

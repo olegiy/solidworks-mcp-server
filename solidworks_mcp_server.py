@@ -857,7 +857,8 @@ def create_base_flange(thickness_mm: float, bend_radius_mm: float = 1.0,
 def cut_through(sketch_name: str = "", reverse: bool = False) -> str:
     """Сквозной вырез по эскизу (отверстия, пазы) в листовой/обычной детали.
     sketch_name — имя эскиза с контуром выреза; пусто = последний эскиз.
-    Пробует FeatureCut3/FeatureCut4 (сигнатуры различаются между версиями SW)."""
+    reverse=True меняет направление выреза. Один вызов FeatureCut4, без повторов.
+    Нормальный вырез включается только для полностью листовой детали."""
     def job():
         model = _model(1)
         name = sketch_name
@@ -866,16 +867,23 @@ def cut_through(sketch_name: str = "", reverse: bool = False) -> str:
             if not sketches:
                 raise RuntimeError("Нет эскизов для выреза.")
             name = sketches[-1][0]
+        bodies = _get(model, "GetBodies2", 0, False) or ()  # swSolidBody, включая скрытые
+        # NormalCut и OptimizeGeometry допустимы только для листового металла.
+        normal_cut = bool(bodies) and all(_get(body, "IsSheetMetal") for body in bodies)
         model.ClearSelection2(True)
         _select(model, name, "SKETCH")
         fm = model.FeatureManager
         feat = fm.FeatureCut4(True, False, reverse, 1, 0, 0.01, 0.01,
                               False, False, False, False, 0.0, 0.0,
-                              False, False, False, False, True,
+                              False, False, False, False, normal_cut,
                               True, True, True, True, False,
-                              0, 0.0, False, True)
+                              0, 0.0, False, normal_cut)
         if feat is None:
-            raise RuntimeError("Вырез не подтверждён. Проверьте контур и направление; повтора не будет.")
+            raise RuntimeError(
+                f"FeatureCut4 вернул None: вырез по эскизу '{name}' не подтверждён "
+                f"(reverse={reverse}, NormalCut={normal_cut}). "
+                "Проверьте замкнутость контура и пересечение материала в выбранном направлении. "
+                "Точная причина отказа API неизвестна; автоматического повтора не будет.")
         return _ok(feature=_get(feat, "Name"))
     return _run(job)
 
