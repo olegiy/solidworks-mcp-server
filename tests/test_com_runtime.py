@@ -12,6 +12,45 @@ import pytest
 import solidworks_mcp_server as server
 
 
+def test_python_error_reports_line_without_repeating_partial_changes(monkeypatch):
+    rebuilds = []
+
+    class Model:
+        changed = False
+
+        @property
+        def EditRebuild3(self):
+            rebuilds.append(True)
+            return True
+
+    model = Model()
+    monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(ActiveDoc=model))
+    monkeypatch.setattr(server, "_nothing", lambda: None)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    response = json.loads(server.execute_python(
+        'model.changed = True\nmodel.EditRebuild3()\nmodel.changed = False'))
+    assert response["status"] == "error"
+    assert response["error"] == "'bool' object is not callable"
+    assert response["python_line"] == 2
+    assert response["error_type"] == "TypeError"
+    assert response["error_code"] == "CAD_ERROR"
+    assert model.changed is True
+    assert rebuilds == [True]
+
+
+def test_python_syntax_error_reports_line_before_any_changes(monkeypatch):
+    model = SimpleNamespace(changed=False)
+    monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(ActiveDoc=model))
+    monkeypatch.setattr(server, "_nothing", lambda: None)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    response = json.loads(server.execute_python('model.changed = True\nif :\n    pass'))
+    assert response["status"] == "error"
+    assert response["python_line"] == 2
+    assert response["error_type"] == "SyntaxError"
+    assert response["error_code"] == "CAD_ERROR"
+    assert model.changed is False
+
+
 def test_documented_python_inspection_reads_body_box_and_point_objects(monkeypatch):
     default_calls = []
 

@@ -1017,6 +1017,11 @@ def execute_python(code: str) -> str:
     GET(obj, name, *args) для методов/свойств pywin32, byref_i4, NOTHING.
     Результат: положи значение в переменную result и/или используй print().
     Применяй, когда готового инструмента нет или сигнатура API отличается.
+    COM-члены без аргументов используй через GET: pywin32 может выполнить
+    вызов уже при чтении атрибута. model.EditRebuild3() тогда пытается вызвать
+    bool и падает. Используй GET(model, "EditRebuild3"); при False остановись
+    с ошибкой перестроения.
+    Не повторяй код после сбоя: предыдущие изменения могли уже выполниться.
     Не угадывай API: у IBody2 есть GetBodyBox, а не GetBoundingBox.
     GetBodyBox возвращает приблизительный bbox в метрах: не используй его
     как точное доказательство размеров/геометрии. GetStartPoint2/GetEndPoint2
@@ -1062,7 +1067,7 @@ def execute_python(code: str) -> str:
                "MM": _mm, "byref_i4": _byref_i4, "GET": _get, "NOTHING": _nothing()}
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            exec(code, env)
+            exec(compile(code, "<cadnext-python>", "exec"), env)
         return _ok(stdout=buf.getvalue(),
                    result=repr(env.get("result")) if "result" in env else None)
     return _run(job)
@@ -1079,13 +1084,28 @@ def _run(job) -> str:
         return com_call(job)
     except BaseException as e:
         _log(f"COM error: {type(e).__name__}")
-        return json.dumps({
+        error = {
             "status": "error",
             "error": str(e),
             "error_code": "CAD_OPERATION_UNCERTAIN" if isinstance(e, ComOutcomeUnknown) else "CAD_ERROR",
             "hint": "Если это COM-ошибка сигнатуры метода — проверь help.solidworks.com "
                     "(API Help) для своей версии SolidWorks и вызови метод через execute_python.",
-        }, ensure_ascii=False, indent=1)
+        }
+        # Номер строки относится к переданному коду, без публикации его текста/окружения.
+        frames = [frame for frame in traceback.extract_tb(e.__traceback__)
+                  if frame.filename == "<cadnext-python>"]
+        line = frames[-1].lineno if frames else None
+        if isinstance(e, SyntaxError) and e.filename == "<cadnext-python>":
+            line = e.lineno
+        if line is not None:
+            error.update(python_line=line, error_type=type(e).__name__)
+            error["hint"] = (
+                f"Ошибка в строке {line} Python-кода. "
+                "Изменения до ошибки могли выполниться; не повторяй код автоматически. "
+                "COM-члены без аргументов используй через GET(obj, name), "
+                'например GET(model, "EditRebuild3").'
+            )
+        return json.dumps(error, ensure_ascii=False, indent=1)
 
 
 if __name__ == "__main__":
