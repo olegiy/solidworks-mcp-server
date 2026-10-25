@@ -10,7 +10,7 @@ export interface Attachment {
   name: string; mimeType: string; data: string;
 }
 export interface RunEvent {
-  seq: number; type: string; data: Record<string, unknown>;
+  seq: number; type: string; at?: number; data: Record<string, unknown>;
 }
 export interface Run {
   id: string; session_id: string; profile_id: string; status: string;

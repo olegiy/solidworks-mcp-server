@@ -97,6 +97,21 @@ summary:hover { color: #3b609b; }
 .operations details summary { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .operations pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
 .composer { flex-shrink: 0; padding: 14px 16px 10px; border: 1px solid #e0e4eb; border-radius: 24px; background: white; box-shadow: 0 4px 24px #283e6608, 0 1px 3px #283e6605; }
+.activity-indicator { flex-shrink: 0; min-width: 0; margin: 0 4px 8px; color: #52627a; font-size: 12px; }
+.activity-indicator summary { display: flex; align-items: center; gap: 9px; min-height: 34px; padding: 6px 9px; border-radius: 10px; list-style: none; color: inherit; }
+.activity-indicator summary::-webkit-details-marker { display: none; }
+.activity-indicator summary:hover { background: #edf2fa; }
+.activity-stage { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.activity-time { font-variant-numeric: tabular-nums; white-space: nowrap; color: #657185; }
+.activity-dot { width: 7px; height: 7px; flex-shrink: 0; background: #8796aa; border-radius: 50%; }
+.activity-indicator[data-running=true] .activity-dot { background: #4578ed; animation: activity-pulse 1.8s ease-in-out infinite; }
+.activity-indicator.disconnected .activity-dot { background: #b88034; }
+.activity-indicator.disconnected .activity-stage { color: #86622c; }
+.activity-chevron { color: #738198; transition: transform .15s; }
+.activity-indicator details[open] .activity-chevron { transform: rotate(180deg); }
+.activity-details { max-height: 145px; overflow-y: auto; padding: 5px 12px 10px 25px; font-size: 11px; line-height: 1.7; }
+.activity-details p + p { margin-top: 3px; }
+@keyframes activity-pulse { 0%, 100% { opacity: .45; box-shadow: 0 0 0 0 #4578ed20; } 50% { opacity: 1; box-shadow: 0 0 0 4px #4578ed14; } }
 .composer:focus-within { border-color: #bccff1; box-shadow: 0 4px 24px #283e6609; }
 .composer-label { font-size: 15px; }
 .composer textarea { background: transparent; min-height: 40px; max-height: 180px; border: 0; border-radius: 0; padding: 6px 4px; resize: none; line-height: 1.6; }
@@ -203,4 +218,4 @@ figcaption { font-size: 11px; color: var(--muted); margin-top: 6px; }
   .settings nav button { flex: 1 0 45%; }
   .settings .actions { flex-wrap: wrap; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; } }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; animation: none !important; } }

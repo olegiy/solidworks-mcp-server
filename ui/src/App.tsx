@@ -6,6 +6,8 @@ import { imageTypes, readImages, type DraftAttachment } from './attachments';
 import ModelPicker from './ModelPicker';
 import MessageContent, { CopyButton } from './MessageContent';
 import Icon from './Icon';
+import ActivityIndicator from './ActivityIndicator';
+import type { PendingActivity, RunContact } from './ActivityIndicator';
 import './styles.css';
 
 const statusNames: Record<string, string> = {
@@ -258,6 +260,8 @@ export default function App() {
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
   const [readingImages, setReadingImages] = useState(false);
   const [savingProfile, setSavingProfile] = useState(false);
+  const [pendingActivity, setPendingActivity] = useState<PendingActivity | null>(null);
+  const [runContact, setRunContact] = useState<RunContact | null>(null);
   const [error, setError] = useState('');
   const [maxCalls, setMaxCalls] = useState(80);
   const end = useRef<HTMLDivElement>(null);
@@ -298,7 +302,10 @@ export default function App() {
         setProfiles(profiles); setRuns(history);
         setSelected(previous => profiles.some(p => p.id === previous) ? previous : profiles[0]?.id ?? '');
         const unfinished = health.active_run_id || history.find(run => !terminal(run.status))?.id;
-        if (unfinished) setStreamId(unfinished);
+        if (unfinished) {
+          setRunContact({ runId: unfinished, at: Date.now(), failed: false });
+          setStreamId(unfinished);
+        }
       }).catch(error => { if (!disposed) setError(errorText(error)); })
       .finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; };
@@ -316,21 +323,35 @@ export default function App() {
   useEffect(() => {
     if (!streamId) return;
     let disposed = false;
+    let refreshing = false;
+    let finished = false;
+    let controller: AbortController | null = null;
     const source = new EventSource(`/api/runs/${streamId}/events`);
     async function refresh() {
+      if (disposed || refreshing || finished) return;
+      refreshing = true;
+      controller = new AbortController();
+      const timeout = window.setTimeout(() => controller?.abort(), 5000);
       try {
-        const snapshot = await api<Run>(`/runs/${streamId}`);
+        const snapshot = await api<Run>(`/runs/${streamId}`, { signal: controller.signal });
         if (disposed) return;
         merge(snapshot);
-        if (terminal(snapshot.status)) source.close();
-      } catch (error) { if (!disposed) setError(errorText(error)); }
+        setRunContact({ runId: streamId, at: Date.now(), failed: false });
+        if (terminal(snapshot.status)) { finished = true; source.close(); }
+      } catch {
+        if (!disposed) setRunContact(previous => ({ runId: streamId,
+          at: previous?.runId === streamId ? previous.at : Date.now(), failed: true }));
+      } finally { clearTimeout(timeout); refreshing = false; controller = null; }
     }
     source.addEventListener('update', refresh);
     source.onerror = () => { void refresh(); };
     const poll = window.setInterval(refresh, 1000);
     const leave = () => { navigator.sendBeacon(`/api/runs/${streamId}/stop`); };
     window.addEventListener('pagehide', leave);
-    return () => { disposed = true; source.close(); clearInterval(poll); window.removeEventListener('pagehide', leave); };
+    return () => {
+      disposed = true; source.close(); clearInterval(poll); controller?.abort();
+      window.removeEventListener('pagehide', leave);
+    };
   }, [streamId]);
 
   useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [runs.at(-1)?.events.length]);
@@ -357,16 +378,23 @@ export default function App() {
   async function attach(files: File[]) {
     if (!files.length || !imagesAllowed || readingLock.current || sending || active) return;
     readingLock.current = true; setReadingImages(true); setError('');
+    setPendingActivity({ phase: 'images', at: Date.now(), files: files.length + attachments.length,
+      bytes: [...files, ...attachments].reduce((sum, image) => sum + image.size, 0) });
     const revision = draftRevision.current;
     try {
       const images = await readImages(files, attachments);
       if (revision === draftRevision.current) setAttachments(previous => [...previous, ...images]);
     } catch (error) { if (revision === draftRevision.current) setError(errorText(error)); }
-    finally { readingLock.current = false; setReadingImages(false); }
+    finally {
+      readingLock.current = false; setReadingImages(false);
+      if (revision === draftRevision.current) setPendingActivity(null);
+    }
   }
   async function send(event: FormEvent) {
     event.preventDefault(); if (!canSend) return;
     setSending(true); setError('');
+    setPendingActivity({ phase: 'sending', at: Date.now(), files: attachments.length,
+      bytes: attachments.reduce((sum, image) => sum + image.size, 0) });
     pendingRequest.current = crypto.randomUUID();
     try {
       const run = await api<Run>('/runs', { method: 'POST', body: JSON.stringify({
@@ -374,8 +402,9 @@ export default function App() {
         attachments: attachments.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
         request_id: pendingRequest.current,
       }) });
-      merge(run); setStreamId(run.id); setMessage(''); setAttachments([]); remember('session', sessionId);
-    } catch (error) { setError(errorText(error)); } finally { setSending(false); }
+      merge(run); setRunContact({ runId: run.id, at: Date.now(), failed: false });
+      setStreamId(run.id); setMessage(''); setAttachments([]); remember('session', sessionId);
+    } catch (error) { setError(errorText(error)); } finally { setSending(false); setPendingActivity(null); }
   }
   async function stop() {
     if (!active) return;
@@ -391,7 +420,7 @@ export default function App() {
   function newDialogue() {
     const id = crypto.randomUUID(); setSessionId(id); remember('session', id);
     setStreamId(''); setRuns([]); setError('');
-    draftRevision.current++; setAttachments([]); setMessage('');
+    draftRevision.current++; setAttachments([]); setMessage(''); setPendingActivity(null); setRunContact(null);
     input.current?.focus();
   }
   function openSettings() {
@@ -431,6 +460,7 @@ export default function App() {
           confirmation={active.confirmation} onAnswer={confirm} /> : null}
         <div ref={end} />
       </section>
+      <ActivityIndicator run={active ?? runs.at(-1)} pending={pendingActivity} contact={runContact} />
       <form className="composer" aria-label="Отправка сообщения" onSubmit={send}>
         {attachments.length ? <div className="attachment-previews" role="region" aria-label="Вложения к сообщению">
           {attachments.map((image, index) => <div className="attachment-preview" key={index}>

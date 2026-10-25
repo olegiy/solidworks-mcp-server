@@ -88,7 +88,8 @@ class Run:
                          "checks": self.checks, "messages": self.messages})
 
     def _emit(self, event_type: str, **data):
-        self.events.append({"seq": len(self.events) + 1, "type": event_type, "data": deepcopy(data)})
+        self.events.append({"seq": len(self.events) + 1, "type": event_type,
+                            "at": time.time(), "data": deepcopy(data)})
         self._changed.set()
 
     def _status(self, status, message):
@@ -242,7 +243,14 @@ class Agent:
         self._guard(run)
         if len(_json(run.messages).encode("utf-8")) > self.max_history_bytes:
             raise _EndRun("failed", "История превысила лимит контекста. Начните новый диалог.")
-        result = await provider.complete(deepcopy(run.messages), deepcopy(tools))
+        number = 1 + sum(event["type"] == "model_start" for event in run.events)
+        run._emit("model_start", number=number)
+        outcome = "error"
+        try:
+            result = await provider.complete(deepcopy(run.messages), deepcopy(tools))
+            outcome = "received"
+        finally:
+            run._emit("model_end", number=number, outcome=outcome)
         self._guard(run)
         return result
 
