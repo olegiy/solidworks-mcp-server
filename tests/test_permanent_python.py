@@ -56,6 +56,8 @@ async def test_python_confirmation_is_permanent_and_revocable(tmp_path):
     await settle(agent, run)
     assert run.status == 'completed'
     assert SettingsStore(tmp_path, MemorySecrets()).python_execution_allowed is True
+    assert 'Разрешение Python ещё не выдано' in model.requests[0][0]['content']
+    assert 'Постоянное разрешение Python уже включено' in model.requests[1][0]['content']
     await agent.aclose()
 
     restored = SettingsStore(tmp_path, MemorySecrets())
@@ -96,3 +98,26 @@ async def test_failed_permission_save_does_not_execute_python(tmp_path, monkeypa
     assert run.status == 'failed'
     assert not mcp.calls
     assert not store.python_execution_allowed
+
+
+@pytest.mark.parametrize('allowed', [False, True])
+async def test_model_receives_actual_permission_without_textual_approval_requests(tmp_path, allowed):
+    from cadnext.agent import Agent
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    store.set_python_execution_allowed(allowed)
+    agent = Agent(FakeMcp([]), settings=store)
+    # Old history must not reintroduce obsolete approval instructions.
+    agent._history['s'] = [{'role': 'system', 'content': 'Старая инструкция: спроси разрешение'},
+                           {'role': 'user', 'content': 'Начни'},
+                           {'role': 'assistant', 'content': 'Уточни разрешение'}]
+    model = ScriptedProvider([reply(content='Продолжаю')])
+    run = agent.start(session_id='s', provider=model, message='Продолжи')
+    await settle(agent, run)
+    prompt = model.requests[0][0]['content']
+    expected = ('Постоянное разрешение Python уже включено' if allowed
+                else 'Разрешение Python ещё не выдано')
+    assert expected in prompt
+    assert 'Не проси разрешение на Python обычным сообщением' in prompt
+    assert 'Старая инструкция' not in prompt
+    assert 'Python-код требует подтверждения один раз для диалога' not in prompt
