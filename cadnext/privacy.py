@@ -54,6 +54,11 @@ class PrivacyContext:
         self._profile_binding = binding
         self._scope = (self.session_id, profile_id)
 
+    def bind_session(self, session_id: str):
+        if self.session_id and self.session_id != session_id:
+            raise ValueError("Контекст приватности относится к другому диалогу.")
+        self._scope = (session_id, self.profile_id)
+
     def _token(self, value: str) -> str:
         if value not in self._tokens:
             self._tokens[value] = f"{self._prefix}{len(self._tokens) + 1}]"
