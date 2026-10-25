@@ -4,7 +4,7 @@ import ipaddress
 import json
 import os
 import tempfile
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from threading import RLock
 from typing import Literal, get_args
@@ -146,15 +146,16 @@ class SettingsStore:
                 raise ValueError("Ключ должен быть строкой.")
             previous = self.get(profile_id) if profile_id is not None else None
             fields = asdict(previous) if previous else {}
-            if previous and values.get("base_url", previous.base_url) != previous.base_url:
-                fields["local"] = None
             fields.update({k: v for k, v in values.items() if k != "api_key"})
             try:
                 profile = Profile(**fields)
             except TypeError:
                 raise ValueError("Укажите название, адрес API и модель.") from None
+            address_changed = previous is not None and profile.base_url != previous.base_url
+            if address_changed and "local" not in values:
+                profile = replace(profile, local=None)
             profiles = {**self._profiles, profile.id: profile}
-            self._commit(profiles, profile.id, "api_key" in values, key)
+            self._commit(profiles, profile.id, "api_key" in values or address_changed, key)
             return profile
 
     def delete(self, profile_id: str):

@@ -144,6 +144,7 @@ test('DNS-имя с префиксом 127 остаётся внешним пр�
   await page.getByRole('button', { name: 'Закрыть настройки' }).click();
   await send(page, 'Прочитай размер');
   await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
-  await expect(page.getByText('Внешний провайдер', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await expect(page.getByLabel('Локальное подключение')).not.toBeChecked();
   await expect(page.getByRole('dialog', { name: 'Передача данных провайдеру' })).toHaveCount(0);
 });

@@ -123,3 +123,22 @@ test('сила рассуждения сохраняется для следую
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await expect(reasoning).toHaveValue('');
 });
+
+test('смена сервера удаляет прежний ключ и объясняет это пользователю', async ({ page }) => {
+  const created = await page.request.post('/api/profiles', { data: {
+    name: 'Смена сервера', base_url: 'https://first.example.test/v1', model: 'fake-model',
+    api_key: 'audit-test-key',
+  } });
+  const profile = await created.json();
+  expect(profile.has_key).toBe(true);
+  expect(profile).not.toHaveProperty('api_key');
+  await page.addInitScript(id => localStorage.setItem('cadnext.v1.profile', id), profile.id);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByLabel('Адрес API').fill('https://second.example.test/v1');
+  await page.getByRole('button', { name: 'Сохранить подключение' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'прежний ключ удалён' })).toBeVisible();
+  const saved = await (await page.request.get(`/api/profiles/${profile.id}`)).json();
+  expect(saved.has_key).toBe(false);
+  expect(saved).not.toHaveProperty('api_key');
+});

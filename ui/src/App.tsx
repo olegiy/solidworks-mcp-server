@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, ReactNode, RefObject } from 'react';
 import { api, remember, stored, terminal } from './api';
 import type { Confirmation, Profile, Run, RunEvent } from './api';
 import ModelPicker from './ModelPicker';
+import MessageContent, { CopyButton } from './MessageContent';
+import Icon from './Icon';
 import './styles.css';
 
 const statusNames: Record<string, string> = {
@@ -24,6 +26,25 @@ const localAddress = (value: string) => {
   }
   catch { return false; }
 };
+
+function SettingsDialog({ children, onClose, returnFocusTo, fallbackFocusTo }: {
+  children: ReactNode; onClose: () => void; returnFocusTo: RefObject<HTMLElement | null>;
+  fallbackFocusTo: RefObject<HTMLButtonElement | null>;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const element = dialog.current;
+    element?.showModal();
+    return () => {
+      element?.close();
+      const target = returnFocusTo.current?.isConnected ? returnFocusTo.current : fallbackFocusTo.current;
+      target?.focus();
+    };
+  }, [returnFocusTo, fallbackFocusTo]);
+  return <dialog ref={dialog} className="settings-dialog" aria-label="Настройки"
+    onCancel={event => { event.preventDefault(); onClose(); }}
+    onClick={event => { if (event.target === event.currentTarget) onClose(); }}>{children}</dialog>;
+}
 
 function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCallsChange }: {
   profiles: Profile[]; selected: string; onSaved: (id: string) => Promise<void>; onClose: () => void;
@@ -54,8 +75,13 @@ function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCall
       const result = await api<Profile>(editing ? `/profiles/${editing}` : '/profiles', {
         method: editing ? 'PUT' : 'POST', body: JSON.stringify(body),
       });
+      const previous = profiles.find(profile => profile.id === editing);
+      const keyRemoved = previous?.has_key && previous.base_url !== result.base_url && !result.has_key;
       setEditing(result.id); setForm(result); setKey(''); setClearKey(false);
-      await onSaved(result.id); setNotice('Подключение сохранено');
+      await onSaved(result.id);
+      setNotice(keyRemoved
+        ? 'Подключение сохранено. Адрес API изменён: прежний ключ удалён. Укажите ключ нового сервера, если он нужен.'
+        : 'Подключение сохранено');
     } catch (error) { setError(errorText(error)); } finally { setBusy(false); }
   }
   async function probe() {
@@ -111,7 +137,9 @@ function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCall
           onChange={e => setForm({ ...form, vision: e.target.checked })} />Поддержка изображений</label>
         <label className="check"><input type="checkbox" checked={form.local}
           onChange={e => setForm({ ...form, local: e.target.checked })} />Локальное подключение</label>
-        <p className="hint">Данные отправляются выбранному API. Изображения передаются при включённой поддержке изображений. Отмечайте сервер локальным, только если доверяете ему.</p>
+        <p className="hint">Снимки SolidWorks передаются модели при включённой поддержке изображений.
+          {' '}Загрузка ваших изображений с компьютера пока недоступна. Данные отправляются выбранному API.
+          {' '}Отмечайте сервер локальным, только если доверяете ему.</p>
         {notice ? <p role="status" className="notice">{notice}</p> : null}
         {error ? <p role="alert" className="error">{error}</p> : null}
         <div className="actions"><button className="primary" disabled={busy} type="submit">Сохранить подключение</button>
@@ -152,17 +180,34 @@ function ConfirmationPanel({ confirmation, onAnswer }: {
 
 function OperationLog({ events }: { events: RunEvent[] }) {
   const starts = events.filter(e => e.type === 'tool_start');
-  return <details className="operations"><summary role="button">Журнал операций</summary>
-    {starts.length === 0 ? <p className="muted">Инструменты ещё не вызывались.</p> : starts.map(start => {
+  const results = new Map(events.filter(e => e.type === 'tool_result').map(e => [e.data.tool_call_id, e]));
+  const list = useRef<HTMLDivElement>(null);
+  const following = useRef(true);
+  function showLatest() {
+    if (list.current && following.current) list.current.scrollTop = list.current.scrollHeight;
+  }
+  useEffect(showLatest, [events.length]);
+  return <details className="operations" onToggle={event => {
+    if (event.target === event.currentTarget && event.currentTarget.open) {
+      showLatest();
+      list.current?.scrollIntoView({ block: 'nearest' });
+    }
+  }}><summary role="button">Журнал операций</summary>
+    {starts.length === 0 ? <p className="muted">Инструменты ещё не вызывались.</p>
+      : <div className="operation-list" ref={list} role="region" aria-label="Операции CAD" tabIndex={0}
+        onScroll={event => {
+          const el = event.currentTarget;
+          following.current = el.scrollHeight - el.clientHeight - el.scrollTop < 30;
+        }}>{starts.map(start => {
       const id = start.data.tool_call_id;
-      const result = events.filter(e => e.type === 'tool_result' && e.data.tool_call_id === id).at(-1);
+      const result = results.get(id);
       const value = result?.data.result as { ok?: boolean; uncertain?: boolean; verification?: { status: string } } | undefined;
       const name = String(start.data.name);
       return <details key={start.seq}><summary><span>{toolNames[name] ?? 'CAD-операция'} · <code>{name}</code></span>
         <small>{start.data.verification ? 'Проверка · ' : ''}{result ? (value?.uncertain ? 'Исход неизвестен' : value?.ok ? 'Выполнено' : 'Ошибка') : 'Ожидание'}</small></summary>
         <pre tabIndex={0}>{JSON.stringify({ arguments: start.data.arguments, result: result?.data.result }, null, 2)}</pre>
       </details>;
-    })}
+    })}</div>}
   </details>;
 }
 
@@ -171,8 +216,11 @@ function RunView({ run }: { run: Run }) {
     {run.events.filter(event => ['message', 'image', 'error'].includes(event.type)).map(event => {
       if (event.type === 'message') return <div key={event.seq}
         className={`message ${event.data.role === 'user' ? 'user' : 'assistant'}`}>
-        <span className="message-author">{event.data.role === 'user' ? 'Вы' : 'CAD-агент'}</span>
-        <p>{String(event.data.content)}</p></div>;
+        <div className="message-heading"><span className="message-author">{event.data.role === 'user' ? 'Вы' : 'CAD-агент'}</span>
+          {event.data.role === 'user' ? null : <CopyButton text={String(event.data.content)} label="Копировать ответ" />}</div>
+        {event.data.role === 'user' ? <p className="user-text">{String(event.data.content)}</p>
+          : <MessageContent text={String(event.data.content)} />}
+      </div>;
       if (event.type === 'image') return <figure key={event.seq}><a target="_blank" rel="noreferrer"
         href={`data:${event.data.mimeType};base64,${event.data.data}`} download="solidworks.png">
         <img src={`data:${event.data.mimeType};base64,${event.data.data}`} alt="Снимок SolidWorks" /></a>
@@ -204,10 +252,13 @@ export default function App() {
   const [error, setError] = useState('');
   const [maxCalls, setMaxCalls] = useState(80);
   const end = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const settingsOpener = useRef<HTMLElement | null>(null);
+  const settingsButton = useRef<HTMLButtonElement>(null);
   const pendingRequest = useRef('');
   const active = runs.find(run => !terminal(run.status));
   const uncertain = runs.some(run => run.status === 'uncertain');
-  const currentProfile = profiles.find(profile => profile.id === selected);
+  const canSend = !loading && !sending && !active && !!selected && !!message.trim() && !uncertain;
 
   function merge(snapshot: Run) {
     setRuns(previous => {
@@ -267,13 +318,18 @@ export default function App() {
   }, [streamId]);
 
   useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [runs.at(-1)?.events.length]);
+  useEffect(() => {
+    if (!input.current) return;
+    input.current.style.height = 'auto';
+    input.current.style.height = `${Math.min(input.current.scrollHeight, 180)}px`;
+  }, [message]);
 
   async function reloadProfiles(id: string) {
     const profiles = await api<Profile[]>('/profiles'); setProfiles(profiles);
     const selected = id || profiles[0]?.id || ''; setSelected(selected); remember('profile', selected);
   }
   async function send(event: FormEvent) {
-    event.preventDefault(); if (sending || active || !selected || !message.trim()) return;
+    event.preventDefault(); if (!canSend) return;
     setSending(true); setError('');
     pendingRequest.current = crypto.randomUUID();
     try {
@@ -298,47 +354,69 @@ export default function App() {
   function newDialogue() {
     const id = crypto.randomUUID(); setSessionId(id); remember('session', id);
     setStreamId(''); setRuns([]); setError('');
+    input.current?.focus();
+  }
+  function openSettings() {
+    settingsOpener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setSettings(true);
   }
 
   return <div className="shell">
-    <header className="app-header"><div className="brand"><div className="brand-icon" aria-hidden="true">C</div>
-      <div><h1>CAD-Agent-Next</h1><p>Рабочий чат SolidWorks</p></div></div>
-      <div className="header-actions">
-        <button aria-expanded={settings} aria-controls="app-settings"
-          onClick={() => setSettings(value => !value)}>Настройки</button></div></header>
-    <main>
-      <div className="toolbar"><label>Активное подключение<select value={selected}
+    <header className="app-header"><div className="header-context">
+      <div className="brand"><div className="brand-icon"><Icon name="cube" size={24} /></div>
+        <h1>CAD-Agent-Next</h1></div>
+      <label className="model-switcher"><span className="sr-only">Активное подключение</span><select value={selected}
         onChange={e => { setSelected(e.target.value); remember('profile', e.target.value); }} disabled={loading}>
-        <option value="">Выберите подключение</option>{profiles.map(profile => <option key={profile.id}
-          value={profile.id}>{profile.name} · {profile.model}</option>)}</select></label>
-        <button disabled={!!active || sending} onClick={newDialogue}>Новый диалог</button></div>
-      {currentProfile ? <p className="connection-note">{currentProfile.local ? 'Локальная модель' : 'Внешний провайдер'}
-        {' · '}{currentProfile.vision ? 'Принимает изображения' : 'Текстовая модель'}
-        {active ? ' · Текущий запрос сохраняет своё подключение' : ''}</p> : null}
-      {settings ? <Connections profiles={profiles} selected={selected} onSaved={reloadProfiles}
-        maxCalls={maxCalls} onMaxCallsChange={setMaxCalls} onClose={() => setSettings(false)} /> : null}
+        <option value="">Выберите модель</option>{profiles.map(profile => <option key={profile.id}
+          value={profile.id}>{profile.model} · {profile.name}</option>)}</select></label></div>
+      <div className="header-actions">
+        <button className="header-button" aria-label="Новый диалог" disabled={!!active || sending} onClick={newDialogue}>
+          <Icon name="plus" size={18} /><span className="button-label">Новый диалог</span></button>
+        <button ref={settingsButton} className="header-button" aria-label="Настройки" aria-expanded={settings} aria-controls="app-settings"
+          onClick={openSettings}><Icon name="settings" size={18} />
+          <span className="button-label">Настройки</span></button></div></header>
+    <main>
       {error ? <p role="alert" className="error panel">{error}</p> : null}
-      <section className="chat panel" aria-label="Чат">
+      <section className="chat" aria-label="Чат" tabIndex={0}>
         {loading ? <p role="status">Загружаем состояние приложения…</p> : null}
-        {!loading && runs.length === 0 ? <div className="empty"><div className="eyebrow">От запроса к модели</div>
-          <h2>Начнём с вашей детали</h2><p>Прочитайте размер, изучите дерево или попросите показать снимок из SolidWorks.</p>
-          {!profiles.length ? <button className="primary" onClick={() => setSettings(true)}>Добавить подключение</button> : null}
-          <p className="hint">SolidWorks должен быть запущен. Действия и их проверки появятся в журнале.</p></div> : null}
+        {!loading && runs.length === 0 ? <div className="empty"><div className="empty-icon"><Icon name="cube" size={36} /></div>
+          <div className="eyebrow">Ваш помощник в SolidWorks</div>
+          <h2>Что создадим сегодня?</h2><p>Начните с идеи — или посмотрим на вашу деталь.</p>
+          {!profiles.length ? <button className="primary" onClick={openSettings}>Добавить подключение</button> : null}
+          <div className="suggestions">{([
+            ['tree', 'Изучить дерево', 'Покажи дерево элементов активной детали'],
+            ['image', 'Показать деталь', 'Покажи снимок из SolidWorks'],
+            ['ruler', 'Проверить размеры', 'Прочитай размеры активной детали'],
+          ] as const).map(([icon, title, text]) => <button type="button" key={icon} onClick={() => {
+            setMessage(text); input.current?.focus();
+          }}><Icon name={icon} size={19} />{title}</button>)}</div>
+        </div> : null}
         {runs.map(run => <RunView key={run.id} run={run} />)}
         {active?.confirmation ? <ConfirmationPanel key={active.confirmation.id}
           confirmation={active.confirmation} onAnswer={confirm} /> : null}
         <div ref={end} />
       </section>
-      <form className="composer panel" onSubmit={send}>
-        <label className="composer-label">Сообщение<textarea rows={3} value={message} maxLength={20000}
-          onChange={e => setMessage(e.target.value)} placeholder="Например: прочитай D1@Эскиз1 и покажи снимок"
-          disabled={loading} /></label>
+      <form className="composer" onSubmit={send}>
+        <div className="composer-label"><label className="sr-only" htmlFor="chat-message">Сообщение</label>
+          <textarea id="chat-message" ref={input} rows={1} value={message} maxLength={20000}
+          onChange={e => setMessage(e.target.value)} placeholder="Спросите о детали или опишите задачу…"
+          onKeyDown={event => {
+            if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+              event.preventDefault();
+              if (canSend) event.currentTarget.form?.requestSubmit();
+            }
+          }}
+          disabled={loading} /></div>
         <div className="composer-footer">
-          <div className="actions">{active ? <button type="button" className="danger" onClick={stop}
-            disabled={active.status === 'stopping'}>Остановить</button> : null}
-            <button className="primary" type="submit" disabled={loading || sending || !!active || !selected || !message.trim() || uncertain}>
-              {sending ? 'Отправляем…' : 'Отправить'}</button></div></div>
+          <span className="composer-hint">{active ? 'Работаем с вашей деталью…' : 'Enter — отправить · Shift+Enter — новая строка'}</span>
+          <div className="actions">{active ? <button type="button" className="stop-button" onClick={stop}
+            aria-label="Остановить" title="Остановить" disabled={active.status === 'stopping'}><Icon name="stop" size={18} /></button>
+            : <button className="send-button" type="submit" aria-label="Отправить" title={sending ? 'Отправляем…' : 'Отправить'} disabled={!canSend}>
+              <Icon name="send" size={22} /></button>}</div></div>
       </form>
     </main>
+    {settings ? <SettingsDialog onClose={() => setSettings(false)} returnFocusTo={settingsOpener} fallbackFocusTo={settingsButton}>
+      <Connections profiles={profiles} selected={selected} onSaved={reloadProfiles}
+      maxCalls={maxCalls} onMaxCallsChange={setMaxCalls} onClose={() => setSettings(false)} /></SettingsDialog> : null}
   </div>;
 }

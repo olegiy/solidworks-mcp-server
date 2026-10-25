@@ -107,6 +107,71 @@ def test_update_keeps_key_and_delete_removes_it(tmp_path):
     assert store.secret(profile.id) is None
 
 
+@pytest.mark.parametrize("new_url", [
+    "https://another.example.test/v1",
+    "https://example.test/other-api",
+    "http://example.test/v1",
+])
+def test_address_change_clears_saved_key(tmp_path, new_url):
+    from cadnext.settings import SettingsStore
+
+    secrets = MemorySecrets()
+    store = SettingsStore(tmp_path, secrets)
+    profile = store.save({"name": "P", "base_url": "https://example.test/v1", "model": "m",
+                          "api_key": "old-secret"})
+    changed = store.save({"base_url": new_url}, profile.id)
+
+    assert changed.base_url == new_url
+    assert store.secret(profile.id) is None
+    assert not SettingsStore(tmp_path, secrets).public(changed)["has_key"]
+
+
+@pytest.mark.parametrize("new_url", ["https://example.test/v1", "https://example.test/v1/"])
+def test_same_normalized_address_preserves_saved_key_and_local_flag(tmp_path, new_url):
+    from cadnext.settings import SettingsStore
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    profile = store.save({"name": "P", "base_url": "https://example.test/v1", "model": "m",
+                          "local": True, "api_key": "old-secret"})
+    changed = store.save({"base_url": new_url}, profile.id)
+
+    assert changed.base_url == "https://example.test/v1"
+    assert changed.local
+    assert store.secret(profile.id) == "old-secret"
+
+
+def test_address_change_accepts_explicit_new_key(tmp_path):
+    from cadnext.settings import SettingsStore
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    profile = store.save({"name": "P", "base_url": "https://example.test/v1", "model": "m",
+                          "api_key": "old-secret"})
+    store.save({"base_url": "https://another.example.test/v1", "api_key": "new-secret"}, profile.id)
+
+    assert store.secret(profile.id) == "new-secret"
+
+
+def test_address_change_write_failure_restores_profile_and_saved_key(tmp_path, monkeypatch):
+    from cadnext.settings import SettingsStore
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    profile = store.save({"name": "P", "base_url": "https://example.test/v1", "model": "m",
+                          "api_key": "old-secret"})
+    before = store.path.read_bytes()
+
+    def fail_replace(*args):
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr("cadnext.settings.os.replace", fail_replace)
+    with pytest.raises(OSError):
+        store.save({"base_url": "https://another.example.test/v1"}, profile.id)
+
+    assert store.path.read_bytes() == before
+    assert store.get(profile.id) == profile
+    assert store.secret(profile.id) == "old-secret"
+    assert list(tmp_path.iterdir()) == [store.path]
+
+
 @pytest.mark.parametrize(("url", "local"), [
     ("http://localhost:8080/v1", True),
     ("http://127.2.3.4/v1", True),
