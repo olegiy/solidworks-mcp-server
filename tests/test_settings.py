@@ -65,3 +65,73 @@ def test_update_keeps_key_and_delete_removes_it(tmp_path):
     store.delete(profile.id)
     assert store.list() == []
     assert store.secret(profile.id) is None
+
+
+@pytest.mark.parametrize(("url", "local"), [
+    ("http://localhost:8080/v1", True),
+    ("http://127.2.3.4/v1", True),
+    ("http://[::1]:8080/v1", True),
+    ("http://192.168.1.2/v1", False),
+    ("https://localhost.example.test/v1", False),
+])
+def test_only_loopback_is_local_by_default(url, local):
+    from cadnext.settings import Profile
+
+    assert Profile(name="P", base_url=url, model="m").local is local
+
+
+@pytest.mark.parametrize("url", [
+    "file:///tmp", "https://user:password@example.test/v1",
+    "https://example.test/v1?api_key=secret", "http://", "http://host:bad/v1",
+])
+def test_invalid_or_secret_bearing_url_is_rejected(url):
+    from cadnext.settings import Profile
+
+    with pytest.raises(ValueError):
+        Profile(name="P", base_url=url, model="m")
+
+
+def test_explicit_local_server_and_address_change(tmp_path):
+    from cadnext.settings import SettingsStore
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    profile = store.save({"name": "LAN", "base_url": "http://192.168.1.2/v1",
+                          "model": "m", "local": True})
+    assert profile.local
+    changed = store.save({"base_url": "https://example.test/v1"}, profile.id)
+    assert not changed.local
+
+
+def test_replace_failure_preserves_disk_memory_and_secret(tmp_path, monkeypatch):
+    from cadnext.settings import SettingsStore
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    profile = store.save({"name": "P", "base_url": "http://localhost/v1", "model": "m",
+                          "api_key": "old-secret"})
+    before = (tmp_path / "settings.json").read_bytes()
+
+    def fail_replace(*args):
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr("cadnext.settings.os.replace", fail_replace)
+    with pytest.raises(OSError):
+        store.save({"model": "changed", "api_key": "new-secret"}, profile.id)
+    assert (tmp_path / "settings.json").read_bytes() == before
+    assert store.get(profile.id).model == "m"
+    assert store.secret(profile.id) == "old-secret"
+    assert list(tmp_path.iterdir()) == [tmp_path / "settings.json"]
+
+
+def test_clearing_key_and_frozen_profile_snapshot(tmp_path):
+    from dataclasses import FrozenInstanceError
+
+    from cadnext.settings import SettingsStore
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    profile = store.save({"name": "P", "base_url": "http://localhost/v1", "model": "m",
+                          "api_key": "old-secret"})
+    store.save({"model": "new", "api_key": ""}, profile.id)
+    assert profile.model == "m"
+    assert store.secret(profile.id) is None
+    with pytest.raises(FrozenInstanceError):
+        profile.model = "changed"
