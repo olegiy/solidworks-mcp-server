@@ -8,6 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from mcp import ClientSession, StdioServerParameters
+from mcp.client import stdio as stdio_transport
 from mcp.client.stdio import stdio_client
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,6 +46,10 @@ class SolidWorksMcp:
         self.uncertain = False
 
     async def __aenter__(self):
+        # SDK 1.30 otherwise force-terminates a process two seconds after stdin closes.
+        # A timed-out COM worker may still mutate CAD: ownership must last until it exits.
+        # This application owns one stdio transport; its shutdown policy is process-wide.
+        stdio_transport.PROCESS_TERMINATION_TIMEOUT = float('inf')
         parameters = StdioServerParameters(
             command=sys.executable, args=[str(self.script)], cwd=str(ROOT),
             env={"PYTHONUTF8": "1", "SW_MCP_CALL_LOG": "off",

@@ -117,6 +117,25 @@ def test_path_token_from_prose_restores_only_the_path():
     assert ctx.restore({"path": token}) == {"path": r"C:\Company\part.sldprt"}
 
 
+@pytest.mark.parametrize('path', [
+    r'C:\Client Projects\SecretCustomer\prototype.sldprt',
+    r'\\server\Client Projects\SecretCustomer\prototype.sldprt',
+    r'C:\Client Projects\SecretCustomer',
+    r'C:\Client, Inc\SecretCustomer\prototype.sldprt',
+    r'C:\Client; Projects\SecretCustomer\prototype.sldprt',
+])
+def test_unquoted_windows_path_with_spaces_is_fully_masked_in_all_roles(path):
+    from cadnext.privacy import PrivacyContext
+
+    context = PrivacyContext(local=False, consent=True)
+    messages = [{'role': role, 'content': f'Открой {path}'}
+                for role in ('user', 'assistant', 'tool')]
+    filtered = context.outgoing(messages)
+    assert 'SecretCustomer' not in str(filtered)
+    assert 'Projects' not in str(filtered)
+    assert context.restore(filtered) == messages
+
+
 def test_image_json_text_is_removed_without_consent():
     import json
 

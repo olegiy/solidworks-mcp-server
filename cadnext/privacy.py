@@ -5,9 +5,13 @@ import re
 from uuid import uuid4
 
 _START = r"(?:[A-Za-z]:[\\/]|\\\\|/(?!/))"
+_WINDOWS_START = r'(?:(?<!\w)[A-Za-z]:[\\/]|\\\\)'
+_WINDOWS_CHARS = r'[^<>"\'\r\n|?*]'
 _PATH = (
     rf'(?P<quote>["\'])(?P<path>{_START}[^<>"\'\r\n|?*]+)(?P=quote)'
-    r'|(?:(?<!\w)[A-Za-z]:[\\/]|\\\\)[^\s<>"\'|?*,;]+'
+    # File extensions give a useful boundary; ambiguous directory prose is hidden conservatively.
+    rf'|{_WINDOWS_START}{_WINDOWS_CHARS}*\.[A-Za-z0-9]{{1,12}}(?=$|[\s,;:)"\'])'
+    rf'|{_WINDOWS_START}{_WINDOWS_CHARS}+'
     r'|(?<![\w:/])/(?!/)[\w.~-]+(?:/[\w.~-]+)*'
 )
 _DROP = object()

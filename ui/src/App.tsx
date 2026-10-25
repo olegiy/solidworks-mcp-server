@@ -15,7 +15,12 @@ const toolNames: Record<string, string> = {
 };
 const errorText = (error: unknown) => error instanceof Error ? error.message : 'Неизвестная ошибка.';
 const localAddress = (value: string) => {
-  try { const host = new URL(value).hostname; return host === 'localhost' || host === '[::1]' || /^127\./.test(host); }
+  try {
+    const host = new URL(value).hostname;
+    const octets = host.split('.');
+    return host === 'localhost' || host === '[::1]' || (octets.length === 4 && octets[0] === '127'
+      && octets.every(part => /^\d{1,3}$/.test(part) && Number(part) <= 255));
+  }
   catch { return false; }
 };
 

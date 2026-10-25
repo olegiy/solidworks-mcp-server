@@ -1,121 +1,88 @@
-# SolidWorks MCP Server
+# CAD-Agent-Next
 
-**English** · [Русский](README.ru.md)
+Самостоятельное локальное приложение для SolidWorks: чат, выбор модели, журнал
+CAD-операций, снимки и подтверждение Python-кода. Основа — 27 MCP-инструментов
+[solidworks-mcp-server](https://github.com/aiforyouself/solidworks-mcp-server).
+Происхождение: [UPSTREAM.md](UPSTREAM.md). Лицензия: [MIT](LICENSE).
 
-A single-file [MCP](https://modelcontextprotocol.io) server that lets an AI model drive SolidWorks through its COM API. You describe the part in chat; the model creates the sketch, the sheet-metal flange, the holes and the flat-pattern DXF by calling tools. No mouse clicks in SolidWorks, no recorded macros.
+## Установка и запуск
 
-![The model builds a sheet-metal bracket in SolidWorks from a chat prompt](demo.gif)
+Требуются Windows, Python **3.12** (проверено 3.12.10), Node.js **22.12+** с npm.
+Для CAD вручную запустите ровно один SolidWorks без блокирующих диалогов.
+Подключение модели — OpenAI-совместимый API с native tool calling.
 
-*Left: SolidWorks. Right: the chat. Sped up; nobody touches SolidWorks during the session.*
+В каталоге репозитория:
 
-▶ **Watch the video on YouTube:** [An AI builds a part in SolidWorks. I don't make a single click](https://youtu.be/sfWzfVOh3Sg) · [на русском](https://youtu.be/jRQRtlpXECo)
-
-## What it can do
-
-27 tools. All lengths are in **millimetres**, angles in degrees — the server converts to the metres and radians that the SolidWorks API expects.
-
-| Group | Tools |
-|---|---|
-| Connection and documents | `connect_solidworks`, `list_open_documents`, `create_part`, `create_assembly`, `open_document`, `save_document`, `close_document` |
-| Seeing and reading the model | `screenshot`, `get_feature_tree`, `get_mass_properties`, `get_sheet_metal_info`, `get_dimension` |
-| Editing | `set_dimension`, `rebuild` |
-| Sketching | `create_sketch`, `sketch_rectangle`, `sketch_circle`, `sketch_line`, `close_sketch` |
-| Sheet metal | `create_base_flange`, `cut_through`, `export_flat_pattern_dxf` |
-| Assemblies | `get_components`, `add_component`, `select_for_mate`, `add_mate` |
-| Escape hatch | `execute_python` — runs Python with direct access to the SolidWorks COM API when no ready-made tool fits |
-
-`save_document` also exports by extension: `.step`, `.dxf`, `.pdf`, `.stl`.
-
-`screenshot` matters more than it looks: it is how the model sees what it has just built and catches its own mistakes.
-
-## Requirements
-
-- Windows with SolidWorks installed and running
-- Python 3.10 or newer
-- An MCP client: Claude Desktop, Claude Code, or any other client that can start a local stdio server
-
-Tested on SolidWorks 2024 SP5 (Russian localisation) with Python 3.14 and pywin32 312. Other versions are untested — see [Things to know](#things-to-know).
-
-## Install
-
-```
-git clone https://github.com/aiforyouself/solidworks-mcp-server.git
-cd solidworks-mcp-server
-pip install -r requirements.txt
+```powershell
+.\setup.bat
+.\start.bat
 ```
 
-Or just download `solidworks_mcp_server.py` and run `pip install mcp pywin32 pillow`.
+Setup создаёт `.venv`, устанавливает Python-зависимости из `requirements.lock.txt`,
+выполняет `npm ci` по `ui/package-lock.json` и собирает UI. Повторный setup поддерживается;
+настройки и ключи не очищаются. Start запускает приложение в фоне и открывает
+**http://127.0.0.1:8876**. Повторный start использует тот же экземпляр.
+Без браузера: `.\start.bat -NoBrowser`. В чате откройте «Подключения», сохраните
+адрес API и модель, проверьте подключение. Имя модели можно вводить вручную.
 
-## Connect
+Штатная остановка: `.\stop.bat`. Она запрещает следующие действия и ждёт исход
+текущего вызова, без отката сделанного. Управляется только экземпляр из этого
+каталога через случайный сигнал Windows. Завершения процессов по PID, имени или
+порту нет. Занятый чужим приложением порт диагностируется до запуска MCP.
+Если остановка длится более трёх минут, команда сообщает об ожидании, а приложение
+сохраняет владение до естественного выхода MCP. Проверьте SolidWorks и повторите stop.
 
-**Claude Code**
+PowerShell-эквиваленты находятся в `scripts/`. Обёртки работают из другого текущего
+каталога. Ручной запуск после сборки UI:
+`$env:PYTHONUTF8=1; .venv\Scripts\python.exe -m cadnext`. Такой экземпляр останавливается
+Ctrl+C в его консоли. Приложение не запускает SolidWorks автоматически.
 
+## Данные и ограничения
+
+Настройки: `%LOCALAPPDATA%\cad_agent_next\settings.json`; сведения об экземпляре:
+`runtime/`, журналы: `logs/` в том же каталоге данных. Ключи — только Windows
+Credential Manager, сервис `cad_agent_next`. Старый CAD-Agent не импортируется.
+Переписка и согласия живут в памяти: обновление страницы восстанавливает состояние,
+перезапуск приложения очищает историю. Закрытие/обновление вкладки останавливает прогон
+после исхода начатого вызова.
+
+Один активный запрос, одна модель на прогон, последовательные COM-вызовы. Лимит —
+80 вызовов с проверками, изменяется перед запросом. После ошибки нет автоматического
+повтора, переключения провайдера или undo. Неизвестный исход блокирует новые запросы:
+проверьте SolidWorks перед перезапуском. Python-код имеет доступ к системе и требует
+подтверждения точного текста; его успех сам по себе не доказывает правильность геометрии.
+
+Внешний API получает данные после согласия для диалога/подключения, изображения
+разрешаются отдельно. Пути и конфиденциальные строки скрываются в исходящем тексте.
+Снимки не обезличиваются. Локальное подключение может работать без ключа.
+
+## Проверки
+
+```powershell
+.venv\Scripts\python.exe -m pytest -q -m "not live"
+.venv\Scripts\python.exe -m ruff check .
+Push-Location ui
+npm run build
+npx playwright install chromium
+npx playwright test
+Pop-Location
 ```
-claude mcp add solidworks -- python C:\path\to\solidworks_mcp_server.py
-```
 
-**Claude Desktop** — Settings → Developer → Edit Config, then add the server to `claude_desktop_config.json` and restart the app completely:
+Playwright использует настоящий API/агент, фиктивные LLM/CAD, порт 8877 и временные
+данные. Установка браузера также доступна через `.\setup.bat -WithBrowser`.
+Результаты: [docs/verification.md](docs/verification.md). Контракты:
+[API/UI](docs/app.md), [агент](docs/agent.md), [модели и приватность](docs/models-and-privacy.md).
 
-```json
-{
-  "mcpServers": {
-    "solidworks": {
-      "command": "python",
-      "args": ["C:\\path\\to\\solidworks_mcp_server.py"]
-    }
-  }
-}
-```
+## Живая проверка
 
-Use the full path to the file. If `python` is not on your PATH, put the full path to `python.exe` in `command`.
+Остановите приложение, вручную запустите один SolidWorks. Проверка чтения:
+`.venv\Scripts\python.exe -m scripts.live_smoke`.
+Явно разрешённое создание отдельной тестовой детали:
+`.venv\Scripts\python.exe -m scripts.live_smoke --mutate-new-part`.
 
-## Try it
-
-Start SolidWorks, then ask the model:
-
-> Build a sheet-metal angle bracket in SolidWorks. Sheet 2 mm, bend radius 2 mm. Horizontal flange 60 mm, vertical flange 40 mm, length 80 mm. Two Ø9 holes for M8 bolts in the 60 mm flange: on the flange centreline, 20 mm from each end. Save the part as bracket.SLDPRT and show me the result in isometric view.
-
-This is the prompt from the demo above. What happened in that session, measured from the server's own call log:
-
-- 58 tool calls in about 9 minutes
-- 18 of them were custom code through `execute_python`
-- 9 calls returned an API error; the model rewrote them and retried
-- the first flange came out 62 × 42 mm instead of 60 × 40 — the thickness went outward. The model measured the result, noticed, deleted the feature and rebuilt it correctly without being asked
-
-So expect a working part, not a clean first pass. Check dimensions before you send anything to the laser.
-
-## Things to know
-
-- **`execute_python` runs arbitrary code on your machine** with your user rights. That is what makes the server useful beyond its 26 fixed tools, and it is also the risk. Use it only with a client and a model you trust, keep the approval prompts on, and do not expose the server to a network.
-- **API signatures differ between SolidWorks versions.** For example, `InsertSheetMetalBaseFlange2` takes 19 arguments and `FeatureCut4` takes 27 on SolidWorks 2024. If a tool fails on your version, the error message tells the model to fall back to `execute_python` and the official API help.
-- **Plane and feature names follow your SolidWorks language.** The default plane in `create_sketch` is the Russian `Спереди`. On an English install, tell the model to pass `Front Plane`, `Top Plane`, `Right Plane` explicitly.
-- **Tool descriptions, error messages and code comments are in Russian.** Models read them without trouble. A translation is welcome as a pull request.
-- **Sketch axes on the Top plane:** sketch `y` is model `−Z`. A hole at model point (x, z) is drawn at (x, −z).
-- **Modal dialogs block SolidWorks.** If a save or rebuild dialog is open, the call returns a clear error after 55 seconds instead of hanging. Close the dialog and repeat.
-- **Flat-pattern export needs a saved part.** Save first, then call `export_flat_pattern_dxf`.
-- **Keep one document open** where you can. Many open documents slow SolidWorks down.
-- **Logs.** The server writes `server.log`, `server_crash.log` and `calls.jsonl` next to the script. Set the environment variable `SW_MCP_CALL_LOG=off` to turn the call log off, or to a path to move it.
-
-## What is missing
-
-Drawings, weldments, bill of materials, more sheet-metal features (edge flanges, hems), part features outside sheet metal. Tell me in [Issues](../../issues) which one you need first.
-
-## How I can help
-
-- Questions and bugs — open an [issue](../../issues).
-- Need this adapted to your workflow — other SolidWorks features, your own tools, an AI model connected to your design or production process? Write to **aiforyouself.contact@gmail.com**.
-
-## About
-
-I am a design engineer. The server code was written by Claude (Anthropic's model) while we worked on real parts in SolidWorks; I set the tasks, tested the result and kept what worked. The project is part of the **AI for You** channel, where I show what AI can actually do in engineering today — including the parts I had to finish by hand.
-
-- YouTube (English): https://www.youtube.com/@aiforyouself-en
-- YouTube (Russian): https://www.youtube.com/@aiforyourself
-- Telegram (English): https://t.me/aiforyouself
-- Telegram (Russian): https://t.me/aiforyourself
-
-## License
-
-[MIT](LICENSE). Use it, change it, build it into your own work.
-
-SolidWorks is a registered trademark of Dassault Systèmes SolidWorks Corporation. This project is not affiliated with or endorsed by Dassault Systèmes.
+Второй режим создаёт L-профиль 60×40 мм с глубиной 50 мм, проверяет толщину 2 мм,
+пытается идентифицировать её размер и изменить до 3 мм с независимым чтением,
+сохраняет SLDPRT/DXF в новый временный каталог. Деталь остаётся для осмотра.
+При первой ошибке/неопределённости/смене активного документа сценарий останавливается.
+Во время проверки не переключайте документы. Процедура подготовлена, но **пока не
+проверена на живом SolidWorks**: сигнатуры, имя размера, геометрия и DXF требуют проверки.

@@ -126,3 +126,17 @@ test('восстановление обновляет незавершённый
   await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
   await expect(page.getByRole('button', { name: 'Остановить', exact: true })).toHaveCount(0);
 });
+
+test('DNS-имя с префиксом 127 требует согласия как внешний провайдер', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Новое подключение' }).click();
+  await page.getByLabel('Название подключения').fill('Внешний DNS');
+  await page.getByLabel('Адрес API').fill('https://127.example.com/v1');
+  await page.getByLabel('Имя модели').fill('fake-model');
+  await page.getByRole('button', { name: 'Сохранить подключение' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Подключение сохранено' })).toBeVisible();
+  await page.getByRole('button', { name: 'Закрыть настройки' }).click();
+  await send(page, 'Прочитай размер');
+  await expect(page.getByRole('dialog', { name: 'Передача данных провайдеру' })).toBeVisible();
+});

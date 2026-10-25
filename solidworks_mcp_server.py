@@ -601,7 +601,7 @@ def close_document(title: str = "") -> str:
 
 @mcp.tool()
 def screenshot(width: int = 1000, height: int = 750, zoom_to_fit: bool = True,
-               isometric: bool = False) -> Image:
+               isometric: bool = False):
     """Скриншот активной модели (текущий вид). Используй после каждой операции,
     чтобы видеть результат построения."""
     def job():
@@ -627,7 +627,13 @@ def screenshot(width: int = 1000, height: int = 750, zoom_to_fit: bool = True,
                 buf = io.BytesIO()
                 bitmap.save(buf, "PNG")
                 return buf.getvalue()
-    data = com_call(job)
+    try:
+        data = com_call(job)
+    except BaseException as e:
+        _log(f"Screenshot error: {type(e).__name__}")
+        return json.dumps({"status": "error", "error": str(e), "error_code":
+                          "CAD_OPERATION_UNCERTAIN" if isinstance(e, ComOutcomeUnknown)
+                          else "CAD_ERROR"}, ensure_ascii=False)
     return Image(data=data, format="png")
 
 
