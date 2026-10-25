@@ -184,6 +184,51 @@ def test_models_probe_and_static_page_do_not_touch_cad(api):
     assert client.get("/api/nonexistent").status_code == 404
 
 
+def test_models_for_unsaved_connection_use_current_url_and_key_without_saving(api):
+    client, backend = api
+    response = client.post("/api/models", json={
+        "base_url": "https://catalog.test/v1/", "api_key": "draft-key"})
+    assert response.status_code == 200, response.text
+    assert response.json() == ["fake-model"]
+    request, = backend.model_requests
+    assert str(request.url) == "https://catalog.test/v1/models"
+    assert request.headers["authorization"] == "Bearer draft-key"
+    assert backend.settings.list() == []
+    assert not backend.settings.path.exists()
+    assert backend.closed == 1
+    assert backend.calls == []
+    assert "draft-key" not in response.text
+
+
+@pytest.mark.parametrize(("changes", "expected_url", "authorization"), [
+    ({}, "https://saved.test/v1/models", "Bearer saved-key"),
+    ({"api_key": "replacement-key"}, "https://saved.test/v1/models", "Bearer replacement-key"),
+    ({"api_key": ""}, "https://saved.test/v1/models", None),
+    ({"base_url": "https://another.test/v1"}, "https://another.test/v1/models", None),
+])
+def test_models_draft_key_is_scoped_to_current_endpoint(api, changes, expected_url, authorization):
+    client, backend = api
+    saved = profile(client, base_url="https://saved.test/v1", api_key="saved-key")
+    response = client.post("/api/models", json={"profile_id": saved["id"],
+        "base_url": "https://saved.test/v1/", **changes})
+    assert response.status_code == 200, response.text
+    request, = backend.model_requests
+    assert str(request.url) == expected_url
+    assert request.headers.get("authorization") == authorization
+    assert client.get(f'/api/profiles/{saved["id"]}').json() == saved
+    assert backend.settings.secret(saved["id"]) == "saved-key"
+
+
+def test_models_draft_rejects_invalid_url_and_secret_payload_without_network(api):
+    client, backend = api
+    for body in ({"base_url": "javascript:alert(1)", "api_key": "private-key"},
+                 {"base_url": "https://catalog.test/v1", "api_key": {"secret": "private-key"}}):
+        response = client.post("/api/models", json=body)
+        assert response.status_code == 422
+        assert "private-key" not in response.text
+    assert backend.model_requests == []
+
+
 def test_sse_replay_uses_ids_and_last_event_id_without_new_calls(api):
     client, backend = api
     run_id = start(client, profile(client)["id"]).json()["id"]

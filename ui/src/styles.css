@@ -74,6 +74,16 @@ summary { cursor: pointer; color: #48664f; padding: 7px 0; }
 .settings nav button { text-align: left; overflow-wrap: anywhere; }
 .settings nav small { display: block; }
 .settings form { display: flex; flex-direction: column; gap: 14px; }
+.model-picker { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.model-input-row { display: flex; position: relative; gap: 6px; }
+.model-input-row input { flex: 1; }
+.model-input-row > button { flex: none; padding: 8px 12px; }
+.model-dropdown { position: absolute; z-index: 10; top: calc(100% + 5px); left: 0; right: 0; background: #fff; border: 1px solid #aebfaf; border-radius: 8px; box-shadow: 0 6px 18px #233c3620; overflow: hidden; }
+.model-dropdown [role="listbox"] { max-height: 250px; overflow-y: auto; overscroll-behavior: contain; }
+.model-dropdown [role="option"] { padding: 10px 12px; cursor: pointer; overflow-wrap: anywhere; font-size: 14px; }
+.model-dropdown [role="option"]:hover, .model-dropdown [role="option"].active { background: #e4eee6; color: #174a38; }
+.model-dropdown > p { font-size: 13px; padding: 10px 12px; color: #647469; }
+.model-picker .model-refresh { align-self: flex-start; font-size: 13px; padding: 5px 10px; min-height: 36px; }
 .check { flex-direction: row; align-items: center; gap: 9px; font-weight: 400; }
 .check input { width: 17px; height: 17px; accent-color: #235d48; }
 .confirmation { padding: 22px; margin: 18px 0; border-color: #c8b77f; background: #fffdf6; }

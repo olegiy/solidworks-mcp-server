@@ -23,6 +23,7 @@ class Backend:
         self.settings = SettingsStore(directory, MemorySecrets())
         self.calls = []
         self.requests = []
+        self.model_requests = []
         self.profiles = []
         self.closed = 0
         self.mcp_entered = False
@@ -62,6 +63,7 @@ class Backend:
 
         def respond(request):
             if request.url.path.endswith("/models"):
+                self.model_requests.append(request)
                 return httpx.Response(200, json={"data": [{"id": "fake-model"}]})
             payload = json.loads(request.content)
             self.requests.append(payload)

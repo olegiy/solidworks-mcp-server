@@ -18,7 +18,7 @@ from cadnext.agent import Agent, AgentBusy
 from cadnext.mcp import ROOT, SolidWorksMcp
 from cadnext.privacy import PrivacyContext
 from cadnext.provider import Provider, ProviderError
-from cadnext.settings import SettingsStore
+from cadnext.settings import Profile, SettingsStore
 
 
 class ProfileBody(BaseModel):
@@ -46,6 +46,13 @@ class RunBody(BaseModel):
     sensitive: list[str] = Field(default_factory=list, max_length=100)
     request_id: str | None = Field(default=None, min_length=1, max_length=100,
                                    pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class ModelListBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    base_url: str = Field(min_length=1, max_length=2000)
+    profile_id: str | None = Field(default=None, min_length=1, max_length=100)
+    api_key: SecretStr | None = None
 
 
 class ConfirmationBody(BaseModel):
@@ -156,6 +163,21 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     @app.get("/api/models")
     async def models(profile_id: str):
         provider = provider_for(store().get(profile_id))
+        try:
+            return await provider.list_models()
+        finally:
+            await provider.aclose()
+
+    @app.post("/api/models")
+    async def draft_models(body: ModelListBody):
+        # Listing needs neither a saved profile nor a selected model.
+        draft = Profile(name="Каталог моделей", base_url=body.base_url, model="catalog")
+        saved = store().get(body.profile_id) if body.profile_id else None
+        secret = body.api_key.get_secret_value() if body.api_key is not None else None
+        if body.api_key is None and saved and saved.base_url == draft.base_url:
+            secret = store().secret(saved.id)
+        privacy = PrivacyContext(local=draft.local, consent=True, profile_id=draft.id)
+        provider = provider_factory(draft, secret, privacy=privacy)
         try:
             return await provider.list_models()
         finally:

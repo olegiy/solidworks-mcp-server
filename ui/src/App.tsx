@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { api, remember, stored, terminal } from './api';
 import type { Confirmation, Profile, Run, RunEvent } from './api';
+import ModelPicker from './ModelPicker';
 import './styles.css';
 
 const statusNames: Record<string, string> = {
@@ -35,13 +36,12 @@ function Connections({ profiles, selected, onSaved, onClose }: {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const [models, setModels] = useState<string[]>([]);
   const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => { closeButton.current?.focus(); }, []);
 
   function edit(id: string) {
     setEditing(id); setForm(profiles.find(p => p.id === id) ?? blank);
-    setKey(''); setClearKey(false); setError(''); setNotice(''); setModels([]);
+    setKey(''); setClearKey(false); setError(''); setNotice('');
   }
   async function save(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
@@ -56,16 +56,11 @@ function Connections({ profiles, selected, onSaved, onClose }: {
       await onSaved(result.id); setNotice('Подключение сохранено');
     } catch (error) { setError(errorText(error)); } finally { setBusy(false); }
   }
-  async function probe(loadModels: boolean) {
+  async function probe() {
     setBusy(true); setError(''); setNotice('');
     try {
-      if (loadModels) {
-        setModels(await api<string[]>(`/models?profile_id=${encodeURIComponent(editing)}`));
-        setNotice('Список загружен. Можно также ввести имя модели вручную.');
-      } else {
-        const result = await api<{ message: string }>(`/profiles/${editing}/test`, { method: 'POST' });
-        setNotice(result.message);
-      }
+      const result = await api<{ message: string }>(`/profiles/${editing}/test`, { method: 'POST' });
+      setNotice(result.message);
     } catch (error) { setError(errorText(error)); } finally { setBusy(false); }
   }
   async function remove() {
@@ -88,9 +83,8 @@ function Connections({ profiles, selected, onSaved, onClose }: {
           onChange={e => setForm({ ...form, name: e.target.value })} /></label>
         <label>Адрес API<input required type="url" value={form.base_url} placeholder="https://api.example.com/v1"
           onChange={e => setForm({ ...form, base_url: e.target.value, local: localAddress(e.target.value) })} /></label>
-        <label>Имя модели<input required list="model-list" value={form.model}
-          onChange={e => setForm({ ...form, model: e.target.value })} /></label>
-        <datalist id="model-list">{models.map(name => <option key={name} value={name} />)}</datalist>
+        <ModelPicker baseUrl={form.base_url} profileId={editing} value={form.model} disabled={busy}
+          apiKey={clearKey ? '' : key || undefined} onChange={model => setForm({ ...form, model })} />
         <label>Ключ API<input type="password" autoComplete="new-password" value={key}
           placeholder={profiles.find(p => p.id === editing)?.has_key ? 'Ключ сохранён. Оставьте пустым, чтобы сохранить его.' : 'Для локального API необязателен'}
           onChange={e => { setKey(e.target.value); setClearKey(false); }} /></label>
@@ -104,8 +98,7 @@ function Connections({ profiles, selected, onSaved, onClose }: {
         {notice ? <p role="status" className="notice">{notice}</p> : null}
         {error ? <p role="alert" className="error">{error}</p> : null}
         <div className="actions"><button className="primary" disabled={busy} type="submit">Сохранить подключение</button>
-          <button disabled={busy || !editing} type="button" onClick={() => probe(false)}>Проверить подключение</button>
-          <button disabled={busy || !editing} type="button" onClick={() => probe(true)}>Загрузить модели</button>
+          <button disabled={busy || !editing} type="button" onClick={probe}>Проверить подключение</button>
           <button className="danger" disabled={busy || !editing} type="button" onClick={remove}>Удалить подключение</button>
         </div>
       </form>
