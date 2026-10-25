@@ -1,0 +1,302 @@
+import asyncio
+import json
+
+import pytest
+from fastapi.testclient import TestClient
+
+from tests.web_fixture import Backend
+
+
+@pytest.fixture
+def api(tmp_path):
+    from cadnext.app import create_app
+
+    backend = Backend(tmp_path)
+    app = create_app(settings=backend.settings, mcp_factory=backend.mcp,
+                     provider_factory=backend.provider)
+    with TestClient(app, base_url="http://127.0.0.1:8876", raise_server_exceptions=False) as client:
+        yield client, backend
+
+
+def profile(client, **changes):
+    response = client.post("/api/profiles", json={"name": "Тест", "base_url": "http://localhost/v1",
+        "model": "fake-model", **changes})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def start(client, profile_id, message="Прочитай размер", **changes):
+    return client.post("/api/runs", json={"session_id": "session-1", "profile_id": profile_id,
+                                          "message": message, **changes})
+
+
+def wait(client, run_id):
+    async def finish():
+        await asyncio.wait_for(client.app.state.agent.wait(run_id), 3)
+    client.portal.call(finish)
+    return client.get(f"/api/runs/{run_id}").json()
+
+
+def test_health_profiles_crud_and_secret_never_returned(api):
+    client, backend = api
+    assert backend.mcp_entered
+    assert client.get("/api/health").json()["ok"]
+    saved = profile(client, api_key="private-test-key")
+    assert saved["has_key"]
+    assert "private-test-key" not in str(saved)
+    assert "api_key" not in saved
+    assert client.get("/api/profiles").json() == [saved]
+    updated = client.put(f'/api/profiles/{saved["id"]}', json={"model": "manual"})
+    assert updated.json()["model"] == "manual"
+    assert updated.json()["has_key"]
+    assert client.delete(f'/api/profiles/{saved["id"]}').status_code == 204
+    assert client.get("/api/profiles").json() == []
+    assert backend.settings.secret(saved["id"]) is None
+
+
+def test_only_one_run_and_status_get_never_reexecutes(api):
+    client, backend = api
+    saved = profile(client)
+    started = start(client, saved["id"], "Читай долго")
+    assert started.status_code == 202
+    run_id = started.json()["id"]
+    client.portal.call(backend.entered.wait)
+    assert start(client, saved["id"]).status_code == 409
+    for _ in range(3):
+        assert client.get(f"/api/runs/{run_id}").json()["id"] == run_id
+    assert len(backend.calls) == 1
+    assert client.get("/api/health").json()["active_run_id"] == run_id
+    assert len(client.get("/api/runs?session_id=session-1").json()) == 1
+    client.post(f"/api/runs/{run_id}/stop")
+    client.portal.call(backend.release.set)
+    assert wait(client, run_id)["status"] == "stopped"
+    assert len(backend.calls) == 1
+
+
+def test_bad_confirmation_id_is_rejected_and_exact_code_is_shown(api):
+    client, backend = api
+    run_id = start(client, profile(client)["id"], "Выполни код").json()["id"]
+
+    async def pending():
+        async with asyncio.timeout(2):
+            while client.app.state.agent.get(run_id).confirmation is None:
+                await asyncio.sleep(0)
+    client.portal.call(pending)
+    snapshot = client.get(f"/api/runs/{run_id}").json()
+    assert snapshot["confirmation"]["code"] == "result = 62\nprint(result)"
+    wrong = client.post(f"/api/runs/{run_id}/confirm", json={"confirmation_id": "wrong", "approved": True})
+    assert wrong.status_code == 409
+    assert backend.calls == []
+    good = client.post(f"/api/runs/{run_id}/confirm", json={
+        "confirmation_id": snapshot["confirmation"]["id"], "approved": False})
+    assert good.status_code == 200
+    assert wait(client, run_id)["status"] == "rejected"
+    assert backend.calls == []
+
+
+def test_run_keeps_original_profile_while_settings_change(api):
+    client, backend = api
+    saved = profile(client)
+    run_id = start(client, saved["id"], "Читай долго").json()["id"]
+    client.portal.call(backend.entered.wait)
+    client.put(f'/api/profiles/{saved["id"]}', json={"model": "changed"})
+    client.portal.call(backend.release.set)
+    assert wait(client, run_id)["status"] == "completed"
+    assert [request["model"] for request in backend.requests] == ["fake-model", "fake-model"]
+
+
+def test_profile_edit_between_snapshot_and_provider_creation_keeps_snapshot(api, monkeypatch):
+    client, backend = api
+    saved = profile(client)
+    original_get = backend.settings.get
+    edit_pending = True
+
+    def concurrent_edit(profile_id):
+        nonlocal edit_pending
+        snapshot = original_get(profile_id)
+        if edit_pending:
+            edit_pending = False
+            backend.settings.save({"model": "changed"}, profile_id)
+        return snapshot
+
+    monkeypatch.setattr(backend.settings, "get", concurrent_edit)
+    run_id = start(client, saved["id"]).json()["id"]
+    assert wait(client, run_id)["status"] == "completed"
+    assert backend.requests[0]["model"] == "fake-model"
+
+
+def test_external_consent_is_scoped_to_session_and_profile_settings(api):
+    client, backend = api
+    saved = profile(client, base_url="https://example.test/v1", vision=True)
+
+    def confirmation(run_id):
+        async def pending():
+            async with asyncio.timeout(2):
+                while client.app.state.agent.get(run_id).confirmation is None:
+                    await asyncio.sleep(0)
+        client.portal.call(pending)
+        return client.get(f"/api/runs/{run_id}").json()["confirmation"]
+
+    run_id = start(client, saved["id"]).json()["id"]
+    approval = confirmation(run_id)
+    assert approval["kind"] == "privacy"
+    assert backend.requests == []
+    client.post(f"/api/runs/{run_id}/confirm", json={
+        "confirmation_id": approval["id"], "approved": True, "images": False})
+    assert wait(client, run_id)["status"] == "completed"
+    run_id = start(client, saved["id"], "Покажи снимок").json()["id"]
+    assert wait(client, run_id)["status"] == "completed"
+    assert "image_url" not in json.dumps(backend.requests)
+
+    for session, changes in [("another", {}), ("session-1", {"model": "changed"})]:
+        if changes:
+            client.put(f'/api/profiles/{saved["id"]}', json=changes)
+        before = len(backend.requests)
+        run_id = start(client, saved["id"], session_id=session).json()["id"]
+        assert confirmation(run_id)["kind"] == "privacy"
+        assert len(backend.requests) == before
+        client.post(f"/api/runs/{run_id}/stop")
+        assert wait(client, run_id)["status"] == "stopped"
+
+
+def test_invalid_payload_and_internal_errors_do_not_expose_secrets(api, monkeypatch):
+    client, backend = api
+    response = client.post("/api/profiles", json={"api_key": {"secret": "private-test-key"}})
+    assert response.status_code == 422
+    assert "private-test-key" not in response.text
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("private-test-key C:\\Company\\secret")
+
+    monkeypatch.setattr(backend.settings, "save", fail)
+    response = client.post("/api/profiles", json={"name": "P", "model": "m", "base_url": "http://localhost/v1"})
+    assert response.status_code == 500
+    assert "private-test-key" not in response.text
+    assert "Company" not in response.text
+
+
+def test_models_probe_and_static_page_do_not_touch_cad(api):
+    client, backend = api
+    saved = profile(client)
+    assert client.get("/api/models", params={"profile_id": saved["id"]}).json() == ["fake-model"]
+    assert client.post(f'/api/profiles/{saved["id"]}/test').json()["ok"]
+    assert backend.calls == []
+    assert client.get("/api/nonexistent").status_code == 404
+
+
+def test_sse_replay_uses_ids_and_last_event_id_without_new_calls(api):
+    client, backend = api
+    run_id = start(client, profile(client)["id"]).json()["id"]
+    snapshot = wait(client, run_id)
+    response = client.get(f"/api/runs/{run_id}/events", headers={"Last-Event-ID": "2"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    data = [json.loads(line.removeprefix("data: ")) for line in response.text.splitlines()
+            if line.startswith("data: ")]
+    assert [event["seq"] for event in data] == list(range(3, len(snapshot["events"]) + 1))
+    assert len(backend.calls) == 1
+    assert client.get(f"/api/runs/{run_id}/events?after=9999").status_code == 422
+
+
+def test_foreign_origin_and_host_are_blocked(api):
+    client, _ = api
+    response = client.post("/api/profiles", json={}, headers={"Origin": "https://foreign.test"})
+    assert response.status_code == 403
+    assert client.get("/api/health", headers={"Host": "foreign.test:8876"}).status_code == 400
+
+
+def test_pending_request_stop_covers_both_http_arrival_orders(api):
+    client, backend = api
+    saved = profile(client)
+    assert client.post('/api/requests/closed-first/stop').status_code == 204
+    assert start(client, saved['id'], request_id='closed-first').status_code == 409
+    assert backend.calls == []
+    run_id = start(client, saved['id'], 'Читай долго', request_id='started-first').json()['id']
+    client.portal.call(backend.entered.wait)
+    assert client.post('/api/requests/started-first/stop').status_code == 204
+    client.portal.call(backend.release.set)
+    assert wait(client, run_id)['status'] == 'stopped'
+    assert len(backend.calls) == 1
+    assert start(client, saved['id'], request_id='started-first').status_code == 409
+
+
+def test_provider_is_closed_after_run_and_mcp_lifespan_is_owned(tmp_path):
+    from cadnext.app import create_app
+
+    backend = Backend(tmp_path)
+    app = create_app(settings=backend.settings, mcp_factory=backend.mcp, provider_factory=backend.provider)
+    with TestClient(app, base_url="http://127.0.0.1:8876") as client:
+        run_id = start(client, profile(client)["id"]).json()["id"]
+        wait(client, run_id)
+    assert backend.closed == 1
+    assert backend.mcp_closed
+
+
+def test_main_refuses_occupied_port_before_constructing_application(monkeypatch):
+    import socket
+
+    from cadnext.__main__ import main
+
+    created = []
+    monkeypatch.setattr("cadnext.__main__.create_app", lambda: created.append(True))
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 8876))
+        listener.listen()
+        with pytest.raises(SystemExit):
+            main()
+    assert created == []
+
+
+async def test_sse_disconnect_without_beacon_waits_for_cad_and_blocks_next_call(tmp_path):
+    import httpx
+
+    from cadnext.app import create_app
+
+    backend = Backend(tmp_path)
+    app = create_app(settings=backend.settings, mcp_factory=backend.mcp, provider_factory=backend.provider)
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
+                                     base_url="http://127.0.0.1:8876") as client:
+            saved = backend.settings.save({"name": "P", "model": "m", "base_url": "http://localhost/v1"})
+            response = await client.post("/api/runs", json={"session_id": "s", "profile_id": saved.id,
+                                                           "message": "Читай долго"})
+            run_id = response.json()["id"]
+            await asyncio.wait_for(backend.entered.wait(), 2)
+            disconnect = asyncio.Event()
+            streamed = asyncio.Event()
+            sent_request = False
+
+            async def receive():
+                nonlocal sent_request
+                if not sent_request:
+                    sent_request = True
+                    return {"type": "http.request", "body": b"", "more_body": False}
+                await disconnect.wait()
+                return {"type": "http.disconnect"}
+
+            async def send(message):
+                if message["type"] == "http.response.body" and message.get("body"):
+                    streamed.set()
+
+            scope = {"type": "http", "asgi": {"version": "3.0", "spec_version": "2.4"},
+                     "http_version": "1.1", "method": "GET", "scheme": "http", "root_path": "",
+                     "path": f"/api/runs/{run_id}/events", "query_string": b"",
+                     "headers": [(b"host", b"127.0.0.1:8876")],
+                     "client": ("127.0.0.1", 43210), "server": ("127.0.0.1", 8876)}
+            stream = asyncio.create_task(app(scope, receive, send))
+            try:
+                await asyncio.wait_for(streamed.wait(), 2)
+                disconnect.set()
+                await asyncio.wait_for(stream, 2)
+                run = app.state.agent.get(run_id)
+                assert run.status == "stopping"
+                assert not run._task.done()
+                assert len(backend.calls) == 1
+            finally:
+                backend.release.set()
+                await asyncio.wait_for(app.state.agent.wait(run_id), 2)
+                if not stream.done():
+                    disconnect.set()
+                    await asyncio.wait_for(stream, 2)
+            assert run.status == "stopped"
+            assert len(backend.calls) == 1

@@ -4,7 +4,7 @@
 
 - Минимальная пересборка `aiforyouself/solidworks-mcp-server` (MIT, upstream-коммит `2ad21ce7581111d55dcc85db9de32f7366d201f7`); самостоятельный репозиторий рядом со старым CAD-Agent, импорт `cad_agent` запрещён.
 - Источники истины: `docs/superpowers/specs/2026-10-25-cad-agent-next-design.md` и `docs/superpowers/plans/2026-10-25-cad-agent-next-implementation.md`. Статус исполнения — `.superpowers/progress.md` (в git не входит).
-- Готовы слой MCP (`solidworks_mcp_server.py`, 27 инструментов, `cadnext/mcp.py`), задача 2 (`cadnext/settings.py`, `provider.py`, `privacy.py`) и задача 3 (`cadnext/agent.py`). Задачи 4–5 (`app`, `ui`, `scripts`) ещё не созданы. Контракты описаны в `docs/models-and-privacy.md` и `docs/agent.md`.
+- Готовы слой MCP (`solidworks_mcp_server.py`, 27 инструментов, `cadnext/mcp.py`), настройки/провайдер/приватность, последовательный агент и задача 4: `cadnext/app.py`, `cadnext/__main__.py`, React-чат в `ui/`. Задача 5 (скрипты запуска и проверка выпуска) ещё не выполнена. Контракты описаны в `docs/models-and-privacy.md`, `docs/agent.md`, `docs/app.md`.
 - `README.md` и `README.ru.md` — унаследованный текст upstream про однофайловый сервер; не считай их описанием текущего состояния.
 
 ## Команды
@@ -15,18 +15,19 @@
 - Без SolidWorks: `... -m pytest -q -m "not live"` (маркер `live` объявлен, живых тестов пока нет)
 - Линт: `.venv\Scripts\python.exe -m ruff check .`; `solidworks_mcp_server.py` исключён из ruff, его проверяй вручную. Типизации/mypy нет.
 - `test_tools_list_over_real_stdio` запускает настоящий сервер через `sys.executable`: pytest должен идти из venv, где установлен `mcp`.
+- API: `.venv\Scripts\python.exe -m pytest tests/test_app.py -q`. UI: в `ui/` — `npm ci`, `npm run build`, `npx playwright test`. Playwright запускает настоящий API/агент/провайдер на 8877 с фиктивными LLM/CAD; SolidWorks и ключи не нужны. Перед тестами нужна свежая сборка UI и установленный Chromium (`npx playwright install chromium`).
 
 ## Запуск и сборка
 
 - Python-сборки нет. Развёртывание окружения с нуля повторяет текущий `.venv`:
   `python -m venv .venv` затем `.venv\Scripts\python.exe -m pip install -r requirements.lock.txt`.
   Lock-файл — точный срез `.venv` (включая pytest/ruff/fastapi/keyring); `requirements.txt` — только runtime upstream-сервера.
-- Сейчас запускается только MCP-сервер по stdio: `.venv\Scripts\python.exe solidworks_mcp_server.py`. Окно он не открывает и к SolidWorks не подключается до первого инструмента; без MCP-клиента просто ждёт JSON-RPC в stdin.
+- MCP-сервер можно запустить отдельно по stdio: `.venv\Scripts\python.exe solidworks_mcp_server.py`. Окно он не открывает и к SolidWorks не подключается до первого инструмента; без MCP-клиента просто ждёт JSON-RPC в stdin.
 - Для ручного запуска выставляй `$env:PYTHONUTF8=1`: иначе русские строки в stderr PowerShell отображаются как мусор (сами логи пишутся в UTF-8).
 - Проверка запуска и каталога без SolidWorks: `.venv\Scripts\python.exe -m pytest tests/test_mcp.py::test_tools_list_over_real_stdio -q`.
 - Подключение внешнего MCP-клиента: `command` — полный путь к `.venv\Scripts\python.exe`, `args` — полный путь к `solidworks_mcp_server.py`. `cadnext/mcp.py` делает это сам через `sys.executable` с окружением `PYTHONUTF8=1`, `SW_MCP_CALL_LOG=off`, `LOCALAPPDATA`.
-- Приложение, UI, порт `127.0.0.1:8876` и скрипты запуска ещё не реализованы: отсутствуют `cadnext/__main__.py`, `cadnext/app.py`, `ui/`, `package.json`, `scripts/`. Не запускай `python -m cadnext` и не ищи npm-сборку.
-- Целевая процедура из плана (после задач 4–5): `setup.bat`/`scripts/setup.ps1` ставят зависимости и собирают UI, `start.bat`/`scripts/start.ps1` поднимают приложение на 8876, `stop` завершает только свои процессы; сборка UI — `npm run build` в `ui/`. До появления этих файлов такие команды не выполняются.
+- После сборки UI: `.venv\Scripts\python.exe -m cadnext`, затем открыть `http://127.0.0.1:8876`. Приложение проверяет и резервирует порт до создания MCP; привязка только к loopback. Ctrl+C штатно останавливает агент и MCP, не отменяя начатую COM-операцию. Браузер автоматически пока не открывается.
+- `setup.bat`/`scripts/setup.ps1`, `start.bat`/`scripts/start.ps1`, `stop` относятся к задаче 5 и пока отсутствуют. Не выполнять их до реализации.
 
 ## Текущее состояние TDD
 
@@ -34,7 +35,7 @@
 - `Profile` неизменяем: запрос удерживает свой снимок настроек. `Provider.complete` сам фильтрует исходящую историю через `PrivacyContext`, сохраняя служебные поля native tools. Передавать ему нужно исходную локальную историю. Перед локальным MCP-вызовом восстанавливай значения аргументов через тот же `PrivacyContext.restore`.
 - Согласие действует внутри контекста диалога и профиля; смена адреса API или модели требует нового контекста. Для облачных изображений нужны и `vision`, и отдельное согласие. Живой LLM-провайдер в задаче 2 не проверялся.
 - `Agent.start(session_id=..., provider=..., message=..., max_calls=80)` синхронно резервирует единственный активный Run и создаёт задачу в текущем event loop. Ожидание — `await agent.wait(run.id)`, штатная остановка — `agent.stop(run.id)`, завершение — `await agent.aclose()`. Не отменяй приватный `run._task`; отмена ожидания `wait` не отменяет CAD.
-- События `agent.events(run.id, after=seq)` возвращаются с возрастающим `seq`; закрытие генератора запрещает следующие шаги, но дожидается исхода уже отправленного COM. HTTP/SSE-адаптер будет в задаче 4. Для API используй `run.snapshot()`, а не изменяемые поля Run.
+- События `agent.events(run.id, after=seq)` возвращаются с возрастающим `seq`; закрытие генератора запрещает следующие шаги, но дожидается исхода уже отправленного COM. HTTP/SSE-адаптер использует `run.snapshot()`, `Last-Event-ID` и событие `update`. Разрыв SSE и `pagehide` вызывают stop. UI передаёт уникальный `request_id`: stop по нему работает даже до получения ответа POST запуска (см. `docs/app.md`).
 - Подтверждение Python связано с точным восстановленным кодом и уникальным ID. `confirm` для согласия на внешнего провайдера поддерживает отдельный `images=True`. Контекст приватности закреплён также за диалогом.
 - Проверяющие MCP-вызовы входят в лимит и резервируются до мутации. `Run.verification` отдельно от `status`: завершённый прогон может иметь `unverified`. Ошибка/таймаут не повторяются; `uncertain` блокирует новые прогоны до перезапуска. 67 сценариев агента автономны, живые мутации/LLM не проверялись.
 

@@ -1,0 +1,337 @@
+import { useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
+import { api, remember, stored, terminal } from './api';
+import type { Confirmation, Profile, Run, RunEvent } from './api';
+import './styles.css';
+
+const statusNames: Record<string, string> = {
+  queued: 'В очереди', running: 'Выполняется', awaiting_confirmation: 'Ожидает подтверждения',
+  stopping: 'Остановка', completed: 'Завершён', stopped: 'Остановлен', failed: 'Ошибка',
+  uncertain: 'Исход неизвестен', limit_reached: 'Достигнут лимит', rejected: 'Отклонён',
+};
+const toolNames: Record<string, string> = {
+  get_dimension: 'Чтение размера', set_dimension: 'Изменение размера', screenshot: 'Снимок',
+  get_feature_tree: 'Чтение дерева', execute_python: 'Python-код', save_document: 'Сохранение',
+};
+const errorText = (error: unknown) => error instanceof Error ? error.message : 'Неизвестная ошибка.';
+const localAddress = (value: string) => {
+  try { const host = new URL(value).hostname; return host === 'localhost' || host === '[::1]' || /^127\./.test(host); }
+  catch { return false; }
+};
+
+function Connections({ profiles, selected, onSaved, onClose }: {
+  profiles: Profile[]; selected: string; onSaved: (id: string) => Promise<void>; onClose: () => void;
+}) {
+  const blank = { name: '', base_url: 'http://127.0.0.1:8080/v1', model: '', vision: false, local: true };
+  const [editing, setEditing] = useState(selected);
+  const [form, setForm] = useState(() => profiles.find(p => p.id === selected) ?? blank);
+  const [key, setKey] = useState('');
+  const [clearKey, setClearKey] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  useEffect(() => { closeButton.current?.focus(); }, []);
+
+  function edit(id: string) {
+    setEditing(id); setForm(profiles.find(p => p.id === id) ?? blank);
+    setKey(''); setClearKey(false); setError(''); setNotice(''); setModels([]);
+  }
+  async function save(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError(''); setNotice('');
+    try {
+      const body = { name: form.name, base_url: form.base_url, model: form.model,
+        local: form.local, vision: form.vision,
+        ...(key || clearKey ? { api_key: clearKey ? '' : key } : {}) };
+      const result = await api<Profile>(editing ? `/profiles/${editing}` : '/profiles', {
+        method: editing ? 'PUT' : 'POST', body: JSON.stringify(body),
+      });
+      setEditing(result.id); setForm(result); setKey(''); setClearKey(false);
+      await onSaved(result.id); setNotice('Подключение сохранено');
+    } catch (error) { setError(errorText(error)); } finally { setBusy(false); }
+  }
+  async function probe(loadModels: boolean) {
+    setBusy(true); setError(''); setNotice('');
+    try {
+      if (loadModels) {
+        setModels(await api<string[]>(`/models?profile_id=${encodeURIComponent(editing)}`));
+        setNotice('Список загружен. Можно также ввести имя модели вручную.');
+      } else {
+        const result = await api<{ message: string }>(`/profiles/${editing}/test`, { method: 'POST' });
+        setNotice(result.message);
+      }
+    } catch (error) { setError(errorText(error)); } finally { setBusy(false); }
+  }
+  async function remove() {
+    setBusy(true); setError('');
+    try { await api(`/profiles/${editing}`, { method: 'DELETE' }); await onSaved(''); edit(''); }
+    catch (error) { setError(errorText(error)); } finally { setBusy(false); }
+  }
+  return <section className="settings panel" aria-label="Подключения моделей">
+    <div className="section-title"><h2>Подключения</h2>
+      <button ref={closeButton} onClick={onClose}>Закрыть настройки</button></div>
+    <p className="muted">OpenAI-совместимый API с вызовами инструментов. Изменения действуют со следующего запроса.</p>
+    <div className="settings-layout">
+      <nav aria-label="Сохранённые подключения">
+        {profiles.map(profile => <button key={profile.id} className={editing === profile.id ? 'selected' : ''}
+          onClick={() => edit(profile.id)}>{profile.name}<small>{profile.model}</small></button>)}
+        <button onClick={() => edit('')}>Новое подключение</button>
+      </nav>
+      <form onSubmit={save}>
+        <label>Название подключения<input required maxLength={200} value={form.name}
+          onChange={e => setForm({ ...form, name: e.target.value })} /></label>
+        <label>Адрес API<input required type="url" value={form.base_url} placeholder="https://api.example.com/v1"
+          onChange={e => setForm({ ...form, base_url: e.target.value, local: localAddress(e.target.value) })} /></label>
+        <label>Имя модели<input required list="model-list" value={form.model}
+          onChange={e => setForm({ ...form, model: e.target.value })} /></label>
+        <datalist id="model-list">{models.map(name => <option key={name} value={name} />)}</datalist>
+        <label>Ключ API<input type="password" autoComplete="new-password" value={key}
+          placeholder={profiles.find(p => p.id === editing)?.has_key ? 'Ключ сохранён. Оставьте пустым, чтобы сохранить его.' : 'Для локального API необязателен'}
+          onChange={e => { setKey(e.target.value); setClearKey(false); }} /></label>
+        {profiles.find(p => p.id === editing)?.has_key ? <label className="check"><input type="checkbox"
+          checked={clearKey} onChange={e => setClearKey(e.target.checked)} />Удалить сохранённый ключ</label> : null}
+        <label className="check"><input type="checkbox" checked={form.vision}
+          onChange={e => setForm({ ...form, vision: e.target.checked })} />Поддержка изображений</label>
+        <label className="check"><input type="checkbox" checked={form.local}
+          onChange={e => setForm({ ...form, local: e.target.checked })} />Локальное подключение</label>
+        <p className="hint">Для внешнего API чат запрашивает согласие перед передачей CAD-данных. Отмечайте сервер локальным, только если доверяете ему.</p>
+        {notice ? <p role="status" className="notice">{notice}</p> : null}
+        {error ? <p role="alert" className="error">{error}</p> : null}
+        <div className="actions"><button className="primary" disabled={busy} type="submit">Сохранить подключение</button>
+          <button disabled={busy || !editing} type="button" onClick={() => probe(false)}>Проверить подключение</button>
+          <button disabled={busy || !editing} type="button" onClick={() => probe(true)}>Загрузить модели</button>
+          <button className="danger" disabled={busy || !editing} type="button" onClick={remove}>Удалить подключение</button>
+        </div>
+      </form>
+    </div>
+  </section>;
+}
+
+function ConfirmationPanel({ confirmation, onAnswer }: {
+  confirmation: Confirmation; onAnswer: (approved: boolean, images: boolean) => Promise<void>;
+}) {
+  const [images, setImages] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const firstButton = useRef<HTMLButtonElement>(null);
+  const python = confirmation.kind === 'python';
+  useEffect(() => { firstButton.current?.focus(); }, []);
+  async function answer(approved: boolean) {
+    setBusy(true);
+    try { await onAnswer(approved, images); } finally { setBusy(false); }
+  }
+  return <section role="dialog" aria-label={python ? 'Подтверждение Python-кода' : 'Передача данных провайдеру'}
+    className="confirmation panel">
+    <div className="eyebrow">Нужно ваше решение</div>
+    <h2>{python ? 'Выполнение Python-кода' : 'Передача CAD-данных'}</h2>
+    {python ? <><p>Код получит доступ к SolidWorks и системе. Проверьте его перед выполнением.</p>
+      <pre tabIndex={0}>{confirmation.code}</pre></> : <><p>Разрешить передачу сообщений и результатов CAD выбранному провайдеру?</p>
+      <p className="endpoint">{confirmation.base_url}</p>
+      <label className="check"><input type="checkbox" disabled={!confirmation.vision} checked={images}
+        onChange={e => setImages(e.target.checked)} />Разрешить передачу изображений</label>
+      <p className="hint">Пути и конфиденциальные строки скрываются в тексте. Содержимое снимков не обезличивается.</p></>}
+    <div className="actions"><button ref={firstButton} className="primary" disabled={busy}
+      onClick={() => answer(true)}>{python ? 'Разрешить выполнение' : 'Разрешить передачу'}</button>
+      <button disabled={busy} onClick={() => answer(false)}>Отклонить</button></div>
+  </section>;
+}
+
+function OperationLog({ events }: { events: RunEvent[] }) {
+  const starts = events.filter(e => e.type === 'tool_start');
+  return <details className="operations"><summary role="button">Журнал операций</summary>
+    {starts.length === 0 ? <p className="muted">Инструменты ещё не вызывались.</p> : starts.map(start => {
+      const id = start.data.tool_call_id;
+      const result = events.filter(e => e.type === 'tool_result' && e.data.tool_call_id === id).at(-1);
+      const value = result?.data.result as { ok?: boolean; uncertain?: boolean; verification?: { status: string } } | undefined;
+      const name = String(start.data.name);
+      return <details key={start.seq}><summary><span>{toolNames[name] ?? 'CAD-операция'} · <code>{name}</code></span>
+        <small>{start.data.verification ? 'Проверка · ' : ''}{result ? (value?.uncertain ? 'Исход неизвестен' : value?.ok ? 'Выполнено' : 'Ошибка') : 'Ожидание'}</small></summary>
+        <pre tabIndex={0}>{JSON.stringify({ arguments: start.data.arguments, result: result?.data.result }, null, 2)}</pre>
+      </details>;
+    })}
+  </details>;
+}
+
+function RunView({ run }: { run: Run }) {
+  return <article className="run" aria-label="Запрос">
+    {run.events.filter(event => ['message', 'image', 'error'].includes(event.type)).map(event => {
+      if (event.type === 'message') return <div key={event.seq}
+        className={`message ${event.data.role === 'user' ? 'user' : 'assistant'}`}>
+        <span className="message-author">{event.data.role === 'user' ? 'Вы' : 'CAD-агент'}</span>
+        <p>{String(event.data.content)}</p></div>;
+      if (event.type === 'image') return <figure key={event.seq}><a target="_blank" rel="noreferrer"
+        href={`data:${event.data.mimeType};base64,${event.data.data}`} download="solidworks.png">
+        <img src={`data:${event.data.mimeType};base64,${event.data.data}`} alt="Снимок SolidWorks" /></a>
+        <figcaption>Снимок из SolidWorks</figcaption></figure>;
+      return <p key={event.seq} className="error">{String(event.data.message)}</p>;
+    })}
+    <div className="run-meta"><span className={`badge ${run.status}`} data-testid="run-status">{statusNames[run.status] ?? run.status}</span>
+      <span>Вызовов: {run.call_count}</span>
+      {run.verification === 'unverified' ? <strong className="warning">Результат требует проверки</strong> : null}
+      {run.verification === 'verified' ? <span>Проверки пройдены</span> : null}
+      {run.verification === 'failed' ? <strong className="error">Проверка не пройдена</strong> : null}
+    </div>
+    {run.status === 'stopping' ? <p className="hint">Ждём исход начатой операции. Следующих шагов не будет; выполненное не откатывается.</p> : null}
+    {run.status === 'uncertain' ? <p className="error">Проверьте SolidWorks и перезапустите приложение. Автоматического повтора не будет.</p> : null}
+    <OperationLog events={run.events} />
+  </article>;
+}
+
+export default function App() {
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [selected, setSelected] = useState(() => stored('profile', ''));
+  const [sessionId, setSessionId] = useState(() => stored('session', crypto.randomUUID()));
+  const [runs, setRuns] = useState<Run[]>([]);
+  const [streamId, setStreamId] = useState('');
+  const [settings, setSettings] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+  const [maxCalls, setMaxCalls] = useState(80);
+  const [sensitive, setSensitive] = useState('');
+  const end = useRef<HTMLDivElement>(null);
+  const pendingRequest = useRef('');
+  const active = runs.find(run => !terminal(run.status));
+  const uncertain = runs.some(run => run.status === 'uncertain');
+  const currentProfile = profiles.find(profile => profile.id === selected);
+
+  function merge(snapshot: Run) {
+    setRuns(previous => {
+      const current = previous.find(run => run.id === snapshot.id);
+      if (current && current.events.length > snapshot.events.length) return previous;
+      return current ? previous.map(run => run.id === snapshot.id ? snapshot : run) : [...previous, snapshot];
+    });
+  }
+  useEffect(() => {
+    let disposed = false;
+    remember('session', sessionId);
+    Promise.all([api<Profile[]>('/profiles'), api<{ active_run_id: string | null }>('/health'),
+      api<Run[]>(`/runs?session_id=${encodeURIComponent(sessionId)}`)])
+      .then(async ([profiles, health, history]) => {
+        if (health.active_run_id && !history.some(run => run.id === health.active_run_id)) {
+          const run = await api<Run>(`/runs/${health.active_run_id}`);
+          history.push(run);
+          if (!disposed) { setSessionId(run.session_id); remember('session', run.session_id); }
+        }
+        if (disposed) return;
+        setProfiles(profiles); setRuns(history);
+        setSelected(previous => profiles.some(p => p.id === previous) ? previous : profiles[0]?.id ?? '');
+        const unfinished = health.active_run_id || history.find(run => !terminal(run.status))?.id;
+        if (unfinished) setStreamId(unfinished);
+      }).catch(error => { if (!disposed) setError(errorText(error)); })
+      .finally(() => { if (!disposed) setLoading(false); });
+    return () => { disposed = true; };
+    // Initial restore only: a new dialogue is an explicit action below.
+  }, []);
+
+  useEffect(() => {
+    const leave = () => {
+      if (pendingRequest.current) navigator.sendBeacon(`/api/requests/${pendingRequest.current}/stop`);
+    };
+    window.addEventListener('pagehide', leave);
+    return () => window.removeEventListener('pagehide', leave);
+  }, []);
+
+  useEffect(() => {
+    if (!streamId) return;
+    let disposed = false;
+    const source = new EventSource(`/api/runs/${streamId}/events`);
+    async function refresh() {
+      try {
+        const snapshot = await api<Run>(`/runs/${streamId}`);
+        if (disposed) return;
+        merge(snapshot);
+        if (terminal(snapshot.status)) source.close();
+      } catch (error) { if (!disposed) setError(errorText(error)); }
+    }
+    source.addEventListener('update', refresh);
+    source.onerror = () => { void refresh(); };
+    const poll = window.setInterval(refresh, 1000);
+    const leave = () => { navigator.sendBeacon(`/api/runs/${streamId}/stop`); };
+    window.addEventListener('pagehide', leave);
+    return () => { disposed = true; source.close(); clearInterval(poll); window.removeEventListener('pagehide', leave); };
+  }, [streamId]);
+
+  useEffect(() => { end.current?.scrollIntoView({ block: 'nearest' }); }, [runs.at(-1)?.events.length]);
+
+  async function reloadProfiles(id: string) {
+    const profiles = await api<Profile[]>('/profiles'); setProfiles(profiles);
+    const selected = id || profiles[0]?.id || ''; setSelected(selected); remember('profile', selected);
+  }
+  async function send(event: FormEvent) {
+    event.preventDefault(); if (sending || active || !selected || !message.trim()) return;
+    setSending(true); setError('');
+    pendingRequest.current = crypto.randomUUID();
+    try {
+      const run = await api<Run>('/runs', { method: 'POST', body: JSON.stringify({
+        session_id: sessionId, profile_id: selected, message, max_calls: maxCalls,
+        request_id: pendingRequest.current,
+        sensitive: sensitive.split('\n').map(s => s.trim()).filter(Boolean),
+      }) });
+      merge(run); setStreamId(run.id); setMessage(''); remember('session', sessionId);
+    } catch (error) { setError(errorText(error)); } finally { setSending(false); }
+  }
+  async function stop() {
+    if (!active) return;
+    try { merge(await api<Run>(`/runs/${active.id}/stop`, { method: 'POST' })); }
+    catch (error) { setError(errorText(error)); }
+  }
+  async function confirm(approved: boolean, images: boolean) {
+    if (!active?.confirmation) return;
+    try { merge(await api<Run>(`/runs/${active.id}/confirm`, { method: 'POST', body: JSON.stringify({
+      confirmation_id: active.confirmation.id, approved, images,
+    }) })); } catch (error) { setError(errorText(error)); }
+  }
+  function newDialogue() {
+    const id = crypto.randomUUID(); setSessionId(id); remember('session', id);
+    setStreamId(''); setRuns([]); setError('');
+  }
+
+  return <div className="shell">
+    <header className="app-header"><div className="brand"><div className="brand-icon" aria-hidden="true">C</div>
+      <div><h1>CAD-Agent-Next</h1><p>Рабочий чат SolidWorks</p></div></div>
+      <div className="header-actions"><span className="local-badge">На этом компьютере</span>
+        <button onClick={() => setSettings(value => !value)}>Подключения</button></div></header>
+    <main>
+      <div className="toolbar"><label>Активное подключение<select value={selected}
+        onChange={e => { setSelected(e.target.value); remember('profile', e.target.value); }} disabled={loading}>
+        <option value="">Выберите подключение</option>{profiles.map(profile => <option key={profile.id}
+          value={profile.id}>{profile.name} · {profile.model}</option>)}</select></label>
+        <button disabled={!!active || sending} onClick={newDialogue}>Новый диалог</button></div>
+      {currentProfile ? <p className="connection-note">{currentProfile.local ? 'Локальная модель' : 'Внешний провайдер'}
+        {' · '}{currentProfile.vision ? 'Принимает изображения' : 'Текстовая модель'}
+        {active ? ' · Текущий запрос сохраняет своё подключение' : ''}</p> : null}
+      {settings ? <Connections profiles={profiles} selected={selected} onSaved={reloadProfiles} onClose={() => setSettings(false)} /> : null}
+      {error ? <p role="alert" className="error panel">{error}</p> : null}
+      <section className="chat panel" aria-label="Чат">
+        {loading ? <p role="status">Загружаем состояние приложения…</p> : null}
+        {!loading && runs.length === 0 ? <div className="empty"><div className="eyebrow">От запроса к модели</div>
+          <h2>Начнём с вашей детали</h2><p>Прочитайте размер, изучите дерево или попросите показать снимок из SolidWorks.</p>
+          {!profiles.length ? <button className="primary" onClick={() => setSettings(true)}>Добавить подключение</button> : null}
+          <p className="hint">SolidWorks должен быть запущен. Действия и их проверки появятся в журнале.</p></div> : null}
+        {runs.map(run => <RunView key={run.id} run={run} />)}
+        {active?.confirmation ? <ConfirmationPanel key={active.confirmation.id}
+          confirmation={active.confirmation} onAnswer={confirm} /> : null}
+        <div ref={end} />
+      </section>
+      <form className="composer panel" onSubmit={send}>
+        <label className="composer-label">Сообщение<textarea rows={3} value={message} maxLength={20000}
+          onChange={e => setMessage(e.target.value)} placeholder="Например: прочитай D1@Эскиз1 и покажи снимок"
+          disabled={loading} /></label>
+        <div className="composer-footer"><span className="hint">Изменения выполняются последовательно. Код требует подтверждения.</span>
+          <div className="actions">{active ? <button type="button" className="danger" onClick={stop}
+            disabled={active.status === 'stopping'}>Остановить</button> : null}
+            <button className="primary" type="submit" disabled={loading || sending || !!active || !selected || !message.trim() || uncertain}>
+              {sending ? 'Отправляем…' : 'Отправить'}</button></div></div>
+        <details className="request-options"><summary>Параметры запроса</summary>
+          <label>Лимит вызовов<input type="number" min={1} max={1000} value={maxCalls}
+            onChange={e => setMaxCalls(Number(e.target.value))} /></label>
+          <label>Конфиденциальные строки<textarea rows={2} value={sensitive}
+            onChange={e => setSensitive(e.target.value)} placeholder="По одной строке, которую нужно скрыть, на каждой строке" /></label>
+        </details>
+      </form>
+    </main>
+    <footer className="app-footer">Локальный чат · Один запрос за раз · Фактические результаты CAD</footer>
+  </div>;
+}
