@@ -124,6 +124,18 @@ test('подтверждение и остановка обозначены от
   await expect(indicator.getByRole('status')).toHaveText('Останавливаем запрос');
 });
 
+test('исправление Python выделено отдельным этапом и счётчиком попыток', async ({ page }) => {
+  const { indicator } = await prepare(page, { status: 'repairing', repair_attempts: 1, events: [
+    event(1, 'message', { role: 'user', content: 'Построй' }),
+    event(2, 'model_start', { number: 1 }),
+    event(3, 'model_end', { number: 1, outcome: 'received' }),
+    event(4, 'repair', { attempt: 1 }),
+    event(5, 'status', { status: 'repairing', message: 'Анализируем ошибку Python' }),
+  ] });
+  await expect(indicator.getByRole('status')).toHaveText('Анализируем ошибку Python; попытка 1 из 2');
+  await expect(indicator).toHaveAttribute('data-running', 'true');
+});
+
 test('отправка вложения показывает этап и размер исходных файлов до ответа API', async ({ page }) => {
   const { indicator } = await prepare(page, { status: 'completed' });
   const profileId = await page.getByLabel('Активное подключение').inputValue();

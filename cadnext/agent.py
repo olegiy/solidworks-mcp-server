@@ -26,10 +26,14 @@ _FEATURE_RESULTS = {"create_sketch": "sketch", "create_base_flange": "feature",
 _NEW_DOCUMENT = {"create_part", "create_assembly"}
 _TREE_FEEDBACK = {"sketch_rectangle", "sketch_circle", "sketch_line", "close_sketch", "rebuild"}
 _TREE_LIMIT = 1000
+_PYTHON_REPAIR_LIMIT = 2
 _SYSTEM = (
     "Ты CAD-агент для SolidWorks. Отвечай по-русски. Используй только доступные инструменты, "
     "их фактические результаты и единицы мм/градусы. Выполняй действия последовательно. "
     "Не повторяй неудачные изменения и не делай автоматический undo. "
+    "Если execute_python вернул известную CAD_ERROR, агент может запросить не более двух "
+    "исправлений: сначала инспектируй состояние, затем выполняй только продолжение; "
+    "неизвестный результат COM не повторяй. "
     "Python-код требует подтверждения один раз для диалога и текущего подключения. "
     "Успех вызова не доказывает корректность геометрии: учитывай поле verification. "
     "Если результат требует проверки, прямо сообщи об этом пользователю."
@@ -44,6 +48,12 @@ class _EndRun(Exception):
     def __init__(self, status, message):
         self.status = status
         self.message = message
+
+
+class _PythonRepair(Exception):
+    def __init__(self, call_id, result):
+        self.call_id = call_id
+        self.result = result
 
 
 @dataclass
@@ -65,6 +75,9 @@ class Run:
     _pending: dict = field(default_factory=dict, repr=False)
     _inflight: bool = field(default=False, repr=False)
     _images: list[dict] = field(default_factory=list, repr=False)
+    repair_attempts: int = 0
+    repairing: bool = False
+    _repair_call_id: str | None = field(default=None, repr=False)
 
     @property
     def done(self):
@@ -85,7 +98,8 @@ class Run:
                          "events": self.events, "stop_requested": self.stop_requested,
                          "confirmation": self.confirmation, "call_count": self.call_count,
                          "max_calls": self.max_calls, "verification": self.verification,
-                         "checks": self.checks, "messages": self.messages})
+                         "checks": self.checks, "messages": self.messages,
+                         "repair_attempts": self.repair_attempts, "repairing": self.repairing})
 
     def _emit(self, event_type: str, **data):
         self.events.append({"seq": len(self.events) + 1, "type": event_type,
@@ -480,6 +494,11 @@ class Agent:
             for image in images:
                 run._emit("image", tool_call_id=call_id, **image)
             run._images.extend(deepcopy(images))
+            value = result.get("value")
+            known_python_error = (isinstance(value, dict) and value.get("error_code") == "CAD_ERROR")
+            if (name == "execute_python" and result.get("ok") is False and
+                    known_python_error and not result.get("uncertain")):
+                raise _PythonRepair(call_id, result)
             self._success(result)
             self._guard(run)
             if mutating:
@@ -488,6 +507,13 @@ class Agent:
                 run.checks[call_id] = {"status": "verified" if verified else "unverified",
                     "message": "Результат подтверждён." if verified else "Выполнено, результат требует проверки.",
                     "evidence": evidence}
+                if name == "execute_python" and run.repairing:
+                    previous = run.checks.get(run._repair_call_id)
+                    if previous and previous.get("status") == "failed":
+                        previous["status"] = "repaired"
+                        previous["message"] = "Ошибка исправлена продолжением; исходный вызов не повторялся."
+                    run.repairing = False
+                    run._repair_call_id = None
         except _EndRun as error:
             if mutating:
                 run.checks[call_id] = {"status": "failed" if error.status == "failed" else "unverified",
@@ -503,6 +529,39 @@ class Agent:
                 content["verification"] = deepcopy(run.checks[call_id])
                 message["content"] = _json(content)
                 run._emit("tool_result", tool_call_id=call_id, name=name, result=content, verification=False)
+
+    @staticmethod
+    def _close_pending(run, *, reason="Вызов не выполнялся: запрос остановлен."):
+        for call_id in run._pending:
+            run.messages.append({"role": "tool", "tool_call_id": call_id,
+                "content": _json({"ok": False, "error": reason,
+                                  "uncertain": False})})
+        run._pending.clear()
+
+    async def _prepare_python_repair(self, run, error):
+        if run.repair_attempts >= _PYTHON_REPAIR_LIMIT:
+            raise _EndRun("failed", "Исправление Python-кода не удалось после двух попыток; повтор остановлен.")
+        run.repair_attempts += 1
+        run.repairing = True
+        run._repair_call_id = error.call_id
+        value = error.result.get("value") if isinstance(error.result, dict) else None
+        details = {key: value.get(key) for key in ("error", "error_code", "python_line", "error_type")
+                   if isinstance(value, dict) and value.get(key) is not None}
+        message = (
+            f"Известная ошибка execute_python. Подготовь исправление, попытка "
+            f"{run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}. "
+            "Не повторяй уже выполненные шаги и не запускай исходный скрипт целиком. "
+            "Сначала используй доступные read-only инструменты или безопасную инспекцию, "
+            "затем вызови execute_python только с минимальным продолжением, исправляющим ошибку. "
+            "Если исправление невозможно, сообщи об этом без нового изменения. "
+            f"Диагностика: {_json(details)}"
+        )
+        run._status("repairing", f"Анализируем ошибку Python; попытка {run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}.")
+        run._emit("repair", attempt=run.repair_attempts, call_id=error.call_id,
+                  message=f"Подготовка исправления Python, попытка {run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}.")
+        self._close_pending(run, reason="Вызов не выполнялся: предыдущий скрипт завершился ошибкой.")
+        self._flush_images(run)
+        run.messages.append({"role": "user", "content": message})
 
     async def _run(self, run, provider):
         try:
@@ -525,13 +584,24 @@ class Agent:
                 if message["content"]:
                     run._emit("message", role="assistant", content=message["content"])
                 if not calls:
+                    if run.repairing:
+                        raise _EndRun("failed", "Модель не предложила исправление Python-кода; запрос остановлен.")
                     run._status("completed", "Запрос завершён. Результат требует проверки."
                                 if run.verification == "unverified" else "Запрос завершён.")
                     break
                 run._pending = {call_id: name for call_id, name, arguments in calls}
+                repair_requested = False
                 for call_id, name, arguments in calls:
                     self._guard(run)
-                    await self._execute(run, provider, catalog, call_id, name, arguments)
+                    try:
+                        await self._execute(run, provider, catalog, call_id, name, arguments)
+                    except _PythonRepair as error:
+                        self._guard(run)
+                        await self._prepare_python_repair(run, error)
+                        repair_requested = True
+                        break
+                if repair_requested:
+                    continue
                 self._flush_images(run)
         except _EndRun as error:
             if error.status in {"failed", "uncertain", "limit_reached"}:
@@ -545,12 +615,10 @@ class Agent:
                       uncertain=False)
             run._status("failed", "Запрос остановлен из-за ошибки.")
         finally:
-            for call_id in run._pending:
-                run.messages.append({"role": "tool", "tool_call_id": call_id,
-                    "content": _json({"ok": False, "error": "Вызов не выполнялся: запрос остановлен.",
-                                      "uncertain": False})})
-            run._pending.clear()
+            self._close_pending(run)
             self._flush_images(run)
+            run.repairing = False
+            run._repair_call_id = None
             self._history[run.session_id] = deepcopy(run.messages)
             run._changed.set()
 

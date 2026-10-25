@@ -11,7 +11,7 @@ import type { PendingActivity, RunContact } from './ActivityIndicator';
 import './styles.css';
 
 const statusNames: Record<string, string> = {
-  queued: 'В очереди', running: 'Выполняется', awaiting_confirmation: 'Ожидает подтверждения',
+  queued: 'В очереди', running: 'Выполняется', repairing: 'Исправление Python-кода', awaiting_confirmation: 'Ожидает подтверждения',
   stopping: 'Остановка', completed: 'Завершён', stopped: 'Остановлен', failed: 'Ошибка',
   uncertain: 'Исход неизвестен', limit_reached: 'Достигнут лимит', rejected: 'Отклонён',
 };

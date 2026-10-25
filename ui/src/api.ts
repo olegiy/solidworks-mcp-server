@@ -16,6 +16,7 @@ export interface Run {
   id: string; session_id: string; profile_id: string; status: string;
   events: RunEvent[]; confirmation: Confirmation | null; call_count: number;
   max_calls: number; verification: string; stop_requested: boolean;
+  repair_attempts?: number; repairing?: boolean;
 }
 export const terminal = (status: string) =>
   ['completed', 'stopped', 'failed', 'uncertain', 'limit_reached', 'rejected'].includes(status);

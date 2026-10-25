@@ -43,6 +43,10 @@ function stageOf(run: Run) {
   if (run.status === 'awaiting_confirmation') {
     return { label: 'Ожидаем подтверждение Python-кода', at: stamp(status), kind: 'confirmation' };
   }
+  if (run.status === 'repairing') {
+    return { label: `Анализируем ошибку Python; попытка ${run.repair_attempts ?? 1} из 2`,
+      at: stamp(status), kind: 'repair' };
+  }
   const latest = latestFirst.find(event => ['model_start', 'model_end', 'tool_start', 'tool_result', 'status'].includes(event.type));
   if (latest?.type === 'model_start') return { label: 'Ожидаем ответ модели', at: stamp(latest), kind: 'model' };
   if (latest?.type === 'model_end') return { label: 'Обрабатываем ответ модели', at: stamp(latest), kind: 'response' };
