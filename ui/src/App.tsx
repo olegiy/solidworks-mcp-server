@@ -201,7 +201,6 @@ export default function App() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [maxCalls, setMaxCalls] = useState(80);
-  const [sensitive, setSensitive] = useState('');
   const end = useRef<HTMLDivElement>(null);
   const pendingRequest = useRef('');
   const active = runs.find(run => !terminal(run.status));
@@ -279,7 +278,6 @@ export default function App() {
       const run = await api<Run>('/runs', { method: 'POST', body: JSON.stringify({
         session_id: sessionId, profile_id: selected, message, max_calls: maxCalls,
         request_id: pendingRequest.current,
-        sensitive: sensitive.split('\n').map(s => s.trim()).filter(Boolean),
       }) });
       merge(run); setStreamId(run.id); setMessage(''); remember('session', sessionId);
     } catch (error) { setError(errorText(error)); } finally { setSending(false); }
@@ -331,7 +329,7 @@ export default function App() {
         <label className="composer-label">Сообщение<textarea rows={3} value={message} maxLength={20000}
           onChange={e => setMessage(e.target.value)} placeholder="Например: прочитай D1@Эскиз1 и покажи снимок"
           disabled={loading} /></label>
-        <div className="composer-footer"><span className="hint">Изменения выполняются последовательно. Код требует подтверждения.</span>
+        <div className="composer-footer">
           <div className="actions">{active ? <button type="button" className="danger" onClick={stop}
             disabled={active.status === 'stopping'}>Остановить</button> : null}
             <button className="primary" type="submit" disabled={loading || sending || !!active || !selected || !message.trim() || uncertain}>
@@ -339,11 +337,8 @@ export default function App() {
         <details className="request-options"><summary>Параметры запроса</summary>
           <label>Лимит вызовов<input type="number" min={1} max={1000} value={maxCalls}
             onChange={e => setMaxCalls(Number(e.target.value))} /></label>
-          <label>Конфиденциальные строки<textarea rows={2} value={sensitive}
-            onChange={e => setSensitive(e.target.value)} placeholder="По одной строке, которую нужно скрыть, на каждой строке" /></label>
         </details>
       </form>
     </main>
-    <footer className="app-footer">Локальный чат · Один запрос за раз · Фактические результаты CAD</footer>
   </div>;
 }

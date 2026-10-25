@@ -55,8 +55,7 @@ summary { cursor: pointer; color: #48664f; padding: 7px 0; }
 .composer { padding: 18px; margin-top: 18px; }
 .composer textarea { background: #fbfcf9; }
 .composer-label { font-size: 12px; }
-.composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 12px; }
-.composer-footer > .hint { max-width: 420px; }
+.composer-footer { display: flex; align-items: center; justify-content: flex-end; gap: 16px; margin-top: 12px; }
 .request-options { font-size: 12px; margin-top: 8px; }
 .request-options label { margin: 12px 0; }
 .request-options input { max-width: 130px; }
@@ -93,7 +92,6 @@ summary { cursor: pointer; color: #48664f; padding: 7px 0; }
 figure { margin: 18px 0; }
 figure img { max-width: 100%; max-height: 440px; min-width: 50px; min-height: 50px; border: 1px solid #d9e3d4; border-radius: 7px; object-fit: contain; }
 figcaption { font-size: 12px; color: #6b7a6d; margin-top: 5px; }
-.app-footer { font-size: 11px; color: #7f897b; padding: 24px 0; text-align: center; }
 @media (max-width: 640px) {
   .shell { padding: 0 14px; }
   .app-header { padding: 18px 0; gap: 10px; }
