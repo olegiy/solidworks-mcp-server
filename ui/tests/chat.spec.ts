@@ -34,16 +34,24 @@ test('сохранить подключение, получить CAD-резул
   await expect(page.getByText('screenshot', { exact: true })).toBeVisible();
 });
 
-test('каждый Python-код нужно подтвердить, отказ не выполняет код', async ({ page }) => {
+test('Python подтверждается один раз за диалог, новый диалог снова спрашивает', async ({ page }) => {
   await page.goto('/');
   await connection(page, 'Код');
   await send(page, 'Выполни код');
   const dialog = page.getByRole('dialog', { name: 'Подтверждение Python-кода' });
   await expect(dialog.getByText('result = 62\nprint(result)', { exact: true })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Разрешить выполнение' }).click();
+  await dialog.getByRole('button', { name: 'Разрешить в этом диалоге' }).click();
   await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
   await expect(page.getByText('Результат требует проверки', { exact: true }).last()).toBeVisible();
   await send(page, 'Ещё код');
+  await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  await expect(dialog).toHaveCount(0);
+  await page.reload();
+  await send(page, 'Продолжи код');
+  await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole('button', { name: 'Новый диалог', exact: true }).click();
+  await send(page, 'Другой код');
   await expect(dialog).toBeVisible();
   await dialog.getByRole('button', { name: 'Отклонить' }).click();
   await expect(page.getByTestId('run-status').last()).toHaveText('Отклонён');
@@ -62,17 +70,14 @@ test('остановка во время CAD и обновление стран�
   await expect(page.getByText('Вызовов: 1', { exact: true }).last()).toBeVisible();
 });
 
-test('облачные данные и изображения требуют отдельного согласия, узкий экран доступен', async ({ page }) => {
+test('облачные данные отправляются без подтверждения, узкий экран доступен', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('/');
   await connection(page, 'Облако', true);
   await send(page, 'Покажи снимок');
-  const dialog = page.getByRole('dialog', { name: 'Передача данных провайдеру' });
-  await expect(dialog.getByText('https://example.test/v1', { exact: true })).toBeVisible();
-  await expect(dialog.getByLabel('Разрешить передачу изображений')).not.toBeChecked();
-  await dialog.getByRole('button', { name: 'Разрешить передачу' }).click();
   await expect(page.getByRole('img', { name: 'Снимок SolidWorks' })).toBeVisible();
   await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  await expect(page.getByRole('dialog', { name: 'Передача данных провайдеру' })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBeTruthy();
   await expect(page.getByLabel('Сообщение')).toBeInViewport();
 });
@@ -127,7 +132,7 @@ test('восстановление обновляет незавершённый
   await expect(page.getByRole('button', { name: 'Остановить', exact: true })).toHaveCount(0);
 });
 
-test('DNS-имя с префиксом 127 требует согласия как внешний провайдер', async ({ page }) => {
+test('DNS-имя с префиксом 127 остаётся внешним провайдером без запроса согласия', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByRole('button', { name: 'Новое подключение' }).click();
@@ -138,5 +143,7 @@ test('DNS-имя с префиксом 127 требует согласия ка�
   await expect(page.getByRole('status').filter({ hasText: 'Подключение сохранено' })).toBeVisible();
   await page.getByRole('button', { name: 'Закрыть настройки' }).click();
   await send(page, 'Прочитай размер');
-  await expect(page.getByRole('dialog', { name: 'Передача данных провайдеру' })).toBeVisible();
+  await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  await expect(page.getByText('Внешний провайдер', { exact: false })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Передача данных провайдеру' })).toHaveCount(0);
 });

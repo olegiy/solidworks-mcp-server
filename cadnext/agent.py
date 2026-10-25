@@ -14,7 +14,6 @@ from uuid import uuid4
 from jsonschema import Draft202012Validator
 from referencing import Registry
 
-from cadnext.privacy import ConsentRequired
 from cadnext.provider import ProviderError
 
 _LOG = logging.getLogger(__name__)
@@ -30,7 +29,7 @@ _SYSTEM = (
     "Ты CAD-агент для SolidWorks. Отвечай по-русски. Используй только доступные инструменты, "
     "их фактические результаты и единицы мм/градусы. Выполняй действия последовательно. "
     "Не повторяй неудачные изменения и не делай автоматический undo. "
-    "Python-код требует отдельного подтверждения пользователя. "
+    "Python-код требует подтверждения один раз для диалога и текущего подключения. "
     "Успех вызова не доказывает корректность геометрии: учитывай поле verification. "
     "Если результат требует проверки, прямо сообщи об этом пользователю."
 )
@@ -118,6 +117,7 @@ class Agent:
         self.mcp = mcp
         self.runs: dict[str, Run] = {}
         self._history: dict[str, list[dict]] = {}
+        self._python_approved: set[tuple] = set()
         self._active: Run | None = None
         self._uncertain = False
         self._closed = False
@@ -138,6 +138,7 @@ class Agent:
         provider.privacy.bind_session(session_id)
         profile = provider.profile
         provider.privacy.bind_profile(profile.id, base_url=profile.base_url, model=profile.model)
+        provider.privacy.grant(session_id=session_id, profile_id=profile.id, images=profile.vision)
         messages = deepcopy(self._history.get(session_id, [{"role": "system", "content": _SYSTEM}]))
         messages.append({"role": "user", "content": message})
         run = Run(session_id=session_id, profile_id=profile.id, messages=messages, max_calls=max_calls)
@@ -227,21 +228,12 @@ class Agent:
             run._answer = None
 
     async def _model(self, run, provider, tools):
-        while True:
-            self._guard(run)
-            if len(_json(run.messages).encode("utf-8")) > self.max_history_bytes:
-                raise _EndRun("failed", "История превысила лимит контекста. Начните новый диалог.")
-            try:
-                result = await provider.complete(deepcopy(run.messages), deepcopy(tools))
-            except ConsentRequired:
-                images = await self._confirmation(run, "privacy", profile_id=run.profile_id,
-                    base_url=provider.profile.base_url, vision=provider.profile.vision,
-                    message="Разрешить передачу CAD-данных выбранному внешнему провайдеру?")
-                provider.privacy.grant(session_id=run.session_id, profile_id=run.profile_id,
-                                       images=images)
-                continue
-            self._guard(run)
-            return result
+        self._guard(run)
+        if len(_json(run.messages).encode("utf-8")) > self.max_history_bytes:
+            raise _EndRun("failed", "История превысила лимит контекста. Начните новый диалог.")
+        result = await provider.complete(deepcopy(run.messages), deepcopy(tools))
+        self._guard(run)
+        return result
 
     @staticmethod
     def _catalog(tools):
@@ -428,8 +420,12 @@ class Agent:
         evidence = []
         before = None
         if name == "execute_python":
-            await self._confirmation(run, "python", tool_call_id=call_id, code=arguments["code"],
-                message="Выполнить этот точный Python-код? Код имеет доступ к SolidWorks и системе.")
+            scope = (run.session_id, provider.profile)
+            if scope not in self._python_approved:
+                await self._confirmation(run, "python", tool_call_id=call_id, code=arguments["code"],
+                    message="Разрешить Python-код в этом диалоге и подключении? "
+                            "Следующие фрагменты будут выполняться без повторного подтверждения.")
+                self._python_approved.add(scope)
         if name in _FEATURE_RESULTS:
             tree = await self._read(run, catalog, "get_feature_tree", {}, call_id, evidence)
             if len(tree["features"]) >= _TREE_LIMIT:

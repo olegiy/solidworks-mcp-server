@@ -111,7 +111,7 @@ function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCall
           onChange={e => setForm({ ...form, vision: e.target.checked })} />Поддержка изображений</label>
         <label className="check"><input type="checkbox" checked={form.local}
           onChange={e => setForm({ ...form, local: e.target.checked })} />Локальное подключение</label>
-        <p className="hint">Для внешнего API чат запрашивает согласие перед передачей CAD-данных. Отмечайте сервер локальным, только если доверяете ему.</p>
+        <p className="hint">Данные отправляются выбранному API. Изображения передаются при включённой поддержке изображений. Отмечайте сервер локальным, только если доверяете ему.</p>
         {notice ? <p role="status" className="notice">{notice}</p> : null}
         {error ? <p role="alert" className="error">{error}</p> : null}
         <div className="actions"><button className="primary" disabled={busy} type="submit">Сохранить подключение</button>
@@ -129,29 +129,23 @@ function Connections({ profiles, selected, onSaved, onClose, maxCalls, onMaxCall
 }
 
 function ConfirmationPanel({ confirmation, onAnswer }: {
-  confirmation: Confirmation; onAnswer: (approved: boolean, images: boolean) => Promise<void>;
+  confirmation: Confirmation; onAnswer: (approved: boolean) => Promise<void>;
 }) {
-  const [images, setImages] = useState(false);
   const [busy, setBusy] = useState(false);
   const firstButton = useRef<HTMLButtonElement>(null);
-  const python = confirmation.kind === 'python';
   useEffect(() => { firstButton.current?.focus(); }, []);
   async function answer(approved: boolean) {
     setBusy(true);
-    try { await onAnswer(approved, images); } finally { setBusy(false); }
+    try { await onAnswer(approved); } finally { setBusy(false); }
   }
-  return <section role="dialog" aria-label={python ? 'Подтверждение Python-кода' : 'Передача данных провайдеру'}
+  return <section role="dialog" aria-label="Подтверждение Python-кода"
     className="confirmation panel">
     <div className="eyebrow">Нужно ваше решение</div>
-    <h2>{python ? 'Выполнение Python-кода' : 'Передача CAD-данных'}</h2>
-    {python ? <><p>Код получит доступ к SolidWorks и системе. Проверьте его перед выполнением.</p>
-      <pre tabIndex={0}>{confirmation.code}</pre></> : <><p>Разрешить передачу сообщений и результатов CAD выбранному провайдеру?</p>
-      <p className="endpoint">{confirmation.base_url}</p>
-      <label className="check"><input type="checkbox" disabled={!confirmation.vision} checked={images}
-        onChange={e => setImages(e.target.checked)} />Разрешить передачу изображений</label>
-      <p className="hint">Пути и конфиденциальные строки скрываются в тексте. Содержимое снимков не обезличивается.</p></>}
+    <h2>Выполнение Python-кода</h2>
+    <p>Разрешить выполнение Python-кода в этом диалоге для выбранного подключения? Следующие фрагменты будут выполняться без повторного вопроса. Код имеет доступ к SolidWorks и системе.</p>
+    <pre tabIndex={0}>{confirmation.code}</pre>
     <div className="actions"><button ref={firstButton} className="primary" disabled={busy}
-      onClick={() => answer(true)}>{python ? 'Разрешить выполнение' : 'Разрешить передачу'}</button>
+      onClick={() => answer(true)}>Разрешить в этом диалоге</button>
       <button disabled={busy} onClick={() => answer(false)}>Отклонить</button></div>
   </section>;
 }
@@ -295,10 +289,10 @@ export default function App() {
     try { merge(await api<Run>(`/runs/${active.id}/stop`, { method: 'POST' })); }
     catch (error) { setError(errorText(error)); }
   }
-  async function confirm(approved: boolean, images: boolean) {
+  async function confirm(approved: boolean) {
     if (!active?.confirmation) return;
     try { merge(await api<Run>(`/runs/${active.id}/confirm`, { method: 'POST', body: JSON.stringify({
-      confirmation_id: active.confirmation.id, approved, images,
+      confirmation_id: active.confirmation.id, approved,
     }) })); } catch (error) { setError(errorText(error)); }
   }
   function newDialogue() {

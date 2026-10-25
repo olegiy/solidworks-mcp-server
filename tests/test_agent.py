@@ -1,6 +1,7 @@
 import asyncio
 import json
 from copy import deepcopy
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -242,9 +243,8 @@ async def test_default_limit_is_80_calls_and_checks_are_reserved_before_mutation
     assert mcp.calls == []
 
 
-@pytest.mark.parametrize("vision,images,allowed", [(True, False, False), (False, True, False),
-                                                  (True, True, True)])
-async def test_real_provider_image_gate_and_path_restore(vision, images, allowed):
+@pytest.mark.parametrize("vision", [False, True])
+async def test_real_provider_sends_without_data_prompt_and_keeps_vision_gate(vision):
     from cadnext.agent import Agent
 
     payloads = []
@@ -267,14 +267,11 @@ async def test_real_provider_image_gate_and_path_restore(vision, images, allowed
     agent = Agent(mcp)
     try:
         run = agent.start(session_id="s", provider=provider, message=f'Покажи "{path}"')
-        consent = await pending(run)
-        assert consent["kind"] == "privacy"
-        assert payloads == []
-        agent.confirm(run.id, consent["id"], True, images=images)
         await settle(agent, run)
         assert run.status == "completed"
+        assert not any(e["type"] == "confirmation" for e in run.events)
         assert "Company" not in str(payloads)
-        assert ("data:image/png;base64,AAAA" in str(payloads)) is allowed
+        assert ("data:image/png;base64,AAAA" in str(payloads)) is vision
         assert any(e["type"] == "image" and e["data"]["data"] == "AAAA" for e in run.events)
     finally:
         await provider.aclose()
@@ -517,26 +514,55 @@ async def test_event_resume_does_not_execute_tools_again():
     assert len(mcp.calls) == 1
 
 
-async def test_python_gets_new_confirmation_for_every_call():
+async def test_python_approval_covers_different_code_and_followup_in_same_dialogue():
     from cadnext.agent import Agent
 
     model = ScriptedProvider([reply(("a", "execute_python", {"code": "result=1"}),
-                                    ("b", "execute_python", {"code": "result=1"}))])
-    mcp = FakeMcp([("execute_python", ok({"result": "1"}))])
+                                    ("b", "execute_python", {"code": "result=2"})),
+                              reply(content="Готово"),
+                              reply(("c", "execute_python", {"code": "result=3"})), reply(content="Готово")])
+    mcp = FakeMcp([("execute_python", ok({"result": str(i)})) for i in (1, 2, 3)])
     agent = Agent(mcp)
     run = agent.start(session_id="s", provider=model, message="Выполни дважды")
     first = await pending(run)
     agent.confirm(run.id, first["id"], True)
-    async with asyncio.timeout(2):
-        while run.confirmation is not None and run.confirmation["id"] == first["id"]:
-            await asyncio.sleep(0)
-    second = await pending(run)
-    assert second["id"] != first["id"]
+    await settle(agent, run)
+    assert run.status == "completed"
+    assert len([e for e in run.events if e["type"] == "confirmation"]) == 1
+    followup = agent.start(session_id="s", provider=model, message="Продолжи")
+    await settle(agent, followup)
+    assert followup.status == "completed"
+    assert not any(e["type"] == "confirmation" for e in followup.events)
+    assert mcp.calls == [("execute_python", {"code": f"result={i}"}) for i in (1, 2, 3)]
     with pytest.raises(ValueError):
         agent.confirm(run.id, first["id"], True)
-    agent.confirm(run.id, second["id"], False)
+
+
+@pytest.mark.parametrize("change", ["dialogue", "profile", "endpoint", "model", "restart"])
+async def test_python_approval_does_not_cross_scope_or_restart(change):
+    from cadnext.agent import Agent
+
+    first = ScriptedProvider([reply(("a", "execute_python", {"code": "result=1"})), reply(content="Готово")])
+    mcp = FakeMcp([("execute_python", ok({"result": "1"}))])
+    agent = Agent(mcp)
+    run = agent.start(session_id="s", provider=first, message="Код")
+    confirmation = await pending(run)
+    agent.confirm(run.id, confirmation["id"], True)
     await settle(agent, run)
-    assert run.status == "rejected"
+    if change == "restart":
+        agent = Agent(mcp)
+    next_provider = ScriptedProvider([reply(("b", "execute_python", {"code": "result=2"}))])
+    changes = {"profile": {"id": "different"}, "endpoint": {"base_url": "http://localhost/v2"},
+               "model": {"model": "different"}}.get(change, {})
+    next_provider.profile = replace(first.profile, **changes)
+    next_provider.privacy = PrivacyContext(local=True, profile_id=next_provider.profile.id)
+    next_run = agent.start(session_id="another" if change == "dialogue" else "s",
+                           provider=next_provider, message="Другой код")
+    confirmation = await pending(next_run)
+    assert confirmation["code"] == "result=2"
+    agent.confirm(next_run.id, confirmation["id"], False)
+    await settle(agent, next_run)
+    assert next_run.status == "rejected"
     assert len(mcp.calls) == 1
 
 
@@ -754,25 +780,25 @@ async def test_provider_error_does_not_retry_or_call_mcp():
     assert mcp.calls == []
 
 
-async def test_rejecting_remote_consent_sends_nothing():
+async def test_remote_message_is_sent_without_data_confirmation_and_still_masked():
     from cadnext.agent import Agent
 
     requests = []
 
     def respond(request):
         requests.append(request)
-        return httpx.Response(200, json={})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "Готово"}, "finish_reason": "stop"}]})
 
     profile = Profile(name="Облако", base_url="https://example.test/v1", model="m")
     provider = Provider(profile, transport=httpx.MockTransport(respond))
     agent = Agent(FakeMcp())
     try:
-        run = agent.start(session_id="s", provider=provider, message="Прочитай модель")
-        confirmation = await pending(run)
-        agent.confirm(run.id, confirmation["id"], False)
+        run = agent.start(session_id="s", provider=provider, message=r"Прочитай C:\Company\part.sldprt")
         await settle(agent, run)
-        assert run.status == "rejected"
-        assert requests == []
+        assert run.status == "completed"
+        assert len(requests) == 1
+        assert "Company" not in requests[0].content.decode()
+        assert not any(e["type"] == "confirmation" for e in run.events)
     finally:
         await provider.aclose()
 

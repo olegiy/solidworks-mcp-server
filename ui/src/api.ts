@@ -4,8 +4,7 @@ export interface Profile {
   reasoning_effort: string | null;
 }
 export interface Confirmation {
-  id: string; kind: 'privacy' | 'python'; code?: string;
-  base_url?: string; vision?: boolean; message: string;
+  id: string; kind: 'python'; code?: string; message: string;
 }
 export interface RunEvent {
   seq: number; type: string; data: Record<string, unknown>;

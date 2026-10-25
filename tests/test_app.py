@@ -139,38 +139,22 @@ def test_profile_edit_between_snapshot_and_provider_creation_keeps_snapshot(api,
     assert backend.requests[0]["model"] == "fake-model"
 
 
-def test_external_consent_is_scoped_to_session_and_profile_settings(api):
+@pytest.mark.parametrize("vision", [False, True])
+def test_external_requests_do_not_prompt_and_images_follow_profile_vision(api, vision):
     client, backend = api
-    saved = profile(client, base_url="https://example.test/v1", vision=True)
-
-    def confirmation(run_id):
-        async def pending():
-            async with asyncio.timeout(2):
-                while client.app.state.agent.get(run_id).confirmation is None:
-                    await asyncio.sleep(0)
-        client.portal.call(pending)
-        return client.get(f"/api/runs/{run_id}").json()["confirmation"]
-
-    run_id = start(client, saved["id"]).json()["id"]
-    approval = confirmation(run_id)
-    assert approval["kind"] == "privacy"
-    assert backend.requests == []
-    client.post(f"/api/runs/{run_id}/confirm", json={
-        "confirmation_id": approval["id"], "approved": True, "images": False})
-    assert wait(client, run_id)["status"] == "completed"
-    run_id = start(client, saved["id"], "Покажи снимок").json()["id"]
-    assert wait(client, run_id)["status"] == "completed"
-    assert "image_url" not in json.dumps(backend.requests)
-
-    for session, changes in [("another", {}), ("session-1", {"model": "changed"})]:
+    saved = profile(client, base_url="https://example.test/v1", vision=vision)
+    for session, changes in [("session-1", {}), ("another", {}), ("session-1", {"model": "changed"})]:
         if changes:
             client.put(f'/api/profiles/{saved["id"]}', json=changes)
-        before = len(backend.requests)
-        run_id = start(client, saved["id"], session_id=session).json()["id"]
-        assert confirmation(run_id)["kind"] == "privacy"
-        assert len(backend.requests) == before
-        client.post(f"/api/runs/{run_id}/stop")
-        assert wait(client, run_id)["status"] == "stopped"
+        run_id = start(client, saved["id"], r"Покажи снимок C:\Company\part.sldprt private-project",
+                       session_id=session, sensitive=["private-project"]).json()["id"]
+        result = wait(client, run_id)
+        assert result["status"] == "completed"
+        assert not any(event["type"] == "confirmation" for event in result["events"])
+    outgoing = json.dumps(backend.requests)
+    assert ("image_url" in outgoing) is vision
+    assert "Company" not in outgoing
+    assert "private-project" not in outgoing
 
 
 def test_invalid_payload_and_internal_errors_do_not_expose_secrets(api, monkeypatch):
