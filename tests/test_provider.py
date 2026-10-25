@@ -4,6 +4,31 @@ import httpx
 import pytest
 
 
+@pytest.mark.parametrize("effort", [None, "none", "minimal", "low", "medium", "high", "xhigh", "max"])
+async def test_reasoning_effort_is_sent_only_when_selected(effort):
+    from cadnext.provider import Provider
+    from cadnext.settings import Profile
+
+    captured = []
+
+    def respond(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, json={"choices": [{"message": {"content": "Готово"},
+                                                     "finish_reason": "stop"}]})
+
+    profile = Profile(name="P", base_url="http://localhost/v1", model="m", reasoning_effort=effort)
+    provider = Provider(profile, transport=httpx.MockTransport(respond))
+    try:
+        await provider.complete([{"role": "user", "content": "Привет"}], [])
+    finally:
+        await provider.aclose()
+    payload, = captured
+    if effort is None:
+        assert "reasoning_effort" not in payload
+    else:
+        assert payload["reasoning_effort"] == effort
+
+
 async def test_tool_and_image_payload():
     from cadnext.provider import Provider
     from cadnext.settings import Profile

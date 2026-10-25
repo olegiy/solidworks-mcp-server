@@ -18,7 +18,7 @@ from cadnext.agent import Agent, AgentBusy
 from cadnext.mcp import ROOT, SolidWorksMcp
 from cadnext.privacy import PrivacyContext
 from cadnext.provider import Provider, ProviderError
-from cadnext.settings import Profile, SettingsStore
+from cadnext.settings import Profile, ReasoningEffort, SettingsStore
 
 
 class ProfileBody(BaseModel):
@@ -26,6 +26,7 @@ class ProfileBody(BaseModel):
     name: str | None = Field(default=None, max_length=200)
     base_url: str | None = Field(default=None, max_length=2000)
     model: str | None = Field(default=None, max_length=300)
+    reasoning_effort: ReasoningEffort | None = None
     vision: bool = False
     local: bool | None = None
     api_key: SecretStr | None = None

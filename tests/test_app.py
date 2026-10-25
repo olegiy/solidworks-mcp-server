@@ -54,6 +54,20 @@ def test_health_profiles_crud_and_secret_never_returned(api):
     assert backend.settings.secret(saved["id"]) is None
 
 
+def test_profile_api_saves_reasoning_and_probe_uses_it(api):
+    client, backend = api
+    saved = profile(client, reasoning_effort="max")
+    assert saved["reasoning_effort"] == "max"
+    assert client.get(f'/api/profiles/{saved["id"]}').json()["reasoning_effort"] == "max"
+    assert client.post(f'/api/profiles/{saved["id"]}/test').json()["ok"]
+    assert backend.requests[-1]["reasoning_effort"] == "max"
+    assert client.put(f'/api/profiles/{saved["id"]}', json={"model": "changed"}).json()["reasoning_effort"] == "max"
+    invalid = client.put(f'/api/profiles/{saved["id"]}', json={"reasoning_effort": "unknown"})
+    assert invalid.status_code == 422
+    assert client.get(f'/api/profiles/{saved["id"]}').json()["reasoning_effort"] == "max"
+    assert client.put(f'/api/profiles/{saved["id"]}', json={"reasoning_effort": None}).json()["reasoning_effort"] is None
+
+
 def test_only_one_run_and_status_get_never_reexecutes(api):
     client, backend = api
     saved = profile(client)

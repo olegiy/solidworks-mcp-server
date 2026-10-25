@@ -30,8 +30,8 @@ export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChang
     if (open && active >= 0) list.current?.children[active]?.scrollIntoView({ block: 'nearest' });
   }, [active, open]);
 
-  async function load(refresh = false) {
-    if (request.current || (loaded.current && !refresh)) return;
+  async function load() {
+    if (request.current || loaded.current) return;
     const controller = new AbortController();
     request.current = controller; setLoading(true); setError('');
     try {
@@ -106,9 +106,5 @@ export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChang
     </div>
     <p id={`${id}-hint`} className="hint">Поиск по названию при вводе. Выбор: ↑ ↓ и Enter.</p>
     {error ? <p role="alert" className="error">{error} Имя модели можно ввести вручную.</p> : null}
-    <button type="button" className="model-refresh" disabled={disabled || loading}
-      onClick={() => {
-        input.current?.focus(); setOpen(true); setQuery(''); setActive(-1); void load(true);
-      }}>Загрузить модели</button>
   </div>;
 }

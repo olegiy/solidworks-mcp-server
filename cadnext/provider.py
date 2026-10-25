@@ -63,6 +63,8 @@ class Provider:
 
     async def complete(self, messages, tools) -> dict:
         payload = {"model": self.profile.model, "messages": self.privacy.outgoing_messages(messages)}
+        if self.profile.reasoning_effort is not None:
+            payload["reasoning_effort"] = self.profile.reasoning_effort
         if tools:
             payload["tools"] = self.privacy.outgoing_tools(tools)
             payload["tool_choice"] = "auto"

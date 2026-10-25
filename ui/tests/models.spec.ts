@@ -13,6 +13,7 @@ test('новое подключение загружает модели при �
   await page.goto('/');
   await page.getByRole('button', { name: 'Подключения', exact: true }).click();
   await page.getByRole('button', { name: 'Новое подключение' }).click();
+  await expect(page.getByRole('button', { name: 'Загрузить модели', exact: true })).toHaveCount(0);
   await page.getByLabel('Адрес API').fill('https://catalog.test/v1');
   await page.getByLabel('Ключ API', { exact: true }).fill('draft-key');
   const model = page.getByRole('combobox', { name: 'Имя модели', exact: true });
@@ -90,10 +91,35 @@ test('ошибка каталога оставляет ручной ввод и 
   await model.fill('manual-model');
   await model.press('Escape');
   await expect(model).toHaveValue('manual-model');
-  await page.getByRole('button', { name: 'Загрузить модели', exact: true }).click();
+  await page.getByRole('button', { name: 'Показать список моделей', exact: true }).click();
   await expect(page.getByRole('option', { name: 'recovered-model' })).toBeVisible();
   await expect(page.getByRole('alert')).toHaveCount(0);
   await model.press('ArrowDown');
   await model.press('Enter');
   await expect(model).toHaveValue('recovered-model');
+});
+
+test('сила рассуждения сохраняется для следующего входа и сбрасывается на настройку API', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await page.getByRole('button', { name: 'Новое подключение' }).click();
+  await page.getByLabel('Название подключения').fill('Сохранённые рассуждения');
+  await page.getByLabel('Имя модели', { exact: true }).fill('fake-model');
+  await page.getByLabel('Имя модели', { exact: true }).press('Escape');
+  const reasoning = page.getByRole('combobox', { name: 'Сила рассуждения', exact: true });
+  await expect(reasoning).toHaveValue('');
+  await reasoning.selectOption('max');
+  await page.getByRole('button', { name: 'Сохранить подключение' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Подключение сохранено' })).toBeVisible();
+  const selected = await page.getByLabel('Активное подключение').inputValue();
+  await page.reload();
+  await expect(page.getByLabel('Активное подключение')).toHaveValue(selected);
+  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await expect(reasoning).toHaveValue('max');
+  await reasoning.selectOption('');
+  await page.getByRole('button', { name: 'Сохранить подключение' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Подключение сохранено' })).toBeVisible();
+  await page.reload();
+  await page.getByRole('button', { name: 'Подключения', exact: true }).click();
+  await expect(reasoning).toHaveValue('');
 });

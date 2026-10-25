@@ -7,10 +7,12 @@ import tempfile
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from threading import RLock
+from typing import Literal, get_args
 from urllib.parse import urlsplit
 from uuid import uuid4
 
 SERVICE = "cad_agent_next"
+ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
 
 @dataclass(frozen=True)
@@ -21,8 +23,11 @@ class Profile:
     id: str = field(default_factory=lambda: uuid4().hex)
     vision: bool = False
     local: bool | None = None
+    reasoning_effort: ReasoningEffort | None = None
 
     def __post_init__(self):
+        if self.reasoning_effort is not None and self.reasoning_effort not in get_args(ReasoningEffort):
+            raise ValueError("Неизвестная сила рассуждения.")
         if any(not isinstance(value, str) or not value.strip()
                for value in (self.id, self.name, self.base_url, self.model)):
             raise ValueError("Название, адрес и модель должны быть заполнены.")
@@ -133,7 +138,7 @@ class SettingsStore:
 
     def save(self, values: dict, profile_id: str | None = None) -> Profile:
         with self._lock:
-            allowed = {"name", "base_url", "model", "vision", "local", "api_key"}
+            allowed = {"name", "base_url", "model", "vision", "local", "api_key", "reasoning_effort"}
             if set(values) - allowed:
                 raise ValueError("Неизвестное поле настроек подключения.")
             key = values.get("api_key")

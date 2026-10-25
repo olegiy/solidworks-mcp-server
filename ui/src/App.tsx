@@ -28,7 +28,8 @@ const localAddress = (value: string) => {
 function Connections({ profiles, selected, onSaved, onClose }: {
   profiles: Profile[]; selected: string; onSaved: (id: string) => Promise<void>; onClose: () => void;
 }) {
-  const blank = { name: '', base_url: 'http://127.0.0.1:8080/v1', model: '', vision: false, local: true };
+  const blank = { name: '', base_url: 'http://127.0.0.1:8080/v1', model: '', vision: false, local: true,
+    reasoning_effort: null as string | null };
   const [editing, setEditing] = useState(selected);
   const [form, setForm] = useState(() => profiles.find(p => p.id === selected) ?? blank);
   const [key, setKey] = useState('');
@@ -47,7 +48,7 @@ function Connections({ profiles, selected, onSaved, onClose }: {
     event.preventDefault(); setBusy(true); setError(''); setNotice('');
     try {
       const body = { name: form.name, base_url: form.base_url, model: form.model,
-        local: form.local, vision: form.vision,
+        local: form.local, vision: form.vision, reasoning_effort: form.reasoning_effort,
         ...(key || clearKey ? { api_key: clearKey ? '' : key } : {}) };
       const result = await api<Profile>(editing ? `/profiles/${editing}` : '/profiles', {
         method: editing ? 'PUT' : 'POST', body: JSON.stringify(body),
@@ -85,6 +86,19 @@ function Connections({ profiles, selected, onSaved, onClose }: {
           onChange={e => setForm({ ...form, base_url: e.target.value, local: localAddress(e.target.value) })} /></label>
         <ModelPicker baseUrl={form.base_url} profileId={editing} value={form.model} disabled={busy}
           apiKey={clearKey ? '' : key || undefined} onChange={model => setForm({ ...form, model })} />
+        <label>Сила рассуждения<select value={form.reasoning_effort ?? ''} disabled={busy}
+          aria-describedby="reasoning-hint"
+          onChange={e => setForm({ ...form, reasoning_effort: e.target.value || null })}>
+          <option value="">По умолчанию API</option>
+          <option value="none">Без рассуждения</option>
+          <option value="minimal">Минимальная</option>
+          <option value="low">Низкая</option>
+          <option value="medium">Средняя</option>
+          <option value="high">Высокая</option>
+          <option value="xhigh">Очень высокая</option>
+          <option value="max">Максимальная</option>
+        </select></label>
+        <p id="reasoning-hint" className="hint">Доступные уровни зависят от модели и API. Выбор сохраняется кнопкой «Сохранить подключение».</p>
         <label>Ключ API<input type="password" autoComplete="new-password" value={key}
           placeholder={profiles.find(p => p.id === editing)?.has_key ? 'Ключ сохранён. Оставьте пустым, чтобы сохранить его.' : 'Для локального API необязателен'}
           onChange={e => { setKey(e.target.value); setClearKey(false); }} /></label>

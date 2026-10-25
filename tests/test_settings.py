@@ -29,6 +29,46 @@ def test_settings_persist_without_a_key(tmp_path):
     assert store.secret(profile.id) is None
 
 
+@pytest.mark.parametrize("effort", [None, "low", "xhigh", "max"])
+def test_reasoning_effort_persists_across_store_restart(tmp_path, effort):
+    from cadnext.settings import SettingsStore
+
+    secrets = MemorySecrets()
+    store = SettingsStore(tmp_path, secrets)
+    profile = store.save({"name": "P", "base_url": "http://localhost/v1", "model": "m",
+                          "reasoning_effort": effort, "api_key": "saved-secret"})
+    restored = SettingsStore(tmp_path, secrets)
+    assert restored.get(profile.id).reasoning_effort == effort
+    restored.save({"model": "another-model"}, profile.id)
+    assert SettingsStore(tmp_path, secrets).get(profile.id).reasoning_effort == effort
+    assert restored.secret(profile.id) == "saved-secret"
+    restored.save({"reasoning_effort": None}, profile.id)
+    assert SettingsStore(tmp_path, secrets).get(profile.id).reasoning_effort is None
+    assert profile.reasoning_effort == effort
+
+
+def test_legacy_profile_defaults_to_api_reasoning_setting(tmp_path):
+    from cadnext.settings import SettingsStore
+
+    (tmp_path / "settings.json").write_text(json.dumps({"version": 1, "profiles": [{
+        "id": "old", "name": "P", "base_url": "http://localhost/v1", "model": "m"}]}))
+    store = SettingsStore(tmp_path, MemorySecrets())
+    assert store.get("old").reasoning_effort is None
+
+
+@pytest.mark.parametrize("effort", ["unknown", 123, {}])
+def test_invalid_reasoning_setting_preserves_existing_profile(tmp_path, effort):
+    from cadnext.settings import SettingsStore
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    profile = store.save({"name": "P", "base_url": "http://localhost/v1", "model": "m"})
+    before = store.path.read_bytes()
+    with pytest.raises(ValueError):
+        store.save({"reasoning_effort": effort}, profile.id)
+    assert store.path.read_bytes() == before
+    assert store.get(profile.id).reasoning_effort is None
+
+
 def test_key_only_in_new_keyring_namespace(tmp_path):
     from cadnext.settings import SettingsStore
 

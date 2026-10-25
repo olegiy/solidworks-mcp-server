@@ -83,7 +83,6 @@ summary { cursor: pointer; color: #48664f; padding: 7px 0; }
 .model-dropdown [role="option"] { padding: 10px 12px; cursor: pointer; overflow-wrap: anywhere; font-size: 14px; }
 .model-dropdown [role="option"]:hover, .model-dropdown [role="option"].active { background: #e4eee6; color: #174a38; }
 .model-dropdown > p { font-size: 13px; padding: 10px 12px; color: #647469; }
-.model-picker .model-refresh { align-self: flex-start; font-size: 13px; padding: 5px 10px; min-height: 36px; }
 .check { flex-direction: row; align-items: center; gap: 9px; font-weight: 400; }
 .check input { width: 17px; height: 17px; accent-color: #235d48; }
 .confirmation { padding: 22px; margin: 18px 0; border-color: #c8b77f; background: #fffdf6; }

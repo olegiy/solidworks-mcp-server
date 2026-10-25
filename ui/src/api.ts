@@ -1,6 +1,7 @@
 export interface Profile {
   id: string; name: string; base_url: string; model: string;
   vision: boolean; local: boolean; has_key: boolean;
+  reasoning_effort: string | null;
 }
 export interface Confirmation {
   id: string; kind: 'privacy' | 'python'; code?: string;
