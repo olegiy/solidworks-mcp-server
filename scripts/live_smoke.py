@@ -18,16 +18,16 @@ class SmokeFailure(RuntimeError):
 async def smoke(mcp, folder: Path, *, mutate=False):
     report = {'status': 'failed', 'mode': 'new-part' if mutate else 'read-only', 'steps': []}
 
-    async def call(name, **arguments):
-        result = await mcp.call(name, arguments)
-        report['steps'].append({'tool': name, 'ok': result['ok'],
+    async def call(tool_name, **arguments):
+        result = await mcp.call(tool_name, arguments)
+        report['steps'].append({'tool': tool_name, 'ok': result['ok'],
                                 'uncertain': result.get('uncertain', False)})
         if not result['ok']:
             raise SmokeFailure(result.get('error') or 'Ошибка CAD-инструмента.')
         return result
 
-    async def value(name, **arguments):
-        return (await call(name, **arguments))['value']
+    async def value(tool_name, **arguments):
+        return (await call(tool_name, **arguments))['value']
 
     async def active(expected):
         connected = await value('connect_solidworks')
@@ -83,20 +83,27 @@ async def smoke(mcp, folder: Path, *, mutate=False):
             sheet = await value('get_sheet_metal_info')
             if not math.isclose(sheet['thickness_mm'], 2, abs_tol=0.0001):
                 raise SmokeFailure('Толщина новой детали не соответствует 2 мм.')
-            # D1 is checked against the independent sheet-metal readback before changing it.
-            dimension = 'D1@' + sheet['feature']
+            built = await value('get_feature_tree', limit=1000)
+            flanges = [item['name'] for item in built['features'] if item['type'] == 'SMBaseFlange']
+            if len(flanges) != 1:
+                raise SmokeFailure('Базовая кромка новой детали не идентифицирована.')
+            # SW2025 exposes extrusion depth as D2 on the newly created base flange.
+            # Require its known initial value before writing; never try another dimension.
+            dimension = 'D2@' + flanges[0]
             original = await value('get_dimension', name=dimension)
-            if original.get('unit') != 'mm' or not math.isclose(original['value'], 2, abs_tol=0.0001):
-                raise SmokeFailure('Размер толщины не идентифицирован; изменение не выполнялось.')
+            if original.get('unit') != 'mm' or not math.isclose(original['value'], 50, abs_tol=0.0001):
+                raise SmokeFailure('Размер глубины не идентифицирован; изменение не выполнялось.')
             await active(created)
-            await value('set_dimension', name=dimension, value_mm=3)
+            await value('set_dimension', name=dimension, value_mm=62)
             await active(created)
             readback = await value('get_dimension', name=dimension)
             independent = await value('get_sheet_metal_info')
-            if not (math.isclose(readback['value'], 3, abs_tol=0.0001) and
-                    math.isclose(independent['thickness_mm'], 3, abs_tol=0.0001)):
-                raise SmokeFailure('Изменение толщины до 3 мм не подтверждено.')
+            if not (math.isclose(readback['value'], 62, abs_tol=0.0001) and
+                    math.isclose(independent['thickness_mm'], 2, abs_tol=0.0001)):
+                raise SmokeFailure('Глубина 62 мм и толщина 2 мм не подтверждены.')
             report['thickness_mm'] = independent['thickness_mm']
+            report['dimension'] = dimension
+            report['depth_mm'] = readback['value']
             await active(created)
             await picture()
             await value('get_feature_tree', limit=1000)
@@ -125,7 +132,7 @@ async def smoke(mcp, folder: Path, *, mutate=False):
 async def main():
     parser = argparse.ArgumentParser(description='Живая проверка уже запущенного SolidWorks.')
     parser.add_argument('--mutate-new-part', action='store_true',
-                        help='Создать отдельный кронштейн, изменить толщину 2→3 мм, сохранить SLDPRT/DXF.')
+                        help='Создать отдельный кронштейн, изменить глубину 50→62 мм, сохранить SLDPRT/DXF.')
     parser.add_argument('--output', type=Path, help='Новый каталог результатов (по умолчанию временный).')
     args = parser.parse_args()
     folder = args.output or Path(tempfile.mkdtemp(prefix='cadnext-live-'))
