@@ -69,6 +69,8 @@ import traceback
 import contextlib
 import threading
 import faulthandler
+import math
+from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as _FutTimeout
 
@@ -80,7 +82,9 @@ from concurrent.futures import TimeoutError as _FutTimeout
 # stdout, который ломает JSON-RPC. Ниже — журнал, страховка от (1) и (2).
 # ВАЖНО: stdout занят протоколом MCP, поэтому пишем ТОЛЬКО в файл и stderr.
 # ---------------------------------------------------------------------------
-_LOG_DIR = os.path.dirname(os.path.abspath(__file__))
+_LOG_DIR = os.path.join(os.environ.get("LOCALAPPDATA", str(Path.home())),
+                         "cad_agent_next", "logs")
+os.makedirs(_LOG_DIR, exist_ok=True)
 _LOG_PATH = os.path.join(_LOG_DIR, "server.log")
 _CRASH_PATH = os.path.join(_LOG_DIR, "server_crash.log")
 _log_lock = threading.Lock()
@@ -113,8 +117,7 @@ except Exception:
 
 
 def _thread_hook(args):
-    _log(f"НЕПЕРЕХВАЧЕННОЕ исключение в потоке {args.thread_name if args.thread else '?'}: "
-         f"{args.exc_type.__name__}: {args.exc_value}")
+    _log(f"Unhandled thread exception: {args.exc_type.__name__}")
 
 
 try:
@@ -122,8 +125,7 @@ try:
 except Exception:
     pass
 
-sys.excepthook = lambda t, v, tb: _log("НЕПЕРЕХВАЧЕННОЕ исключение: " +
-                                       "".join(traceback.format_exception(t, v, tb)))
+sys.excepthook = lambda t, v, tb: _log(f"Unhandled exception: {t.__name__}")
 
 # ---------------------------------------------------------------------------
 # COM работает в однопоточном апартаменте (STA): все обращения к SolidWorks
@@ -132,6 +134,8 @@ sys.excepthook = lambda t, v, tb: _log("НЕПЕРЕХВАЧЕННОЕ искл�
 _com_executor: "ThreadPoolExecutor | None" = None
 _sw = {"app": None}  # кэш COM-объекта приложения (живёт только в COM-потоке)
 _pending = {"fut": None, "started": 0.0, "what": ""}
+_poisoned = False
+_submit_lock = threading.Lock()
 
 # Сколько ждать ответа SolidWorks. Мост Claude обрывает вызов на 60 с, поэтому
 # отвечаем понятной ошибкой чуть раньше — так процесс остаётся живым.
@@ -155,47 +159,81 @@ def _ensure_executor():
     return _com_executor
 
 
+class ComOutcomeUnknown(RuntimeError):
+    """The worker may still be inside a COM mutation."""
+
+
 def com_call(fn, *args, **kwargs):
-    """Выполнить функцию в COM-потоке. Не даём процессу зависнуть навсегда:
-    при таймауте возвращаем ошибку, а не молчим до убийства сервера клиентом."""
-    prev = _pending["fut"]
-    if prev is not None and not prev.done():
-        waited = round(time.time() - _pending["started"])
-        raise RuntimeError(
-            f"SolidWorks всё ещё занят предыдущей операцией ({_pending['what']}, "
-            f"{waited} с). Почти всегда это ОТКРЫТОЕ МОДАЛЬНОЕ ОКНО в SolidWorks "
-            f"(сохранение, перестроение, сообщение об ошибке). Закройте окно в "
-            f"SolidWorks — и повторите команду.")
-    ex = _ensure_executor()
-    fut = ex.submit(fn, *args, **kwargs)
-    _pending.update({"fut": fut, "started": time.time(),
-                     "what": getattr(fn, "__qualname__", "операция")})
+    global _poisoned
+    with _submit_lock:
+        if _poisoned:
+            raise ComOutcomeUnknown("Результат предыдущей операции неизвестен. "
+                                    "Проверьте SolidWorks и перезапустите приложение.")
+        prev = _pending["fut"]
+        if prev is not None and not prev.done():
+            raise RuntimeError("SolidWorks занят предыдущей операцией.")
+        fut = _ensure_executor().submit(fn, *args, **kwargs)
+        _pending.update({"fut": fut, "started": time.monotonic(), "what": "COM"})
     try:
         return fut.result(timeout=COM_TIMEOUT)
     except _FutTimeout:
-        _log(f"ТАЙМАУТ {COM_TIMEOUT}s: {_pending['what']}")
-        raise RuntimeError(
-            f"SolidWorks не ответил за {COM_TIMEOUT} с. Обычно это модальное окно, "
-            f"ждущее нажатия кнопки. Посмотрите на окно SolidWorks, закройте диалог "
-            f"и повторите. Сервер продолжает работать.")
+        with _submit_lock:
+            _poisoned = True
+        _log(f"COM timeout: {COM_TIMEOUT}s; outcome unknown")
+        raise ComOutcomeUnknown("Результат операции неизвестен: SolidWorks не ответил. "
+                                "Проверьте модальные окна и состояние модели. "
+                                "Автоматического повтора не будет.") from None
 
 
 # ---------------------------------------------------------------------------
 # Вспомогательные функции (вызываются ТОЛЬКО из COM-потока)
 # ---------------------------------------------------------------------------
 
+def _running_sw_pids():
+    import ctypes
+    import win32api
+    import win32process
+    found = []
+    for pid in win32process.EnumProcesses():
+        try:
+            handle = win32api.OpenProcess(0x1000, False, pid)
+            try:
+                size = ctypes.c_ulong(32768)
+                buffer = ctypes.create_unicode_buffer(size.value)
+                if ctypes.windll.kernel32.QueryFullProcessImageNameW(
+                        int(handle), 0, buffer, ctypes.byref(size)):
+                    if os.path.basename(buffer.value).lower() == "sldworks.exe":
+                        found.append(pid)
+            finally:
+                handle.Close()
+        except Exception:
+            continue
+    return found
+
+
 def _app():
-    """Подключиться к запущенному SolidWorks (или запустить новый экземпляр)."""
+    """Attach once; never launch or silently switch a SolidWorks instance."""
     import win32com.client
     if _sw["app"] is not None:
         try:
-            _ = _sw["app"].Visible  # проверка, что COM-ссылка ещё жива
+            if int(_get(_sw["app"], "GetProcessID")) != _sw["pid"]:
+                raise RuntimeError("PID changed")
+            _ = _sw["app"].Visible
             return _sw["app"]
         except Exception:
-            _sw["app"] = None
-    app = win32com.client.Dispatch("SldWorks.Application")
-    app.Visible = True
-    _sw["app"] = app
+            raise RuntimeError("Закреплённый SolidWorks недоступен. Перезапустите приложение.") from None
+    pids = _running_sw_pids()
+    if len(pids) != 1:
+        raise RuntimeError("Запустите ровно один экземпляр SolidWorks перед подключением.")
+    try:
+        app = win32com.client.GetActiveObject("SldWorks.Application")
+        pid = int(_get(app, "GetProcessID"))
+        if pid != pids[0]:
+            raise RuntimeError("PID mismatch")
+    except Exception:
+        raise RuntimeError("Не удалось подключиться к запущенному SolidWorks через COM. "
+                           "Запустите обе программы с одинаковыми правами.") from None
+    _sw.update({"app": app, "pid": pid})
     return app
 
 
@@ -363,7 +401,7 @@ import functools as _functools
 
 _CALL_LOG = os.environ.get(
     "SW_MCP_CALL_LOG",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "calls.jsonl"),
+    "off",
 )
 
 
@@ -421,9 +459,7 @@ def _logged_tool(*dargs, **dkwargs):
                     "ts": _time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(t0)),
                     "dur": round(_time.time() - t0, 3),
                     "tool": fn.__name__,
-                    "args": _short_args(fn, a, kw),
                     "ok": ok,
-                    "error": err,
                 })
         return deco(inner)
     return wrap
@@ -527,10 +563,7 @@ def save_document(save_as_path: str = "") -> str:
                                    "модальный диалог и вызов зависнет.")
             # Save3 на части сборок SW2024 падает с "Несовпадение типов" —
             # откатываемся на простую форму Save().
-            try:
-                ok = model.Save3(1, errs, warns)   # 1 = swSaveAsOptions_Silent
-            except Exception:
-                ok = model.Save()
+            ok = model.Save3(1, errs, warns)
             if not ok:
                 raise RuntimeError(f"Сохранение вернуло ошибку (errors={errs.value}).")
             return _ok(saved=_get(model, "GetPathName") or _get(model, "GetTitle"))
@@ -540,26 +573,11 @@ def save_document(save_as_path: str = "") -> str:
         # ("Несовпадение типов", аргумент 4) — передаём VARIANT(VT_DISPATCH, None).
         # Сигнатуры между версиями различаются, поэтому идём каскадом и
         # сообщаем, какой вариант сработал.
-        attempts = []
-        for variant, call in (
-            ("Extension.SaveAs", lambda: model.Extension.SaveAs(
-                save_as_path, 0, 1, _nothing(), _byref_i4(), _byref_i4())),
-            ("SaveAs3", lambda: model.SaveAs3(save_as_path, 0, 0)),
-            ("SaveAs2", lambda: model.SaveAs2(save_as_path, 0, True, False)),
-            ("SaveAs",  lambda: model.SaveAs(save_as_path)),
-        ):
-            try:
-                ok = call()
-            except Exception as exc:
-                attempts.append(f"{variant}: {exc}")
-                continue
-            if ok:
-                return _ok(saved=save_as_path, variant=variant)
-            attempts.append(f"{variant}: вернул False")
-        raise RuntimeError(
-            "Ни один вариант сохранения не сработал. Проверьте, что папка существует, "
-            "файл не открыт в другой программе и расширение поддерживается. Попытки: "
-            + " | ".join(attempts))
+        errs, warns = _byref_i4(), _byref_i4()
+        ok = model.Extension.SaveAs(save_as_path, 0, 1, _nothing(), errs, warns)
+        if not ok:
+            raise RuntimeError(f"Сохранение не подтверждено (errors={errs.value}). Повтора не будет.")
+        return _ok(saved=save_as_path, errors=errs.value, warnings=warns.value)
     return _run(job)
 
 
@@ -597,15 +615,18 @@ def screenshot(width: int = 1000, height: int = 750, zoom_to_fit: bool = True,
                     continue
         if zoom_to_fit:
             _get(model, "ViewZoomtofit2")
-        tmp_bmp = os.path.join(tempfile.gettempdir(), "sw_mcp_view.bmp")
-        ok = model.SaveBMP(tmp_bmp, int(width), int(height))
-        if not ok or not os.path.isfile(tmp_bmp):
-            raise RuntimeError("SaveBMP не смог сохранить изображение.")
+        if not 64 <= int(width) <= 2048 or not 64 <= int(height) <= 2048:
+            raise ValueError("Размер изображения должен быть от 64 до 2048 пикселей.")
         from PIL import Image as PILImage
-        tmp_png = os.path.join(tempfile.gettempdir(), "sw_mcp_view.png")
-        PILImage.open(tmp_bmp).save(tmp_png, "PNG")
-        with open(tmp_png, "rb") as f:
-            return f.read()
+        with tempfile.TemporaryDirectory(prefix="cadnext-view-") as folder:
+            tmp_bmp = os.path.join(folder, "view.bmp")
+            ok = model.SaveBMP(tmp_bmp, int(width), int(height))
+            if not ok or not os.path.isfile(tmp_bmp):
+                raise RuntimeError("SaveBMP не смог сохранить изображение.")
+            with PILImage.open(tmp_bmp) as bitmap:
+                buf = io.BytesIO()
+                bitmap.save(buf, "PNG")
+                return buf.getvalue()
     data = com_call(job)
     return Image(data=data, format="png")
 
@@ -666,10 +687,10 @@ def get_dimension(name: str) -> str:
         if dim is None:
             raise RuntimeError(f"Размер '{name}' не найден. Формат: 'D1@Эскиз1'. "
                                f"Имена смотри в get_feature_tree.")
-        return _ok(name=name, value_mm=round(dim.SystemValue * 1000, 6),
-                   unit_note="SystemValue в метрах, здесь переведено в мм; "
-                             "для углов SystemValue в радианах — тогда value_mm некорректно, "
-                             "используй execute_python.")
+        angular = int(_get(dim, "GetType")) == 3
+        value = math.degrees(dim.SystemValue) if angular else dim.SystemValue * 1000
+        return _ok(name=name, value=round(value, 6), unit="deg" if angular else "mm",
+                   **({"value_deg": round(value, 6)} if angular else {"value_mm": round(value, 6)}))
     return _run(job)
 
 
@@ -682,11 +703,15 @@ def set_dimension(name: str, value_mm: float, rebuild: bool = True) -> str:
         if dim is None:
             raise RuntimeError(f"Размер '{name}' не найден.")
         old = dim.SystemValue
-        dim.SystemValue = _mm(value_mm)   # мм → м
+        angular = int(_get(dim, "GetType")) == 3
+        if not math.isfinite(value_mm):
+            raise ValueError("Размер должен быть конечным числом.")
+        dim.SystemValue = math.radians(value_mm) if angular else _mm(value_mm)
         if rebuild:
             if not _get(model, "EditRebuild3"):
                 raise RuntimeError("EditRebuild3: перестроение с ошибками — проверьте модель.")
-        return _ok(name=name, old_mm=round(old * 1000, 4), new_mm=value_mm)
+        return _ok(name=name, old=math.degrees(old) if angular else old * 1000,
+                   value=value_mm, unit="deg" if angular else "mm")
     return _run(job)
 
 
@@ -810,39 +835,19 @@ def create_base_flange(thickness_mm: float, bend_radius_mm: float = 1.0,
         r = _mm(bend_radius_mm)
         d = _mm(depth_mm) if depth_mm else 0.0
         fm = model.FeatureManager
-        attempts = []
-        # Вариант 1: 19 аргументов — ПРОВЕРЕНО ВЖИВУЮ на SW2024 и для открытого
-        # (гнутый профиль), и для замкнутого (плоский лист) эскиза.
-        # ВНИМАНИЕ: 18-й аргумент должен быть False — при True открытый профиль
-        # схлопывается в один сгиб без полок (найдено сравнением с ручной операцией).
-        try:
-            feat = fm.InsertSheetMetalBaseFlange2(t, False, r, d, 0.0, False, 0, 0, 1,
-                                                  _nothing(), False, False, 0.0001, 0.0001, 0.5,
-                                                  True, False, False, True)
-            if feat is not None:
-                return _ok(feature=_get(feat, "Name"), variant="19args", thickness_mm=thickness_mm)
-            attempts.append("вариант 19 аргументов: вернул None")
-        except Exception as e:
-            attempts.append(f"вариант 19 аргументов: {e}")
-        # Вариант 2: короткая сигнатура (старые версии SW)
-        try:
-            feat = fm.InsertSheetMetalBaseFlange2(t, False, r, d, 0.0, False, 0, 0, 0, 0.0, 0.0, False)
-            if feat is not None:
-                return _ok(feature=_get(feat, "Name"), variant="12args", thickness_mm=thickness_mm)
-            attempts.append("вариант 12 аргументов: вернул None")
-        except Exception as e:
-            attempts.append(f"вариант 12 аргументов: {e}")
-        raise RuntimeError(
-            "InsertSheetMetalBaseFlange2 не сработал ни с одной известной сигнатурой.\n"
-            + "\n".join(attempts) +
-            "\nПроверь точную сигнатуру для своей версии SW: help.solidworks.com → API Help → "
-            "IFeatureManager::InsertSheetMetalBaseFlange2, затем вызови её через execute_python."
-        )
+        if t <= 0 or r < 0 or d < 0:
+            raise ValueError("Толщина должна быть положительной; радиус и длина неотрицательны.")
+        feat = fm.InsertSheetMetalBaseFlange2(t, False, r, d, 0.0, False, 0, 0, 1,
+                                             _nothing(), False, False, 0.0001, 0.0001, 0.5,
+                                             True, False, False, True)
+        if feat is None:
+            raise RuntimeError("Базовая кромка не подтверждена. Автоматического повтора не будет.")
+        return _ok(feature=_get(feat, "Name"), thickness_mm=thickness_mm)
     return _run(job)
 
 
 @mcp.tool()
-def cut_through(sketch_name: str = "") -> str:
+def cut_through(sketch_name: str = "", reverse: bool = False) -> str:
     """Сквозной вырез по эскизу (отверстия, пазы) в листовой/обычной детали.
     sketch_name — имя эскиза с контуром выреза; пусто = последний эскиз.
     Пробует FeatureCut3/FeatureCut4 (сигнатуры различаются между версиями SW)."""
@@ -857,34 +862,14 @@ def cut_through(sketch_name: str = "") -> str:
         model.ClearSelection2(True)
         _select(model, name, "SKETCH")
         fm = model.FeatureManager
-        attempts = []
-        # FeatureCut4, 27 аргументов — ПРОВЕРЕНО ВЖИВУЮ на SW2024.
-        # ВАЖНО: 2-й аргумент — это «Переставить сторону выреза» (flip side to cut,
-        # режет ВСЁ СНАРУЖИ контура!) — всегда False, иначе вырез съест деталь.
-        # Направление реза задаёт 3-й аргумент (пробуем оба).
-        # 4-й аргумент = 1 (swEndCondThroughAll, насквозь); NormalCut=True.
-        # Если вырез вернул None — контур не пересёк материал в этом направлении.
-        for direction in (False, True):
-            try:
-                feat = fm.FeatureCut4(True, False, direction, 1, 0, 0.01, 0.01,
-                                      False, False, False, False, 0.0, 0.0,
-                                      False, False, False, False, True,
-                                      True, True, True, True, False,
-                                      0, 0.0, False, True)
-                if feat is not None:
-                    return _ok(feature=_get(feat, "Name"),
-                               variant=f"FeatureCut4/27 dir={'reversed' if direction else 'default'}")
-                attempts.append(f"FeatureCut4 dir={direction}: вернул None "
-                                "(контур не попал в материал — проверь координаты эскиза)")
-                model.ClearSelection2(True)
-                _select(model, name, "SKETCH")
-            except Exception as e:
-                attempts.append(f"FeatureCut4 dir={direction}: {e}")
-        raise RuntimeError(
-            "Вырез не создан ни одним из известных вызовов:\n" + "\n".join(attempts) +
-            "\nЗапиши макрос выреза в SolidWorks (Инструменты → Макрос → Записать), "
-            "пришли его текст в чат — и вызови точную сигнатуру через execute_python."
-        )
+        feat = fm.FeatureCut4(True, False, reverse, 1, 0, 0.01, 0.01,
+                              False, False, False, False, 0.0, 0.0,
+                              False, False, False, False, True,
+                              True, True, True, True, False,
+                              0, 0.0, False, True)
+        if feat is None:
+            raise RuntimeError("Вырез не подтверждён. Проверьте контур и направление; повтора не будет.")
+        return _ok(feature=_get(feat, "Name"))
     return _run(job)
 
 
@@ -1050,11 +1035,11 @@ def _run(job) -> str:
     try:
         return com_call(job)
     except BaseException as e:
-        _log(f"ОШИБКА в {getattr(job, '__qualname__', 'job')}: {type(e).__name__}: {e}")
+        _log(f"COM error: {type(e).__name__}")
         return json.dumps({
             "status": "error",
             "error": str(e),
-            "traceback": traceback.format_exc(limit=3),
+            "error_code": "CAD_OPERATION_UNCERTAIN" if isinstance(e, ComOutcomeUnknown) else "CAD_ERROR",
             "hint": "Если это COM-ошибка сигнатуры метода — проверь help.solidworks.com "
                     "(API Help) для своей версии SolidWorks и вызови метод через execute_python.",
         }, ensure_ascii=False, indent=1)
@@ -1067,7 +1052,7 @@ if __name__ == "__main__":
     try:
         mcp.run()
     except BaseException as e:
-        _log(f"СЕРВЕР ОСТАНОВЛЕН: {type(e).__name__}: {e}\n" + traceback.format_exc())
+        _log(f"Server stopped: {type(e).__name__}")
         raise
     finally:
         _log("СТОП сервера")

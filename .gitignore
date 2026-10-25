@@ -12,3 +12,19 @@ venv/
 # backups and SolidWorks temp files
 *.bak*
 ~$*
+
+# Local application, build and verification artifacts
+.superpowers/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+dist/
+test-results/
+playwright-report/
+.playwright-cli/
+*.png
+*.bmp
+*.SLDPRT
+*.sldprt
+*.dxf
+*_token.json
