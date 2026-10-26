@@ -28,6 +28,15 @@ export interface RunEvent {
   state?: Partial<Pick<Run, 'status' | 'call_count' | 'max_calls' | 'verification' |
     'stop_requested' | 'confirmation' | 'repair_attempts' | 'repairing' | 'metrics'>>;
 }
+export interface SaveResult {
+  ok: boolean; saved?: string; conversation?: string; warning?: string;
+}
+
+export interface LoadedConversation {
+  session_id: string; profile_id?: string; language?: string;
+  document?: { path?: string }; runs: Run[];
+}
+
 export interface Run {
   id: string; session_id: string; profile_id: string; language?: string; status: string;
   events: RunEvent[]; confirmation: Confirmation | null; call_count: number;

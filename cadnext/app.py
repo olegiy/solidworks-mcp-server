@@ -17,6 +17,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from cadnext.agent import Agent, AgentBusy
 from cadnext.attachments import AttachmentError
+from cadnext.conversations import write_sidecar
 from cadnext.i18n import get_language, language_from_header, set_language, t
 from cadnext.mcp import ROOT, SolidWorksMcp
 from cadnext.privacy import PrivacyContext
@@ -81,6 +82,16 @@ class AppSettingsBody(BaseModel):
     python_execution_allowed: bool
 
 
+class SaveBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    session_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class ConversationBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    conversation: dict
+
+
 def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Provider,
                ui_dir: Path | None = None) -> FastAPI:
     ui_dir = Path(ui_dir) if ui_dir is not None else ROOT / "ui" / "dist"
@@ -109,6 +120,15 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     @app.middleware("http")
     async def boundary(request: Request, call_next):
         set_language(language_from_header(request.headers.get("accept-language")))
+        if request.url.path == "/api/conversations/open":
+            try:
+                length = int(request.headers.get("content-length", "0"))
+            except ValueError:
+                length = 0
+            if length > 65 * 1024 * 1024:
+                return JSONResponse({"detail": t(
+                    "Файл переписки слишком большой.",
+                    "The conversation file is too large.")}, status_code=413)
         origin = request.headers.get("origin")
         if origin and origin != f"{request.url.scheme}://{request.headers.get('host', '')}":
             return JSONResponse({"detail": t("Запрос с другого сайта запрещён.",
@@ -161,8 +181,51 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     @app.get("/api/health")
     async def health():
         active = next((run for run in agent().runs.values() if not run.done), None)
-        uncertain = any(run.status == "uncertain" for run in agent().runs.values())
+        uncertain = agent().uncertain or any(
+            run.status == "uncertain" for run in agent().runs.values())
         return {"ok": True, "active_run_id": active.id if active else None, "uncertain": uncertain}
+
+    @app.post("/api/cad/save")
+    async def save_cad(body: SaveBody):
+        try:
+            result = await agent().save_project(body.session_id)
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        if result.get("uncertain"):
+            raise HTTPException(status_code=409, detail=t(
+                "Результат сохранения неизвестен. Проверьте SolidWorks.",
+                "The save outcome is unknown. Check SolidWorks."))
+        if not result.get("ok"):
+            raise HTTPException(status_code=422, detail=t(
+                "Не удалось сохранить проект. Проверьте SolidWorks.",
+                "Could not save the project. Check SolidWorks."))
+        saved = (result.get("value") or {}).get("saved") or ""
+        warning = result.get("conversation_error")
+        conversation_path = None
+        conversation = result.get("conversation")
+        if conversation:
+            conversation["document"] = {"path": saved}
+            try:
+                conversation_path = str(write_sidecar(saved, conversation))
+            except (OSError, ValueError, TypeError):
+                warning = t(
+                    "Проект сохранён, но переписку сохранить не удалось.",
+                    "The project was saved, but the conversation could not be saved.")
+        payload = {"ok": True, "saved": saved}
+        if conversation_path:
+            payload["conversation"] = conversation_path
+        if warning:
+            payload["warning"] = warning
+        return payload
+
+    @app.post("/api/conversations/open")
+    async def open_conversation(body: ConversationBody):
+        try:
+            return agent().load_conversation(body.conversation)
+        except RuntimeError as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from None
 
     @app.get("/api/profiles")
     def profiles():

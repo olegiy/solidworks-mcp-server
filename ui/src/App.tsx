@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import type { FormEvent, ReactNode, RefObject } from 'react';
+import type { ChangeEvent, FormEvent, ReactNode, RefObject } from 'react';
 import { api, remember, stored, terminal } from './api';
-import type { Attachment, Confirmation, ModelCatalog, Profile, ReasoningMetadata, Run, RunEvent } from './api';
+import type { Attachment, Confirmation, LoadedConversation, ModelCatalog, Profile, ReasoningMetadata, Run, RunEvent, SaveResult } from './api';
 import { imageTypes, readImages, type DraftAttachment } from './attachments';
 import ModelPicker from './ModelPicker';
 import useReasoning from './useReasoning';
@@ -341,6 +341,11 @@ export default function App() {
   const [selected, setSelected] = useState(() => stored('profile', ''));
   const [sessionId, setSessionId] = useState(() => stored('session', crypto.randomUUID()));
   const [runs, setRuns] = useState<Run[]>([]);
+  const [savingProject, setSavingProject] = useState(false);
+  const [saveNotice, setSaveNotice] = useState<{ kind: 'ok' | 'warning' | 'error'; text: string } | null>(null);
+  const [notice, setNotice] = useState('');
+  const saveLock = useRef(false);
+  const openInput = useRef<HTMLInputElement>(null);
   const runsRef = useRef(runs);
   runsRef.current = runs;
   const [streamId, setStreamId] = useState('');
@@ -374,9 +379,11 @@ export default function App() {
   const currentReasoningOptions = reasoningOptionsFor(currentReasoning, t);
   const currentReasoningValue = selectedReasoning(currentReasoning, currentProfile?.reasoning_effort, t);
   const imagesAllowed = currentProfile?.vision === true;
-  const canSend = !loading && !sending && !active && !!currentProfile && !uncertain && !readingImages && !savingProfile
+  const canSend = !loading && !sending && !savingProject && !active && !!currentProfile && !uncertain && !readingImages && !savingProfile
     && !(lookup.loading && !currentReasoning)
     && (!!message.trim() || attachments.length > 0) && (!attachments.length || imagesAllowed);
+  const canSave = !loading && !sending && !savingProject && !active && !uncertain
+    && runs.at(-1)?.status === 'completed';
 
   function merge(snapshot: Run) {
     setRuns(previous => {
@@ -532,7 +539,7 @@ export default function App() {
   }
   async function send(event: FormEvent) {
     event.preventDefault(); if (!canSend) return;
-    setSending(true); setError('');
+    setSending(true); setError(''); setNotice(''); setSaveNotice(null);
     setPendingActivity({ phase: 'sending', at: Date.now(), files: attachments.length,
       bytes: attachments.reduce((sum, image) => sum + image.size, 0) });
     pendingRequest.current = crypto.randomUUID();
@@ -562,9 +569,51 @@ export default function App() {
       confirmation_id: active.confirmation.id, approved,
     }) })); } catch (error) { setError(errorText(error, t)); }
   }
+  async function saveProject() {
+    const latest = runs.at(-1);
+    if (!latest || saveLock.current) return;
+    saveLock.current = true; setSavingProject(true); setSaveNotice(null);
+    try {
+      const result = await api<SaveResult>('/cad/save', { method: 'POST',
+        body: JSON.stringify({ session_id: latest.session_id }) });
+      if (result.warning) {
+        setSaveNotice({ kind: 'warning', text: result.warning });
+      } else if (result.conversation) {
+        setSaveNotice({ kind: 'ok', text: t('savedWithConversation', {
+          path: result.saved ?? '', conversation: result.conversation }) });
+      } else {
+        setSaveNotice({ kind: 'ok', text: t('savedTo', { path: result.saved ?? '' }) });
+      }
+    } catch (error) {
+      setSaveNotice({ kind: 'error', text: errorText(error, t) });
+    } finally { saveLock.current = false; setSavingProject(false); }
+  }
+  async function openConversation(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    setError(''); setNotice('');
+    try {
+      if (file.size > 64 * 1024 * 1024) throw new Error(t('conversationTooLarge'));
+      let conversation: unknown;
+      try { conversation = JSON.parse(await file.text()); }
+      catch { throw new Error(t('conversationInvalid')); }
+      const result = await api<LoadedConversation>('/conversations/open', { method: 'POST',
+        body: JSON.stringify({ conversation }) });
+      setSessionId(result.session_id); remember('session', result.session_id);
+      setRuns(result.runs); setStreamId(''); setRunContact(null); setSaveNotice(null);
+      setMessage(''); setAttachments([]); setPendingActivity(null); draftRevision.current++;
+      if (result.profile_id && profiles.some(profile => profile.id === result.profile_id)) {
+        setSelected(result.profile_id); remember('profile', result.profile_id);
+      }
+      const path = result.document?.path ?? '';
+      setNotice(path ? t('conversationLoaded', { path }) : t('conversationLoadedNoDocument'));
+      input.current?.focus();
+    } catch (error) { setError(errorText(error, t)); }
+  }
   function newDialogue() {
     const id = crypto.randomUUID(); setSessionId(id); remember('session', id);
-    setStreamId(''); setRuns([]); setError('');
+    setStreamId(''); setRuns([]); setError(''); setNotice(''); setSaveNotice(null);
     draftRevision.current++; setAttachments([]); setMessage(''); setPendingActivity(null); setRunContact(null);
     input.current?.focus();
   }
@@ -584,13 +633,26 @@ export default function App() {
             onChange={event => setLanguage(event.target.value as Language)}>
             {languages.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select></label>
-        <button className="header-button" aria-label={t('newDialogue')} disabled={!!active || sending} onClick={newDialogue}>
+        <button className="header-button" aria-label={t('newDialogue')} disabled={!!active || sending || savingProject} onClick={newDialogue}>
           <Icon name="plus" size={18} /><span className="button-label">{t('newDialogue')}</span></button>
+        <input ref={openInput} type="file" accept=".json,.cadnext.json,application/json" hidden
+          aria-label={t('openConversation')} data-testid="open-conversation-input"
+          onChange={openConversation} />
+        <button className="header-button" aria-label={t('openConversation')} title={t('openConversation')}
+          disabled={loading || !!active || sending || savingProject || uncertain} onClick={() => openInput.current?.click()}>
+          <Icon name="folder" size={18} /><span className="button-label">{t('openConversation')}</span></button>
+        <button className="header-button save-header" aria-label={savingProject ? t('savingProject') : t('saveProject')}
+          title={savingProject ? t('savingProject') : canSave ? t('saveProject') : t('saveUnavailable')} disabled={!canSave} onClick={saveProject}>
+          <Icon name="save" size={18} /><span className="button-label">{savingProject ? t('savingProject') : t('saveProject')}</span></button>
         <button ref={settingsButton} className="header-button" aria-label={t('settings')} aria-expanded={settings} aria-controls="app-settings"
           disabled={savingProfile} onClick={openSettings}><Icon name="settings" size={18} />
           <span className="button-label">{t('settings')}</span></button></div></header>
     <main>
       {error ? <p role="alert" className="error panel">{error}</p> : null}
+      {notice ? <p role="status" className="notice panel">{notice}</p> : null}
+      {saveNotice ? <p role={saveNotice.kind === 'ok' ? 'status' : 'alert'} data-testid="save-notice"
+        className={`${saveNotice.kind === 'error' ? 'error' : saveNotice.kind === 'warning' ? 'warning' : 'notice'} panel save-notice`}>
+        {saveNotice.text}</p> : null}
       <section className="chat" aria-label={t('chat')} tabIndex={0}>
         {loading ? <p role="status">{t('loadingState')}</p> : null}
         {!loading && runs.length === 0 ? <div className="empty"><div className="empty-icon"><Icon name="cube" size={36} /></div>

@@ -12,6 +12,8 @@ const paths = {
   tree: <><rect x="9" y="3" width="6" height="5" rx="1" /><path d="M12 8v5M5 16v-3h14v3" /><rect x="2" y="16" width="6" height="5" rx="1" /><rect x="16" y="16" width="6" height="5" rx="1" /></>,
   image: <><rect x="3" y="3" width="18" height="18" rx="4" /><circle cx="8" cy="8" r="1.5" /><path d="m3 17 5-5 4 4 4-6 5 7" /></>,
   ruler: <><path d="m4 14 10-10 6 6-10 10-6-6Z" /><path d="m10 8 2 2m2-6 2 2m-10 6 2 2" /></>,
+  save: <><path d="M5 3h11l3 3v15H5V3Z" /><path d="M8 3v6h8V3M8 21v-7h8v7" /></>,
+  folder: <path d="M3 6h6l2 2h10v11H3V6Z" />,
 };
 
 export default function Icon({ name, size = 20 }: { name: keyof typeof paths; size?: number }) {

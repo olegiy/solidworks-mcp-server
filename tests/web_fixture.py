@@ -37,6 +37,8 @@ class Backend:
         self.release = asyncio.Event()
         self.delay = delay
         self.uncertain = False
+        self.active_document = 'Деталь1'
+        self.document_path = str(Path(directory) / 'Деталь1.sldprt')
 
     @asynccontextmanager
     async def mcp(self):
@@ -57,6 +59,14 @@ class Backend:
                 await asyncio.sleep(self.delay)
             else:
                 await self.release.wait()
+        if name == "connect_solidworks":
+            return ok({"revision": "33", "active_document": self.active_document})
+        if name == "list_open_documents":
+            documents = [] if self.active_document is None else [{
+                "title": self.active_document, "path": self.document_path, "type": "part"}]
+            return ok({"documents": documents})
+        if name == "save_document":
+            return ok({"saved": arguments.get("save_as_path") or self.document_path})
         if name == "screenshot":
             return ok(None, [{"data": PNG, "mimeType": "image/png"}])
         if name == "execute_python":

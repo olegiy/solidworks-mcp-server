@@ -444,3 +444,112 @@ def test_run_language_defaults_to_russian(api):
     assert 'Запрос завершён.' in [event['data']['message'] for event in finished['events']
                                    if event['type'] == 'status']
     assert 'Отвечай по-русски' in backend.requests[0]['messages'][0]['content']
+
+
+def test_save_project_saves_active_document_and_conversation(api, tmp_path):
+    client, backend = api
+    saved = profile(client)
+    run = start(client, saved['id']).json()
+    assert wait(client, run['id'])['status'] == 'completed'
+    response = client.post('/api/cad/save', json={'session_id': run['session_id']})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    sidecar = tmp_path / 'Деталь1.cadnext.json'
+    assert body['saved'] == backend.document_path
+    assert body['conversation'] == str(sidecar)
+    assert sidecar.is_file()
+    data = json.loads(sidecar.read_text(encoding='utf-8'))
+    assert data['schema'] == 'cadnext.conversation'
+    assert data['version'] == 1
+    assert data['session_id'] == run['session_id']
+    assert data['document'] == {'path': backend.document_path}
+    assert data['messages'][-1]['role'] == 'assistant'
+    assert data['runs'][-1]['status'] == 'completed'
+    assert data['runs'][-1]['messages'] == []
+    assert [(name, arguments) for name, arguments in backend.calls[-3:]] == [
+        ('connect_solidworks', {}), ('list_open_documents', {}),
+        ('save_document', {'save_as_path': ''})]
+
+
+def test_save_project_chooses_default_path_for_unsaved_document(api, tmp_path, monkeypatch):
+    import cadnext.agent as agent_module
+    monkeypatch.setattr(agent_module, '_documents_folder', lambda: tmp_path)
+    client, backend = api
+    saved = profile(client)
+    run = start(client, saved['id']).json()
+    assert wait(client, run['id'])['status'] == 'completed'
+    backend.document_path = ''
+    response = client.post('/api/cad/save', json={'session_id': run['session_id']})
+    assert response.status_code == 200, response.text
+    path = backend.calls[-1][1]['save_as_path']
+    assert path.endswith('.sldprt')
+    assert 'Деталь1' in path
+    body = response.json()
+    assert body['saved'] == path
+    assert body['conversation'] == str(tmp_path / 'Деталь1.cadnext.json')
+    assert (tmp_path / 'Деталь1.cadnext.json').is_file()
+
+
+def test_save_project_requires_an_active_document(api):
+    client, backend = api
+    backend.active_document = None
+    response = client.post('/api/cad/save', headers={'Accept-Language': 'en-US'},
+                           json={'session_id': 'session-1'})
+    assert response.status_code == 409
+    assert 'no active SolidWorks document' in response.json()['detail']
+
+
+def test_saved_conversation_opens_and_continues(api, tmp_path):
+    client, backend = api
+    saved = profile(client)
+    run = start(client, saved['id']).json()
+    assert wait(client, run['id'])['status'] == 'completed'
+    response = client.post('/api/cad/save', json={'session_id': run['session_id']})
+    assert response.status_code == 200, response.text
+    data = json.loads((tmp_path / 'Деталь1.cadnext.json').read_text(encoding='utf-8'))
+    opened = client.post('/api/conversations/open', json={'conversation': data})
+    assert opened.status_code == 200, opened.text
+    loaded = opened.json()
+    assert loaded['session_id'] != run['session_id']
+    assert loaded['document'] == {'path': backend.document_path}
+    assert loaded['runs'][-1]['status'] == 'completed'
+    history = client.get(f"/api/runs?session_id={loaded['session_id']}").json()
+    assert history
+    assert any(event['type'] == 'message' and event['data']['content'] == 'Прочитай размер'
+               for event in history[0]['events'])
+    response = client.post('/api/runs', json={'session_id': loaded['session_id'],
+                                              'profile_id': saved['id'],
+                                              'message': 'Прочитай размер'})
+    assert response.status_code == 202, response.text
+    wait(client, response.json()['id'])
+    sent = backend.requests[-1]['messages']
+    assert any(message.get('role') == 'user' and message.get('content') == 'Прочитай размер'
+               for message in sent)
+    assert any(message.get('role') == 'assistant'
+               and 'Размер 62' in str(message.get('content')) for message in sent)
+
+
+def test_conversation_open_rejects_invalid_file(api):
+    client, _ = api
+    response = client.post('/api/conversations/open', headers={'Accept-Language': 'en-US'},
+                           json={'conversation': {'schema': 'wrong'}})
+    assert response.status_code == 422
+    assert 'Unsupported conversation format' in response.json()['detail']
+
+
+def test_opening_uncertain_conversation_blocks_new_runs(api, tmp_path):
+    client, backend = api
+    saved = profile(client)
+    run = start(client, saved['id']).json()
+    assert wait(client, run['id'])['status'] == 'completed'
+    assert client.post('/api/cad/save', json={'session_id': run['session_id']}).status_code == 200
+    data = json.loads((tmp_path / 'Деталь1.cadnext.json').read_text(encoding='utf-8'))
+    data['runs'][-1]['status'] = 'uncertain'
+    opened = client.post('/api/conversations/open', json={'conversation': data})
+    assert opened.status_code == 200, opened.text
+    assert client.get('/api/health').json()['uncertain'] is True
+    response = client.post('/api/runs', headers={'Accept-Language': 'en-US'},
+                           json={'session_id': opened.json()['session_id'],
+                                 'profile_id': saved['id'], 'message': 'Read size'})
+    assert response.status_code == 409
+    assert 'outcome is unknown' in response.json()['detail']

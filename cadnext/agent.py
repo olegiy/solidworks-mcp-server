@@ -178,6 +178,35 @@ def _invalid_constant(value):
     raise ValueError(t("Недопустимая константа JSON.", "Invalid JSON constant."))
 
 
+_SAVE_EXTENSIONS = {"part": ".sldprt", "assembly": ".sldasm", "drawing": ".slddrw"}
+_CONVERSATION_SCHEMA = "cadnext.conversation"
+_CONVERSATION_VERSION = 1
+_CONVERSATION_MAX_BYTES = 64 * 1024 * 1024
+_CONVERSATION_MAX_RUNS = 1000
+_CONVERSATION_MAX_EVENTS = 100000
+_SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+
+
+def _documents_folder() -> Path:
+    return Path.home() / "Documents"
+
+
+def _save_path_for(title: str, document_type: str) -> Path:
+    stem = Path(title or "").stem
+    stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", stem).strip(" .") or "Part"
+    suffix = _SAVE_EXTENSIONS.get(document_type, ".sldprt")
+    folder = _documents_folder()
+    if not folder.is_dir():
+        folder = Path.home()
+    for index in range(1, 1000):
+        name = f"{stem}{suffix}" if index == 1 else f"{stem}-{index}{suffix}"
+        candidate = folder / name
+        if not candidate.exists():
+            return candidate
+    raise RuntimeError(t("Не удалось подобрать путь сохранения.",
+                         "Could not choose a save path."))
+
+
 def _file_signature(path: str):
     try:
         file = Path(path)
@@ -197,6 +226,7 @@ class Agent:
         self._python_approved: set[tuple] = set()
         self._active: Run | None = None
         self._uncertain = False
+        self._saving = False
         self._closed = False
         self.max_history_bytes = max_history_bytes
         self.max_catalog_bytes = max_catalog_bytes
@@ -208,10 +238,13 @@ class Agent:
         language = get_language()
         if self._closed:
             raise RuntimeError(t("Агент завершает работу.", "The agent is shutting down."))
-        if self._uncertain or getattr(self.mcp, "uncertain", False):
+        if self.uncertain:
             raise RuntimeError(t(
                 "Исход CAD-операции неизвестен. Проверьте SolidWorks и перезапустите приложение.",
                 "The CAD operation outcome is unknown. Check SolidWorks and restart the application."))
+        if self._saving:
+            raise AgentBusy(t("Дождитесь завершения сохранения.",
+                              "Wait for the save to complete."))
         if self._active is not None and not self._active.done:
             raise AgentBusy(t("Уже выполняется CAD-запрос.", "A CAD request is already running."))
         if (not isinstance(session_id, str) or not session_id.strip()
@@ -245,6 +278,198 @@ class Agent:
         run._emit("message", role="user", content=message, **({"attachments": attachments} if attachments else {}))
         run._task = asyncio.create_task(self._run(run, provider))
         return run
+
+    @property
+    def uncertain(self) -> bool:
+        return self._uncertain or bool(getattr(self.mcp, "uncertain", False))
+
+    async def save_project(self, session_id: str) -> dict:
+        """Save the active SolidWorks document and the whole dialogue without a model turn."""
+        if not isinstance(session_id, str) or not _SESSION_ID.fullmatch(session_id):
+            raise ValueError(t("Некорректный ID диалога.", "Invalid dialogue ID."))
+        if self._closed:
+            raise RuntimeError(t("Агент завершает работу.", "The agent is shutting down."))
+        if self.uncertain:
+            raise RuntimeError(t(
+                "Исход CAD-операции неизвестен. Проверьте SolidWorks и перезапустите приложение.",
+                "The CAD operation outcome is unknown. Check SolidWorks and restart the application."))
+        if self._active is not None and not self._active.done:
+            raise AgentBusy(t("Уже выполняется CAD-запрос.", "A CAD request is already running."))
+        if self._saving:
+            raise AgentBusy(t("Сохранение уже выполняется.", "A save is already running."))
+        self._saving = True
+        try:
+            connection = await self.mcp.call("connect_solidworks", {})
+            if connection.get("uncertain"):
+                self._uncertain = True
+                return connection
+            if not connection.get("ok"):
+                return connection
+            active = (connection.get("value") or {}).get("active_document")
+            if not active:
+                raise RuntimeError(t("Нет активного документа SolidWorks.",
+                                     "There is no active SolidWorks document."))
+            documents = await self.mcp.call("list_open_documents", {})
+            if documents.get("uncertain"):
+                self._uncertain = True
+                return documents
+            if not documents.get("ok"):
+                return documents
+            listing = (documents.get("value") or {}).get("documents") or []
+            target = next((item for item in listing if item.get("title") == active), None)
+            if target is None:
+                raise RuntimeError(t("Не удалось определить активный документ.",
+                                     "Could not identify the active document."))
+            existing = str(target.get("path") or "").strip()
+            save_as_path = "" if existing else str(_save_path_for(
+                active, str(target.get("type") or "")))
+            result = await self.mcp.call("save_document", {"save_as_path": save_as_path})
+            if result.get("uncertain"):
+                self._uncertain = True
+            if result.get("ok") and not result.get("uncertain"):
+                try:
+                    conversation = self.conversation_snapshot(session_id)
+                    conversation_error = None
+                except KeyError:
+                    conversation = None
+                    conversation_error = t(
+                        "Не найдена переписка для сохранения.",
+                        "No conversation was found to save.")
+                return {**result, "conversation": conversation,
+                        "conversation_error": conversation_error}
+            return result
+        finally:
+            self._saving = False
+
+    def conversation_snapshot(self, session_id: str) -> dict:
+        runs = [run.snapshot() for run in self.runs.values()
+                if run.session_id == session_id]
+        if not runs:
+            raise KeyError(t("Переписка не найдена.", "Conversation not found."))
+        messages = deepcopy(runs[-1]["messages"] or self._history.get(session_id) or [])
+        for run in runs:
+            run["messages"] = []
+        latest = runs[-1]
+        return {
+            "schema": _CONVERSATION_SCHEMA,
+            "version": _CONVERSATION_VERSION,
+            "session_id": session_id,
+            "profile_id": latest.get("profile_id") or "",
+            "language": latest.get("language") or "ru",
+            "saved_at": time.time(),
+            "messages": messages,
+            "runs": runs,
+        }
+
+    def load_conversation(self, data: dict) -> dict:
+        if self._closed:
+            raise RuntimeError(t("Агент завершает работу.", "The agent is shutting down."))
+        if self.uncertain:
+            raise RuntimeError(t(
+                "Исход CAD-операции неизвестен. Проверьте SolidWorks и перезапустите приложение.",
+                "The CAD operation outcome is unknown. Check SolidWorks and restart the application."))
+        if self._active is not None and not self._active.done:
+            raise AgentBusy(t("Уже выполняется CAD-запрос.", "A CAD request is already running."))
+        if self._saving:
+            raise AgentBusy(t("Сохранение уже выполняется.", "A save is already running."))
+        if not isinstance(data, dict):
+            raise ValueError(t("Некорректный файл переписки.", "Invalid conversation file."))
+        if len(_json(data).encode("utf-8")) > _CONVERSATION_MAX_BYTES:
+            raise ValueError(t("Файл переписки слишком большой.",
+                               "The conversation file is too large."))
+        if data.get("schema") != _CONVERSATION_SCHEMA or data.get("version") != _CONVERSATION_VERSION:
+            raise ValueError(t("Неподдерживаемый формат переписки.",
+                               "Unsupported conversation format."))
+        session_id = data.get("session_id")
+        if not isinstance(session_id, str) or not _SESSION_ID.fullmatch(session_id):
+            raise ValueError(t("Некорректный ID диалога в файле переписки.",
+                               "Invalid dialogue ID in the conversation file."))
+        messages = data.get("messages")
+        if (not isinstance(messages, list) or not messages
+                or any(not isinstance(message, dict) or not isinstance(message.get("role"), str)
+                       for message in messages)):
+            raise ValueError(t("В файле переписки нет корректной истории сообщений.",
+                               "The conversation file has no valid message history."))
+        if len(_json(messages).encode("utf-8")) > self.max_history_bytes:
+            raise ValueError(t("История переписки превышает лимит контекста.",
+                               "The conversation history exceeds the context limit."))
+        raw_runs = data.get("runs")
+        if (not isinstance(raw_runs, list) or not raw_runs
+                or len(raw_runs) > _CONVERSATION_MAX_RUNS):
+            raise ValueError(t("В файле переписки нет корректных прогонов.",
+                               "The conversation file has no valid runs."))
+        if (session_id in self._history
+                or any(run.session_id == session_id for run in self.runs.values())):
+            session_id = uuid4().hex
+        used_ids = set(self.runs)
+        loaded = []
+        for index, raw in enumerate(raw_runs):
+            if not isinstance(raw, dict):
+                raise ValueError(t("Некорректный прогон в файле переписки.",
+                                   "Invalid run in the conversation file."))
+            status = raw.get("status")
+            if status not in _TERMINAL:
+                raise ValueError(t("В файле переписки есть незавершённый прогон.",
+                                   "The conversation file contains an unfinished run."))
+            events = raw.get("events") or []
+            if (not isinstance(events, list) or len(events) > _CONVERSATION_MAX_EVENTS
+                    or any(not isinstance(event, dict) or event.get("seq") != seq
+                           or not isinstance(event.get("type"), str)
+                           or not isinstance(event.get("data"), dict)
+                           for seq, event in enumerate(events, 1))):
+                raise ValueError(t("Некорректные события в файле переписки.",
+                                   "Invalid events in the conversation file."))
+            checks = raw.get("checks") or {}
+            if (not isinstance(checks, dict)
+                    or any(not isinstance(value, dict)
+                           or not isinstance(value.get("status"), str)
+                           for value in checks.values())):
+                raise ValueError(t("Некорректные проверки в файле переписки.",
+                                   "Invalid checks in the conversation file."))
+            profile_id = raw.get("profile_id")
+            if not isinstance(profile_id, str) or len(profile_id) > 100:
+                profile_id = ""
+            language = raw.get("language") if raw.get("language") in {"ru", "en"} else "ru"
+            try:
+                max_calls = int(raw.get("max_calls") or 80)
+                call_count = int(raw.get("call_count") or 0)
+                repair_attempts = int(raw.get("repair_attempts") or 0)
+            except (TypeError, ValueError):
+                raise ValueError(t("Некорректные счётчики в файле переписки.",
+                                   "Invalid counters in the conversation file.")) from None
+            if not 1 <= max_calls <= 1000 or call_count < 0 or not 0 <= repair_attempts <= 2:
+                raise ValueError(t("Некорректные счётчики в файле переписки.",
+                                   "Invalid counters in the conversation file."))
+            run_id = raw.get("id")
+            if not isinstance(run_id, str) or not _SESSION_ID.fullmatch(run_id) \
+                    or run_id in used_ids:
+                run_id = uuid4().hex
+            used_ids.add(run_id)
+            run = Run(session_id=session_id, profile_id=profile_id,
+                      messages=deepcopy(messages) if index == len(raw_runs) - 1 else [],
+                      max_calls=max_calls, language=language, status=status,
+                      events=deepcopy(events), stop_requested=bool(raw.get("stop_requested")),
+                      call_count=call_count, checks=deepcopy(checks))
+            run.id = run_id
+            run.repair_attempts = repair_attempts
+            metrics = raw.get("metrics")
+            if isinstance(metrics, dict):
+                run.metrics.update(metrics)
+            loaded.append(run)
+        if messages[0].get("role") != "system":
+            messages.insert(0, {"role": "system", "content": _system_prompt(loaded[-1].language)})
+        self._history[session_id] = deepcopy(messages)
+        if any(run.status == "uncertain" for run in loaded):
+            self._uncertain = True
+        for run in loaded:
+            self.runs[run.id] = run
+        document = data.get("document")
+        if not isinstance(document, dict):
+            document = {}
+        latest = loaded[-1]
+        return {"session_id": session_id, "profile_id": latest.profile_id,
+                "language": latest.language, "document": deepcopy(document),
+                "runs": [run.snapshot() for run in loaded]}
 
     def get(self, run_id: str) -> Run:
         if run_id not in self.runs:

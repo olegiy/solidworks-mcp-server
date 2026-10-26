@@ -29,7 +29,7 @@ svg { flex-shrink: 0; }
 .brand h1 { white-space: nowrap; }
 .brand-icon { display: grid; place-items: center; width: 42px; height: 42px; color: #4774c6; border: 1px solid #dbe6fa; border-radius: 13px; background: #edf3ff; }
 .header-actions, .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.header-button { background: transparent; border-color: transparent; font-size: 13px; }
+.header-button { background: transparent; border-color: transparent; font-size: 13px; white-space: nowrap; }
 .language-switcher { flex: 0 0 auto; }
 .language-switcher select { width: auto; border-color: transparent; background: transparent; font-size: 12px; font-weight: 600; padding: 8px 2px; color: var(--muted); }
 .language-switcher select:hover { color: #315ba5; }
@@ -85,6 +85,9 @@ main { width: min(960px, 100%); padding: 0 24px 20px; margin: 0 auto; display: f
 .markdown th, .markdown td { border: 1px solid #d9dde5; padding: 8px 12px; text-align: left; }
 .markdown th { background: #e9ecf2; }
 .run-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 11px; color: #606b7b; margin: 4px 0 6px; padding-left: 4px; }
+.save-header { color: #315ba5; }
+.save-header:hover { color: #2858bf; }
+.save-notice.panel { padding: 12px 16px; margin: 8px 0; font-size: 13px; flex-shrink: 0; }
 .badge { display: inline-flex; align-items: center; gap: 5px; color: #626f82; }
 .badge::before { content: ''; width: 5px; height: 5px; border-radius: 50%; background: #98b9a1; }
 .badge.failed, .badge.uncertain { color: #a54a4a; }
@@ -144,6 +147,7 @@ button.stop-button { background: #f1e8e8; color: #b25e5e; }
 .error { color: #ad4a4a; overflow-wrap: anywhere; }
 .error.panel { padding: 12px 16px; margin: 8px 0; font-size: 13px; flex-shrink: 0; }
 .notice { color: #3f8062; }
+.notice.panel { padding: 12px 16px; margin: 8px 0; font-size: 13px; flex-shrink: 0; }
 .settings-dialog { width: min(760px, calc(100% - 32px)); max-height: 90dvh; padding: 0; border: 1px solid #dce1e9; border-radius: 20px; box-shadow: 0 24px 100px #172b4c26; background: white; color: inherit; }
 .settings-dialog::backdrop { background: #26334b40; backdrop-filter: blur(3px); }
 .settings { padding: 20px 22px; border: 0; margin: 0; }

@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 async function connection(page: Page, name: string, remote = false) {
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();
@@ -36,6 +37,32 @@ test('сохранить подключение, получить CAD-резул
   expect(box.height).toBeLessThanOrEqual(300);
   await page.getByRole('button', { name: 'Журнал операций' }).last().click();
   await expect(page.getByText('screenshot', { exact: true })).toBeVisible();
+});
+
+test('кнопка сохранения пишет переписку, а Open возвращает её', async ({ page }) => {
+  await page.goto('/');
+  await connection(page, 'Сохранение');
+  await send(page, 'Прочитай размер');
+  await expect(page.getByText('Размер 62 мм. Готово.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Сохранить проект', exact: true }).click();
+  const notice = page.getByTestId('save-notice');
+  await expect(notice).toContainText('Сохранено:');
+  await expect(notice).toContainText('Переписка:');
+  const text = (await notice.textContent()) ?? '';
+  const match = text.match(/Переписка: (.+)$/);
+  expect(match).not.toBeNull();
+  const conversationPath = match![1];
+  const saved = JSON.parse(readFileSync(conversationPath, 'utf8'));
+  expect(saved.schema).toBe('cadnext.conversation');
+  expect(saved.messages.length).toBeGreaterThan(0);
+  expect(saved.runs.length).toBeGreaterThan(0);
+
+  await page.getByRole('button', { name: 'Новый диалог', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Что создадим сегодня?' })).toBeVisible();
+  await page.getByTestId('open-conversation-input').setInputFiles(conversationPath);
+  await expect(page.getByText('Прочитай размер', { exact: true })).toBeVisible();
+  await expect(page.getByText('Размер 62 мм. Готово.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'Диалог загружен' })).toBeVisible();
 });
 
 test('разрешение Python постоянно для новых диалогов и отзывается в настройках', async ({ page }) => {

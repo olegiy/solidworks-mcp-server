@@ -1,35 +1,57 @@
-# logs the server writes next to itself
-server.log
-server_crash.log
-calls.jsonl
-
-# Python
-__pycache__/
-*.pyc
+# Python: environments, bytecode, caches and build output
 .venv/
 venv/
-
-# backups and SolidWorks temp files
-*.bak*
-~$*
-
-# Local application, build and verification artifacts
-.superpowers/
+__pycache__/
+*.py[cod]
 .pytest_cache/
 .ruff_cache/
-node_modules/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
+build/
 dist/
+*.egg-info/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Node.js / TypeScript / Vite
+node_modules/
+.vite/
+*.tsbuildinfo
+coverage/
+
+# Playwright: results, traces, reports and downloaded browsers
 test-results/
 playwright-report/
+blob-report/
 .playwright-cli/
-*.png
-*.bmp
-*.SLDPRT
-*.sldprt
-*.dxf
+**/playwright/.cache/
+ms-playwright/
+
+# Local execution state and generated captures (keep source images trackable)
+/.superpowers/
+/artifacts/
+/screenshots/
+/*.png
+/*.bmp
+*.log
+calls.jsonl
 *_token.json
 
-# Local credentials and private key material
+# SolidWorks/CAD: generated documents, exports, backups and lock files
+*.bak*
+~$*
+*.[sS][lL][dD][pP][rR][tT]
+*.[sS][lL][dD][aA][sS][mM]
+*.[sS][lL][dD][dD][rR][wW]
+*.[dD][xX][fF]
+*.[sS][tT][eE][pP]
+*.[sS][tT][pP]
+
+# Local credentials and private key material (never commit)
 .env
 .env.*
 !.env.example
@@ -42,30 +64,7 @@ secrets.json
 settings.json
 .credentials/
 
-# прочие форматы SolidWorks/CAD, которые может создать live_smoke или экспорт
-*.sldasm
-*.SLDASM
-*.slddrw
-*.SLDDRW
-*.step
-*.stp
-
-# Playwright: кэш браузеров и blob-отчёты
-playwright/.cache/
-blob-report/
-
-# Python: артефакты сборки и покрытия
-build/
-*.egg-info/
-.coverage
-.coverage.*
-htmlcov/
-.mypy_cache/
-
-# любые логи (помимо уже перечисленных конкретных имён)
-*.log
-
-# редакторы и ОС
+# Editors and operating systems
 .idea/
 .vscode/
 .DS_Store
