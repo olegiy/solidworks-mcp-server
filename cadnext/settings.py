@@ -11,6 +11,8 @@ from typing import Literal, get_args
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+from cadnext.i18n import t
+
 SERVICE = "cad_agent_next"
 ReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh", "max"]
 
@@ -27,10 +29,11 @@ class Profile:
 
     def __post_init__(self):
         if self.reasoning_effort is not None and self.reasoning_effort not in get_args(ReasoningEffort):
-            raise ValueError("Неизвестная сила рассуждения.")
+            raise ValueError(t("Неизвестная сила рассуждения.", "Unknown reasoning effort."))
         if any(not isinstance(value, str) or not value.strip()
                for value in (self.id, self.name, self.base_url, self.model)):
-            raise ValueError("Название, адрес и модель должны быть заполнены.")
+            raise ValueError(t("Название, адрес и модель должны быть заполнены.",
+                                   "Name, address, and model must be filled in."))
         try:
             url = urlsplit(self.base_url)
             valid = (url.scheme in {"http", "https"} and url.hostname
@@ -40,10 +43,12 @@ class Profile:
         except ValueError:
             valid = False
         if not valid:
-            raise ValueError("Нужен HTTP(S)-адрес API без пароля, параметров и фрагмента.")
+            raise ValueError(t("Нужен HTTP(S)-адрес API без пароля, параметров и фрагмента.",
+                               "An HTTP(S) API address without a password, query, or fragment is required."))
         if not isinstance(self.vision, bool) or (
                 self.local is not None and not isinstance(self.local, bool)):
-            raise ValueError("Признаки подключения должны быть логическими значениями.")
+            raise ValueError(t("Признаки подключения должны быть логическими значениями.",
+                                   "Connection flags must be boolean values."))
         if self.local is None:
             host = url.hostname.lower()
             try:
@@ -81,7 +86,8 @@ class SettingsStore:
                 if len(self._profiles) != len(profiles):
                     raise ValueError
             except (ValueError, TypeError, KeyError):
-                raise ValueError("Файл настроек повреждён; исходный файл сохранён.") from None
+                raise ValueError(t("Файл настроек повреждён; исходный файл сохранён.",
+                               "The settings file is corrupted; the original file was preserved.")) from None
 
     def list(self) -> list[Profile]:
         with self._lock:
@@ -90,7 +96,7 @@ class SettingsStore:
     def get(self, profile_id: str) -> Profile:
         with self._lock:
             if profile_id not in self._profiles:
-                raise KeyError("Подключение не найдено.")
+                raise KeyError(t("Подключение не найдено.", "Connection not found."))
             return self._profiles[profile_id]
 
     def secret(self, profile_id: str) -> str | None:
@@ -98,7 +104,8 @@ class SettingsStore:
             try:
                 return self._secrets.get_password(SERVICE, profile_id)
             except Exception:
-                raise RuntimeError("Не удалось прочитать ключ из Windows Credential Manager.") from None
+                raise RuntimeError(t("Не удалось прочитать ключ из Windows Credential Manager.",
+                                 "Could not read the key from Windows Credential Manager.")) from None
 
     def public(self, profile: Profile) -> dict:
         return {**asdict(profile), "has_key": bool(self.secret(profile.id))}
@@ -110,7 +117,8 @@ class SettingsStore:
             elif self._secrets.get_password(SERVICE, profile_id) is not None:
                 self._secrets.delete_password(SERVICE, profile_id)
         except Exception:
-            raise RuntimeError("Не удалось изменить ключ в Windows Credential Manager.") from None
+            raise RuntimeError(t("Не удалось изменить ключ в Windows Credential Manager.",
+                                 "Could not change the key in Windows Credential Manager.")) from None
 
     @property
     def python_execution_allowed(self) -> bool:
@@ -119,12 +127,14 @@ class SettingsStore:
 
     def set_python_execution_allowed(self, allowed: bool):
         if type(allowed) is not bool:
-            raise ValueError("Разрешение Python должно быть логическим значением.")
+            raise ValueError(t("Разрешение Python должно быть логическим значением.",
+                               "Python permission must be a boolean value."))
         with self._lock:
             try:
                 self._write(self._profiles, python_execution_allowed=allowed)
             except OSError:
-                raise OSError("Не удалось сохранить разрешение Python; настройка не изменена.") from None
+                raise OSError(t("Не удалось сохранить разрешение Python; настройка не изменена.",
+                            "Could not save the Python permission; the setting was not changed.")) from None
             self._python_execution_allowed = allowed
 
     def _write(self, profiles: dict[str, Profile], *, python_execution_allowed=None):
@@ -156,24 +166,26 @@ class SettingsStore:
         except OSError:
             if change_key:
                 self._set_secret(profile_id, old_key)
-            raise OSError("Не удалось записать настройки; предыдущий файл сохранён.") from None
+            raise OSError(t("Не удалось записать настройки; предыдущий файл сохранён.",
+                            "Could not write the settings; the previous file was preserved.")) from None
         self._profiles = profiles
 
     def save(self, values: dict, profile_id: str | None = None) -> Profile:
         with self._lock:
             allowed = {"name", "base_url", "model", "vision", "local", "api_key", "reasoning_effort"}
             if set(values) - allowed:
-                raise ValueError("Неизвестное поле настроек подключения.")
+                raise ValueError(t("Неизвестное поле настроек подключения.", "Unknown connection setting field."))
             key = values.get("api_key")
             if "api_key" in values and key is not None and not isinstance(key, str):
-                raise ValueError("Ключ должен быть строкой.")
+                raise ValueError(t("Ключ должен быть строкой.", "The key must be a string."))
             previous = self.get(profile_id) if profile_id is not None else None
             fields = asdict(previous) if previous else {}
             fields.update({k: v for k, v in values.items() if k != "api_key"})
             try:
                 profile = Profile(**fields)
             except TypeError:
-                raise ValueError("Укажите название, адрес API и модель.") from None
+                raise ValueError(t("Укажите название, адрес API и модель.",
+                                   "Provide a name, an API address, and a model.")) from None
             address_changed = previous is not None and profile.base_url != previous.base_url
             if address_changed and "local" not in values:
                 profile = replace(profile, local=None)

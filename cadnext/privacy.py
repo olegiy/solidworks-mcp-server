@@ -4,6 +4,8 @@ import json
 import re
 from uuid import uuid4
 
+from cadnext.i18n import t
+
 _START = r"(?:[A-Za-z]:[\\/]|\\\\|/(?!/))"
 _WINDOWS_START = r'(?:(?<!\w)[A-Za-z]:[\\/]|\\\\)'
 _WINDOWS_CHARS = r'[^<>"\'\r\n|?*]'
@@ -32,7 +34,7 @@ class PrivacyContext:
         self._consent = consent
         self._image_consent = image_consent
         self._sensitive = sorted({s for s in sensitive if s}, key=len, reverse=True)
-        self._prefix = f"[СКРЫТО_{uuid4().hex}_"
+        self._prefix = f"{t('[СКРЫТО_', '[HIDDEN_')}{uuid4().hex}_"
         self._tokens: dict[str, str] = {}
 
     @property
@@ -45,22 +47,26 @@ class PrivacyContext:
 
     def grant(self, *, session_id: str, profile_id: str, images: bool = False):
         if not session_id or not profile_id or (session_id, profile_id) != self._scope:
-            raise ConsentRequired("Согласие относится к другому диалогу или подключению.")
+            raise ConsentRequired(t("Согласие относится к другому диалогу или подключению.",
+                                    "The consent belongs to another dialogue or connection."))
         self._consent = True
         self._image_consent = images
 
     def bind_profile(self, profile_id: str, *, base_url: str, model: str):
         if self.profile_id and self.profile_id != profile_id:
-            raise ValueError("Контекст приватности относится к другому подключению.")
+            raise ValueError(t("Контекст приватности относится к другому подключению.",
+                               "The privacy context belongs to another connection."))
         binding = (profile_id, base_url, model)
         if self._profile_binding is not None and self._profile_binding != binding:
-            raise ValueError("Подключение изменено; создайте новый контекст согласия.")
+            raise ValueError(t("Подключение изменено; создайте новый контекст согласия.",
+                               "The connection changed; create a new consent context."))
         self._profile_binding = binding
         self._scope = (self.session_id, profile_id)
 
     def bind_session(self, session_id: str):
         if self.session_id and self.session_id != session_id:
-            raise ValueError("Контекст приватности относится к другому диалогу.")
+            raise ValueError(t("Контекст приватности относится к другому диалогу.",
+                               "The privacy context belongs to another dialogue."))
         self._scope = (session_id, self.profile_id)
 
     def _token(self, value: str) -> str:
@@ -119,7 +125,8 @@ class PrivacyContext:
 
     def outgoing(self, value):
         if not self.local and not self._consent:
-            raise ConsentRequired("Разрешите передачу CAD-данных для этого диалога и подключения.")
+            raise ConsentRequired(t("Разрешите передачу CAD-данных для этого диалога и подключения.",
+                                    "Allow CAD data transfer for this dialogue and connection."))
         result = self._walk(value, False)
         return None if result is _DROP else result
 
@@ -150,8 +157,10 @@ class PrivacyContext:
                             if image is not None:
                                 blocks.append(image)
                         else:
-                            raise ValueError("Неподдерживаемый тип содержимого сообщения.")
-                    filtered["content"] = blocks or "Изображение не передано модели."
+                            raise ValueError(t("Неподдерживаемый тип содержимого сообщения.",
+                               "Unsupported message content type."))
+                    filtered["content"] = blocks or t("Изображение не передано модели.",
+                                                       "The image was not sent to the model.")
                 else:
                     filtered["content"] = self.outgoing(content)
             if "tool_calls" in message:

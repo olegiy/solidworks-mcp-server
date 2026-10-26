@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from './api';
+import { useI18n } from './i18n';
 import type { ReasoningMetadata } from './api';
 
 interface Lookup {
@@ -9,6 +10,7 @@ interface Lookup {
 }
 
 export default function useReasoning(model: string) {
+  const { t } = useI18n();
   const [version, setVersion] = useState(0);
   const [state, setState] = useState<{ model: string; result: Lookup | null }>({ model: '', result: null });
   useEffect(() => {
@@ -25,13 +27,13 @@ export default function useReasoning(model: string) {
     return () => { clearTimeout(timer); controller.abort(); };
   }, [model, version]);
   const result = state.model === model ? state.result : null;
-  const hint = !model.trim() ? 'Выберите модель для получения уровней OpenRouter.'
-    : !result ? 'Загружаем уровни OpenRouter…'
-    : result.status === 'not_found' ? 'Соответствие в OpenRouter не найдено. Доступен стандартный список.'
-    : result.status === 'ambiguous' ? 'В OpenRouter несколько совпадений. Доступен стандартный список.'
-    : result.status === 'unavailable' ? 'Каталог OpenRouter недоступен. Доступен стандартный список.'
-    : result.reasoning?.supported_efforts?.length ? `Уровни из OpenRouter: ${result.model_id}.`
-    : 'OpenRouter не публикует уровни этой модели. Доступен стандартный список.';
+  const hint = !model.trim() ? t('reasoningChooseModel')
+    : !result ? t('reasoningLoading')
+    : result.status === 'not_found' ? t('reasoningNotFound')
+    : result.status === 'ambiguous' ? t('reasoningAmbiguous')
+    : result.status === 'unavailable' ? t('reasoningUnavailable')
+    : result.reasoning?.supported_efforts?.length ? t('reasoningFromOpenRouter', { model: result.model_id ?? '' })
+    : t('reasoningNoLevels');
   return { reasoning: result?.reasoning, hint, loading: Boolean(model.trim()) && !result, refresh: () => {
     setState({ model: '', result: null }); setVersion(previous => previous + 1);
   } };

@@ -11,6 +11,8 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client import stdio as stdio_transport
 from mcp.client.stdio import stdio_client
 
+from cadnext.i18n import t
+
 ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -34,7 +36,7 @@ def normalize_result(result) -> dict:
     )
     error = (value.get("error") if isinstance(value, dict) else value) if failed else None
     return {"ok": not failed, "value": value, "images": images,
-            "error": str(error or "Ошибка инструмента") if failed else None,
+            "error": str(error or t("Ошибка инструмента", "Tool error")) if failed else None,
             "uncertain": uncertain}
 
 
@@ -70,7 +72,7 @@ class SolidWorksMcp:
 
     async def tools(self) -> list[dict]:
         if not self.session:
-            raise RuntimeError("MCP не подключён")
+            raise RuntimeError(t("MCP не подключён", "MCP is not connected"))
         tools, cursor = [], None
         while True:
             result = await self.session.list_tools(cursor=cursor)
@@ -85,13 +87,15 @@ class SolidWorksMcp:
     async def call(self, name: str, arguments: dict) -> dict:
         if self.uncertain:
             return {"ok": False, "value": None, "images": [], "uncertain": True,
-                    "error": "Результат предыдущей операции неизвестен. Проверьте SolidWorks."}
+                    "error": t("Результат предыдущей операции неизвестен. Проверьте SolidWorks.",
+                               "The previous operation outcome is unknown. Check SolidWorks.")}
         if not self.session:
-            raise RuntimeError("MCP не подключён")
+            raise RuntimeError(t("MCP не подключён", "MCP is not connected"))
         try:
             result = normalize_result(await self.session.call_tool(name, arguments))
         except Exception:
             result = {"ok": False, "value": None, "images": [], "uncertain": True,
-                      "error": "Соединение MCP прервано; результат CAD-операции неизвестен."}
+                      "error": t("Соединение MCP прервано; результат CAD-операции неизвестен.",
+                                 "The MCP connection was interrupted; the CAD operation outcome is unknown.")}
         self.uncertain = self.uncertain or result["uncertain"]
         return result

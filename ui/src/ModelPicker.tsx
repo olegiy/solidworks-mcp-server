@@ -1,5 +1,6 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { api } from './api';
+import { useI18n } from './i18n';
 import type { ModelCatalog, ModelInfo } from './api';
 
 interface Props {
@@ -8,6 +9,7 @@ interface Props {
 }
 
 export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChange, onCatalog, disabled }: Props) {
+  const { t } = useI18n();
   const id = useId();
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
@@ -45,7 +47,7 @@ export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChang
       setModels(catalog.models); onCatalog?.(catalog); loaded.current = true; setActive(-1);
     } catch (error) {
       if (!controller.signal.aborted) {
-        setError(error instanceof Error ? error.message : 'Не удалось загрузить модели.');
+        setError(error instanceof Error ? error.message : t('modelLoadError'));
       }
     } finally {
       if (request.current === controller) { request.current = null; setLoading(false); }
@@ -62,13 +64,13 @@ export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChang
   return <div className="model-picker" onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }}>
-    <label htmlFor={id}>Имя модели</label>
+    <label htmlFor={id}>{t('modelName')}</label>
     <div className="model-input-row">
       <input id={id} ref={input} required maxLength={300} role="combobox" autoComplete="off"
         aria-autocomplete="list" aria-expanded={open} aria-controls={`${id}-list`}
         aria-activedescendant={open && active >= 0 && matching[active] ? `${id}-option-${active}` : undefined}
         aria-describedby={`${id}-hint`} value={value} disabled={disabled}
-        placeholder="Выберите модель или введите название"
+        placeholder={t('modelPlaceholder')}
         onFocus={show} onClick={() => { if (!open) show(); }}
         onChange={event => {
             onChange(event.target.value); setQuery(event.target.value); setOpen(true); setActive(-1);
@@ -91,22 +93,22 @@ export default function ModelPicker({ baseUrl, profileId, apiKey, value, onChang
             event.preventDefault(); setOpen(false);
           }
         }} />
-      <button type="button" disabled={disabled} aria-label="Показать список моделей"
+      <button type="button" disabled={disabled} aria-label={t('showModels')}
         onMouseDown={event => event.preventDefault()}
         onClick={() => { if (open) setOpen(false); else { input.current?.focus(); show(); } }}>▾</button>
       {open ? <div className="model-dropdown">
-        {loading ? <p role="status">Загружаем модели…</p> : null}
-        <div id={`${id}-list`} ref={list} role="listbox" aria-label="Модели API" aria-busy={loading}>
+        {loading ? <p role="status">{t('loadingModels')}</p> : null}
+        <div id={`${id}-list`} ref={list} role="listbox" aria-label={t('apiModels')} aria-busy={loading}>
           {matching.map((model, index) => <div role="option" id={`${id}-option-${index}`} key={model.id}
             aria-selected={active === index} className={active === index ? 'active' : ''}
             onMouseDown={event => event.preventDefault()} onClick={() => choose(model.id)}>{model.id}</div>)}
         </div>
         {!loading && !error && matching.length === 0 ? <p role="status">{models.length
-          ? 'Модели не найдены. Можно сохранить введённое имя.'
-          : 'API вернул пустой список. Введите имя модели вручную.'}</p> : null}
+          ? t('modelsNotFound')
+          : t('emptyModelList')}</p> : null}
       </div> : null}
     </div>
-    <p id={`${id}-hint`} className="hint">Поиск по названию при вводе. Выбор: ↑ ↓ и Enter.</p>
-    {error ? <p role="alert" className="error">{error} Имя модели можно ввести вручную.</p> : null}
+    <p id={`${id}-hint`} className="hint">{t('modelHint')}</p>
+    {error ? <p role="alert" className="error">{error} {t('modelManualError')}</p> : null}
   </div>;
 }

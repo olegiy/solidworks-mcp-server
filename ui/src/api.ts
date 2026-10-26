@@ -1,3 +1,5 @@
+import { acceptLanguage, detectLanguage, tr } from './language';
+
 export interface Profile {
   id: string; name: string; base_url: string; model: string;
   vision: boolean; local: boolean; has_key: boolean;
@@ -25,7 +27,7 @@ export interface RunEvent {
   seq: number; type: string; at?: number; data: Record<string, unknown>;
 }
 export interface Run {
-  id: string; session_id: string; profile_id: string; status: string;
+  id: string; session_id: string; profile_id: string; language?: string; status: string;
   events: RunEvent[]; confirmation: Confirmation | null; call_count: number;
   max_calls: number; verification: string; stop_requested: boolean;
   repair_attempts?: number; repairing?: boolean;
@@ -35,10 +37,13 @@ export const terminal = (status: string) =>
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api${path}`, {
-    ...options, headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers },
+    ...options, headers: {
+      'Accept-Language': acceptLanguage(detectLanguage()),
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers,
+    },
   });
   if (!response.ok) {
-    let message = 'Не удалось выполнить запрос к приложению.';
+    let message = tr('Не удалось выполнить запрос к приложению.', 'Could not complete the application request.');
     try { message = (await response.json()).detail ?? message; } catch { /* Keep the local message. */ }
     throw new Error(message);
   }

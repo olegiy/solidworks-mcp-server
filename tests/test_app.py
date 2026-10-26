@@ -391,3 +391,49 @@ async def test_sse_disconnect_without_beacon_waits_for_cad_and_blocks_next_call(
                     await asyncio.wait_for(stream, 2)
             assert run.status == "stopped"
             assert len(backend.calls) == 1
+
+
+def test_language_header_localizes_api_errors(api):
+    client, _ = api
+    response = client.post('/api/runs', headers={'Accept-Language': 'en-US,en;q=0.9'}, json={})
+    assert response.status_code == 422
+    assert 'Invalid request fields' in response.json()['detail']
+
+    response = client.post('/api/runs', headers={'Accept-Language': 'ru-RU,ru;q=0.9'}, json={})
+    assert response.status_code == 422
+    assert 'Некорректные поля запроса' in response.json()['detail']
+
+    response = client.post('/api/profiles', headers={'Accept-Language': 'en-US,en;q=0.9'},
+                           json={'name': '', 'base_url': 'not-a-url', 'model': ''})
+    assert response.status_code == 422
+    assert response.json()['detail'] == 'Invalid settings or request parameters.'
+
+
+def test_run_language_selects_english_prompt_and_messages(api):
+    client, backend = api
+    saved = profile(client)
+    response = client.post('/api/runs', headers={'Accept-Language': 'en-US'},
+                           json={'session_id': 'english-session', 'profile_id': saved['id'],
+                                 'message': 'Read size', 'language': 'en'})
+    assert response.status_code == 202, response.text
+    run = response.json()
+    assert run['language'] == 'en'
+    finished = wait(client, run['id'])
+    assert finished['status'] == 'completed'
+    statuses = [event['data']['message'] for event in finished['events']
+                if event['type'] == 'status']
+    assert 'The request completed.' in statuses
+    assert all('Запрос' not in message for message in statuses)
+    assert 'Respond in English' in backend.requests[0]['messages'][0]['content']
+
+
+def test_run_language_defaults_to_russian(api):
+    client, backend = api
+    saved = profile(client)
+    run = start(client, saved['id']).json()
+    assert run['language'] == 'ru'
+    finished = wait(client, run['id'])
+    assert finished['status'] == 'completed'
+    assert 'Запрос завершён.' in [event['data']['message'] for event in finished['events']
+                                   if event['type'] == 'status']
+    assert 'Отвечай по-русски' in backend.requests[0]['messages'][0]['content']

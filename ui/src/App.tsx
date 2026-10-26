@@ -9,38 +9,47 @@ import MessageContent, { CopyButton } from './MessageContent';
 import Icon from './Icon';
 import ActivityIndicator from './ActivityIndicator';
 import type { PendingActivity, RunContact } from './ActivityIndicator';
+import { useI18n } from './i18n';
+import type { MessageKey } from './i18n';
+import { languages } from './language';
+import type { Language } from './language';
 import './styles.css';
 
-const statusNames: Record<string, string> = {
-  queued: 'В очереди', running: 'Выполняется', repairing: 'Исправление Python-кода', awaiting_confirmation: 'Ожидает подтверждения',
-  stopping: 'Остановка', completed: 'Завершён', stopped: 'Остановлен', failed: 'Ошибка',
-  uncertain: 'Исход неизвестен', limit_reached: 'Достигнут лимит', rejected: 'Отклонён',
+const statusKeys: Record<string, MessageKey> = {
+  queued: 'statusQueued', running: 'statusRunning', repairing: 'statusRepairing',
+  awaiting_confirmation: 'statusAwaitingConfirmation', stopping: 'statusStopping',
+  completed: 'statusCompleted', stopped: 'statusStopped', failed: 'statusFailed',
+  uncertain: 'statusUncertain', limit_reached: 'statusLimitReached', rejected: 'statusRejected',
 };
-const toolNames: Record<string, string> = {
-  get_dimension: 'Чтение размера', set_dimension: 'Изменение размера', screenshot: 'Снимок',
-  get_feature_tree: 'Чтение дерева', execute_python: 'Python-код', save_document: 'Сохранение',
+const toolKeys: Record<string, MessageKey> = {
+  get_dimension: 'toolGetDimension', set_dimension: 'toolSetDimension', screenshot: 'toolScreenshot',
+  get_feature_tree: 'toolGetFeatureTree', execute_python: 'toolExecutePython',
+  save_document: 'toolSaveDocument',
 };
-const errorText = (error: unknown) => error instanceof Error ? error.message : 'Неизвестная ошибка.';
-const fallbackReasoningOptions = [
-  ['', 'По умолчанию API'], ['none', 'Без рассуждения'], ['minimal', 'Минимальная'],
-  ['low', 'Низкая'], ['medium', 'Средняя'], ['high', 'Высокая'], ['xhigh', 'Очень высокая'], ['max', 'Максимальная'],
-] as const;
-const reasoningLabels: Record<string, string> = Object.fromEntries(fallbackReasoningOptions
-  .filter(([value]) => value).map(([value, label]) => [value, label]));
-function reasoningOptionsFor(metadata: ReasoningMetadata | null | undefined) {
+type Translate = ReturnType<typeof useI18n>['t'];
+const errorText = (error: unknown, t: Translate) =>
+  error instanceof Error ? error.message : t('unknownError');
+const fallbackReasoningOptions: readonly (readonly [string, MessageKey])[] = [
+  ['', 'apiDefault'], ['none', 'reasoningNone'], ['minimal', 'reasoningMinimal'],
+  ['low', 'reasoningLow'], ['medium', 'reasoningMedium'], ['high', 'reasoningHigh'],
+  ['xhigh', 'reasoningXHigh'], ['max', 'reasoningMax'],
+];
+const reasoningLabels: Record<string, MessageKey> = Object.fromEntries(fallbackReasoningOptions
+  .filter(([value]) => value).map(([value, key]) => [value, key]));
+function reasoningOptionsFor(metadata: ReasoningMetadata | null | undefined, t: Translate) {
   const mandatory = metadata?.mandatory === true;
   const supported = metadata?.supported_efforts?.filter(value =>
     Object.prototype.hasOwnProperty.call(reasoningLabels, value) && (!mandatory || value !== 'none')) ?? [];
   if (!supported.length) {
-    if (mandatory) return [['', 'По умолчанию API']] as const;
-    return fallbackReasoningOptions;
+    if (mandatory) return [['', t('apiDefault')]] as const;
+    return fallbackReasoningOptions.map(([value, key]) => [value, t(key)] as const);
   }
-  const options = mandatory ? [] : [['', 'По умолчанию API'] as const];
+  const options = mandatory ? [] : [['', t('apiDefault')] as const];
   return [...options, ...supported.map(value => [value,
-    reasoningLabels[value] ?? value] as const)];
+    t(reasoningLabels[value] ?? 'apiDefault')] as const)];
 }
-function selectedReasoning(metadata: ReasoningMetadata | null | undefined, value: string | null | undefined) {
-  const options = reasoningOptionsFor(metadata);
+function selectedReasoning(metadata: ReasoningMetadata | null | undefined, value: string | null | undefined, t: Translate) {
+  const options = reasoningOptionsFor(metadata, t);
   if (options.some(([option]) => option === value)) return value ?? '';
   if (metadata?.mandatory) {
     if (options.some(([option]) => option === metadata.default_effort)) return metadata.default_effort ?? '';
@@ -62,6 +71,7 @@ function SettingsDialog({ children, onClose, returnFocusTo, fallbackFocusTo }: {
   children: ReactNode; onClose: () => void; returnFocusTo: RefObject<HTMLElement | null>;
   fallbackFocusTo: RefObject<HTMLButtonElement | null>;
 }) {
+  const { t } = useI18n();
   const dialog = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const element = dialog.current;
@@ -72,7 +82,7 @@ function SettingsDialog({ children, onClose, returnFocusTo, fallbackFocusTo }: {
       target?.focus();
     };
   }, [returnFocusTo, fallbackFocusTo]);
-  return <dialog ref={dialog} className="settings-dialog" aria-label="Настройки"
+  return <dialog ref={dialog} className="settings-dialog" aria-label={t('settings')}
     onCancel={event => { event.preventDefault(); onClose(); }}
     onClick={event => { if (event.target === event.currentTarget) onClose(); }}>{children}</dialog>;
 }
@@ -82,6 +92,7 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
   profileCatalog: ModelCatalog | null; onCatalog: (profileId: string, catalog: ModelCatalog | null) => void;
   maxCalls: number; onMaxCallsChange: (value: number) => void;
 }) {
+  const { t } = useI18n();
   const blank = { name: '', base_url: 'http://127.0.0.1:8080/v1', model: '', vision: false, local: true,
     reasoning_effort: null as string | null };
   const [editing, setEditing] = useState(selected);
@@ -102,7 +113,7 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
     const controller = new AbortController();
     api<{ python_execution_allowed: boolean }>('/settings', { signal: controller.signal })
       .then(result => setPythonAllowed(result.python_execution_allowed))
-      .catch(error => { if (!controller.signal.aborted) setError(errorText(error)); });
+      .catch(error => { if (!controller.signal.aborted) setError(errorText(error, t)); });
     return () => controller.abort();
   }, []);
 
@@ -115,7 +126,7 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
         method: 'PUT', body: JSON.stringify({ python_execution_allowed: allowed }),
       });
       setPythonAllowed(result.python_execution_allowed);
-    } catch (error) { setPythonAllowed(previous); setError(errorText(error)); }
+    } catch (error) { setPythonAllowed(previous); setError(errorText(error, t)); }
     finally { setSavingPermission(false); }
   }
 
@@ -137,13 +148,13 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
     setCatalog(next); catalogRef.current = next;
   }
   const metadata = catalog?.models.find(item => item.id === form.model)?.reasoning ?? lookup.reasoning;
-  const options = reasoningOptionsFor(metadata);
+  const options = reasoningOptionsFor(metadata, t);
   async function save(event: FormEvent) {
     event.preventDefault();
     if (lookup.loading && !metadata) return;
     setBusy(true); setError(''); setNotice('');
     try {
-      const savedReasoning = selectedReasoning(metadata, form.reasoning_effort);
+      const savedReasoning = selectedReasoning(metadata, form.reasoning_effort, t);
       const body = { name: form.name, base_url: form.base_url, model: form.model,
         local: form.local, vision: form.vision, reasoning_effort: savedReasoning || null,
         ...(key || clearKey ? { api_key: clearKey ? '' : key } : {}) };
@@ -156,78 +167,74 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
       onCatalog(result.id, catalogRef.current);
       await onSaved(result.id);
       setNotice(keyRemoved
-        ? 'Подключение сохранено. Адрес API изменён: прежний ключ удалён. Укажите ключ нового сервера, если он нужен.'
-        : 'Подключение сохранено');
-    } catch (error) { setError(errorText(error)); } finally { setBusy(false); }
+        ? t('connectionSavedKeyRemoved')
+        : t('connectionSaved'));
+    } catch (error) { setError(errorText(error, t)); } finally { setBusy(false); }
   }
   async function probe() {
     setBusy(true); setError(''); setNotice('');
     try {
       const result = await api<{ message: string }>(`/profiles/${editing}/test`, { method: 'POST' });
       setNotice(result.message);
-    } catch (error) { setError(errorText(error)); } finally { setBusy(false); }
+    } catch (error) { setError(errorText(error, t)); } finally { setBusy(false); }
   }
   async function remove() {
     setBusy(true); setError('');
     try { await api(`/profiles/${editing}`, { method: 'DELETE' }); await onSaved(''); edit(''); }
-    catch (error) { setError(errorText(error)); } finally { setBusy(false); }
+    catch (error) { setError(errorText(error, t)); } finally { setBusy(false); }
   }
-  return <section id="app-settings" className="settings panel" aria-label="Настройки">
-    <div className="section-title"><h2>Настройки</h2>
-      <button ref={closeButton} onClick={onClose}>Закрыть настройки</button></div>
-    <p className="local-badge">На этом компьютере</p>
-    <h3>Подключения</h3>
-    <p className="muted">OpenAI-совместимый API с вызовами инструментов. Изменения действуют со следующего запроса.</p>
+  return <section id="app-settings" className="settings panel" aria-label={t('settings')}>
+    <div className="section-title"><h2>{t('settings')}</h2>
+      <button ref={closeButton} onClick={onClose}>{t('closeSettings')}</button></div>
+    <p className="local-badge">{t('localOnly')}</p>
+    <h3>{t('connections')}</h3>
+    <p className="muted">{t('connectionsHint')}</p>
     <div className="settings-layout">
-      <nav aria-label="Сохранённые подключения">
+      <nav aria-label={t('savedConnections')}>
         {profiles.map(profile => <button key={profile.id} className={editing === profile.id ? 'selected' : ''}
           onClick={() => edit(profile.id)}>{profile.name}<small>{profile.model}</small></button>)}
-        <button onClick={() => edit('')}>Новое подключение</button>
+        <button onClick={() => edit('')}>{t('newConnection')}</button>
       </nav>
       <form onSubmit={save}>
-        <label>Название подключения<input required maxLength={200} value={form.name}
+        <label>{t('connectionName')}<input required maxLength={200} value={form.name}
           onChange={e => setForm({ ...form, name: e.target.value })} /></label>
-        <label>Адрес API<input required type="url" value={form.base_url} placeholder="https://api.example.com/v1"
+        <label>{t('apiAddress')}<input required type="url" value={form.base_url} placeholder="https://api.example.com/v1"
           onChange={e => { setCatalog(null); catalogRef.current = null;
             setForm({ ...form, base_url: e.target.value, local: localAddress(e.target.value) }); }} /></label>
         <ModelPicker baseUrl={form.base_url} profileId={editing} value={form.model} disabled={busy}
           apiKey={clearKey ? '' : key || undefined} onChange={modelChanged} onCatalog={catalogChanged} />
-        <label>Сила рассуждения<select value={selectedReasoning(metadata, form.reasoning_effort)} disabled={busy || (lookup.loading && !metadata)}
+        <label>{t('reasoningEffort')}<select value={selectedReasoning(metadata, form.reasoning_effort, t)} disabled={busy || (lookup.loading && !metadata)}
           aria-describedby="reasoning-hint"
           onChange={e => setForm({ ...form, reasoning_effort: e.target.value || null })}>
           {options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select></label>
-        <p id="reasoning-hint" className="hint">{lookup.hint} Выбор сохраняется кнопкой «Сохранить подключение».</p>
-        <button type="button" disabled={busy || !form.model.trim()} onClick={lookup.refresh}>Обновить уровни</button>
-        <label>Ключ API<input type="password" autoComplete="new-password" value={key}
-          placeholder={profiles.find(p => p.id === editing)?.has_key ? 'Ключ сохранён. Оставьте пустым, чтобы сохранить его.' : 'Для локального API необязателен'}
+        <p id="reasoning-hint" className="hint">{lookup.hint} {t('reasoningSavedHint')}</p>
+        <button type="button" disabled={busy || !form.model.trim()} onClick={lookup.refresh}>{t('refreshLevels')}</button>
+        <label>{t('apiKey')}<input type="password" autoComplete="new-password" value={key}
+          placeholder={profiles.find(p => p.id === editing)?.has_key ? t('savedKeyPlaceholder') : t('localKeyPlaceholder')}
           onChange={e => { setKey(e.target.value); setClearKey(false); }} /></label>
         {profiles.find(p => p.id === editing)?.has_key ? <label className="check"><input type="checkbox"
-          checked={clearKey} onChange={e => setClearKey(e.target.checked)} />Удалить сохранённый ключ</label> : null}
+          checked={clearKey} onChange={e => setClearKey(e.target.checked)} />{t('removeSavedKey')}</label> : null}
         <label className="check"><input type="checkbox" checked={form.vision}
-          onChange={e => setForm({ ...form, vision: e.target.checked })} />Поддержка изображений</label>
+          onChange={e => setForm({ ...form, vision: e.target.checked })} />{t('imageSupport')}</label>
         <label className="check"><input type="checkbox" checked={form.local}
-          onChange={e => setForm({ ...form, local: e.target.checked })} />Локальное подключение</label>
-        <p className="hint">Снимки SolidWorks передаются модели при включённой поддержке изображений.
-          {' '}Ваши изображения можно прикрепить скрепкой рядом с отправкой: PNG, JPEG или WebP.
-          {' '}Данные отправляются выбранному API. Текст внутри изображений не маскируется.
-          {' '}Отмечайте сервер локальным, только если доверяете ему.</p>
+          onChange={e => setForm({ ...form, local: e.target.checked })} />{t('localConnection')}</label>
+        <p className="hint">{t('imagePolicyHint')}</p>
         {notice ? <p role="status" className="notice">{notice}</p> : null}
         {error ? <p role="alert" className="error">{error}</p> : null}
-        <div className="actions"><button className="primary" disabled={busy || (lookup.loading && !metadata)} type="submit">Сохранить подключение</button>
-          <button disabled={busy || !editing} type="button" onClick={probe}>Проверить подключение</button>
-          <button className="danger" disabled={busy || !editing} type="button" onClick={remove}>Удалить подключение</button>
+        <div className="actions"><button className="primary" disabled={busy || (lookup.loading && !metadata)} type="submit">{t('saveConnection')}</button>
+          <button disabled={busy || !editing} type="button" onClick={probe}>{t('probeConnection')}</button>
+          <button className="danger" disabled={busy || !editing} type="button" onClick={remove}>{t('deleteConnection')}</button>
         </div>
       </form>
     </div>
     <div className="run-settings">
-      <h3>Параметры запросов</h3>
+      <h3>{t('requestSettings')}</h3>
       <label className="check"><input type="checkbox" checked={pythonAllowed === true}
         disabled={pythonAllowed === null || savingPermission}
-        onChange={event => void changePythonPermission(event.target.checked)} />Всегда разрешать выполнение Python</label>
-      <p className="hint">Действует для всех диалогов и подключений и сохраняется после перезапуска.
-        {' '}Изменение сохраняется сразу. Снятие флажка возвращает запрос разрешения перед следующим Python-кодом.</p>
-      <label>Лимит вызовов<input type="number" min={1} max={1000} value={maxCalls}
+        onChange={event => void changePythonPermission(event.target.checked)} />{t('alwaysAllowPython')}</label>
+      <p className="hint">{t('pythonPermissionHint')}</p>
+      <label>{t('callLimit')}<input type="number" min={1} max={1000} value={maxCalls}
         onChange={e => onMaxCallsChange(Number(e.target.value))} /></label>
     </div>
   </section>;
@@ -236,6 +243,7 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
 function ConfirmationPanel({ confirmation, onAnswer }: {
   confirmation: Confirmation; onAnswer: (approved: boolean) => Promise<void>;
 }) {
+  const { t } = useI18n();
   const [busy, setBusy] = useState(false);
   const firstButton = useRef<HTMLButtonElement>(null);
   useEffect(() => { firstButton.current?.focus(); }, []);
@@ -243,19 +251,20 @@ function ConfirmationPanel({ confirmation, onAnswer }: {
     setBusy(true);
     try { await onAnswer(approved); } finally { setBusy(false); }
   }
-  return <section role="dialog" aria-label="Подтверждение Python-кода"
+  return <section role="dialog" aria-label={t('confirmationAria')}
     className="confirmation panel">
-    <div className="eyebrow">Нужно ваше решение</div>
-    <h2>Выполнение Python-кода</h2>
-    <p>Разрешить выполнение Python-кода постоянно для всех диалогов и подключений, включая перезапуск приложения? Код имеет доступ к SolidWorks и системе. Разрешение можно отозвать в настройках.</p>
+    <div className="eyebrow">{t('confirmationEyebrow')}</div>
+    <h2>{t('confirmationTitle')}</h2>
+    <p>{t('confirmationText')}</p>
     <pre tabIndex={0}>{confirmation.code}</pre>
     <div className="actions"><button ref={firstButton} className="primary" disabled={busy}
-      onClick={() => answer(true)}>Разрешить постоянно</button>
-      <button disabled={busy} onClick={() => answer(false)}>Отклонить</button></div>
+      onClick={() => answer(true)}>{t('allowPermanently')}</button>
+      <button disabled={busy} onClick={() => answer(false)}>{t('reject')}</button></div>
   </section>;
 }
 
 function OperationLog({ events }: { events: RunEvent[] }) {
+  const { t } = useI18n();
   const starts = events.filter(e => e.type === 'tool_start');
   const results = new Map(events.filter(e => e.type === 'tool_result').map(e => [e.data.tool_call_id, e]));
   const list = useRef<HTMLDivElement>(null);
@@ -269,9 +278,9 @@ function OperationLog({ events }: { events: RunEvent[] }) {
       showLatest();
       list.current?.scrollIntoView({ block: 'nearest' });
     }
-  }}><summary role="button">Журнал операций</summary>
-    {starts.length === 0 ? <p className="muted">Инструменты ещё не вызывались.</p>
-      : <div className="operation-list" ref={list} role="region" aria-label="Операции CAD" tabIndex={0}
+  }}><summary role="button">{t('operationLog')}</summary>
+    {starts.length === 0 ? <p className="muted">{t('noToolsYet')}</p>
+      : <div className="operation-list" ref={list} role="region" aria-label={t('cadOperations')} tabIndex={0}
         onScroll={event => {
           const el = event.currentTarget;
           following.current = el.scrollHeight - el.clientHeight - el.scrollTop < 30;
@@ -280,8 +289,8 @@ function OperationLog({ events }: { events: RunEvent[] }) {
       const result = results.get(id);
       const value = result?.data.result as { ok?: boolean; uncertain?: boolean; verification?: { status: string } } | undefined;
       const name = String(start.data.name);
-      return <details key={start.seq}><summary><span>{toolNames[name] ?? 'CAD-операция'} · <code>{name}</code></span>
-        <small>{start.data.verification ? 'Проверка · ' : ''}{result ? (value?.uncertain ? 'Исход неизвестен' : value?.ok ? 'Выполнено' : 'Ошибка') : 'Ожидание'}</small></summary>
+      return <details key={start.seq}><summary><span>{toolKeys[name] ? t(toolKeys[name]) : t('cadOperation')} · <code>{name}</code></span>
+        <small>{start.data.verification ? t('verificationPrefix') : ''}{result ? (value?.uncertain ? t('unknownOutcome') : value?.ok ? t('done') : t('error')) : t('waiting')}</small></summary>
         <pre tabIndex={0}>{JSON.stringify({ arguments: start.data.arguments, result: result?.data.result }, null, 2)}</pre>
       </details>;
     })}</div>}
@@ -289,12 +298,13 @@ function OperationLog({ events }: { events: RunEvent[] }) {
 }
 
 function RunView({ run }: { run: Run }) {
-  return <article className="run" aria-label="Запрос">
+  const { t } = useI18n();
+  return <article className="run" aria-label={t('request')}>
     {run.events.filter(event => ['message', 'image', 'error'].includes(event.type)).map(event => {
       if (event.type === 'message') return <div key={event.seq}
         className={`message ${event.data.role === 'user' ? 'user' : 'assistant'}`}>
-        <div className="message-heading"><span className="message-author">{event.data.role === 'user' ? 'Вы' : 'CAD-агент'}</span>
-          {event.data.role === 'user' ? null : <CopyButton text={String(event.data.content)} label="Копировать ответ" />}</div>
+        <div className="message-heading"><span className="message-author">{event.data.role === 'user' ? t('you') : t('cadAgent')}</span>
+          {event.data.role === 'user' ? null : <CopyButton text={String(event.data.content)} label={t('copyAnswer')} />}</div>
         {event.data.role === 'user' ? <>
           {event.data.content ? <p className="user-text">{String(event.data.content)}</p> : null}
           {Array.isArray(event.data.attachments) ? <div className="user-attachments">
@@ -307,23 +317,24 @@ function RunView({ run }: { run: Run }) {
       </div>;
       if (event.type === 'image') return <figure key={event.seq}><a target="_blank" rel="noreferrer"
         href={`data:${event.data.mimeType};base64,${event.data.data}`} download="solidworks.png">
-        <img src={`data:${event.data.mimeType};base64,${event.data.data}`} alt="Снимок SolidWorks" /></a>
-        <figcaption>Снимок из SolidWorks</figcaption></figure>;
+        <img src={`data:${event.data.mimeType};base64,${event.data.data}`} alt={t('solidworksScreenshot')} /></a>
+        <figcaption>{t('screenshotFromSolidworks')}</figcaption></figure>;
       return <p key={event.seq} className="error">{String(event.data.message)}</p>;
     })}
-    <div className="run-meta"><span className={`badge ${run.status}`} data-testid="run-status">{statusNames[run.status] ?? run.status}</span>
-      <span>Вызовов: {run.call_count}</span>
-      {run.verification === 'unverified' ? <strong className="warning">Результат требует проверки</strong> : null}
-      {run.verification === 'verified' ? <span>Проверки пройдены</span> : null}
-      {run.verification === 'failed' ? <strong className="error">Проверка не пройдена</strong> : null}
+    <div className="run-meta"><span className={`badge ${run.status}`} data-testid="run-status">{statusKeys[run.status] ? t(statusKeys[run.status]) : run.status}</span>
+      <span>{t('callsCount', { count: run.call_count })}</span>
+      {run.verification === 'unverified' ? <strong className="warning">{t('resultNeedsReview')}</strong> : null}
+      {run.verification === 'verified' ? <span>{t('checksPassed')}</span> : null}
+      {run.verification === 'failed' ? <strong className="error">{t('checkFailed')}</strong> : null}
     </div>
-    {run.status === 'stopping' ? <p className="hint">Ждём исход начатой операции. Следующих шагов не будет; выполненное не откатывается.</p> : null}
-    {run.status === 'uncertain' ? <p className="error">Проверьте SolidWorks и перезапустите приложение. Автоматического повтора не будет.</p> : null}
+    {run.status === 'stopping' ? <p className="hint">{t('stopHint')}</p> : null}
+    {run.status === 'uncertain' ? <p className="error">{t('uncertainHint')}</p> : null}
     <OperationLog events={run.events} />
   </article>;
 }
 
 export default function App() {
+  const { language, setLanguage, t } = useI18n();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [selected, setSelected] = useState(() => stored('profile', ''));
   const [sessionId, setSessionId] = useState(() => stored('session', crypto.randomUUID()));
@@ -356,8 +367,8 @@ export default function App() {
   const lookup = useReasoning(currentProfile?.model ?? '');
   const currentReasoning = catalogs[selected]?.models.find(model => model.id === currentProfile?.model)?.reasoning
     ?? lookup.reasoning;
-  const currentReasoningOptions = reasoningOptionsFor(currentReasoning);
-  const currentReasoningValue = selectedReasoning(currentReasoning, currentProfile?.reasoning_effort);
+  const currentReasoningOptions = reasoningOptionsFor(currentReasoning, t);
+  const currentReasoningValue = selectedReasoning(currentReasoning, currentProfile?.reasoning_effort, t);
   const imagesAllowed = currentProfile?.vision === true;
   const canSend = !loading && !sending && !active && !!currentProfile && !uncertain && !readingImages && !savingProfile
     && !(lookup.loading && !currentReasoning)
@@ -389,7 +400,7 @@ export default function App() {
           setRunContact({ runId: unfinished, at: Date.now(), failed: false });
           setStreamId(unfinished);
         }
-      }).catch(error => { if (!disposed) setError(errorText(error)); })
+      }).catch(error => { if (!disposed) setError(errorText(error, t)); })
       .finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; };
     // Initial restore only: a new dialogue is an explicit action below.
@@ -462,7 +473,7 @@ export default function App() {
       const updated = await api<Profile>(`/profiles/${selected}`, { method: 'PUT',
         body: JSON.stringify({ reasoning_effort: value || null }) });
       setProfiles(previous => previous.map(profile => profile.id === updated.id ? updated : profile));
-    } catch (error) { setError(errorText(error)); }
+    } catch (error) { setError(errorText(error, t)); }
     finally { profileLock.current = false; setSavingProfile(false); }
   }
   async function attach(files: File[]) {
@@ -474,7 +485,7 @@ export default function App() {
     try {
       const images = await readImages(files, attachments);
       if (revision === draftRevision.current) setAttachments(previous => [...previous, ...images]);
-    } catch (error) { if (revision === draftRevision.current) setError(errorText(error)); }
+    } catch (error) { if (revision === draftRevision.current) setError(errorText(error, t)); }
     finally {
       readingLock.current = false; setReadingImages(false);
       if (revision === draftRevision.current) setPendingActivity(null);
@@ -493,24 +504,24 @@ export default function App() {
         setProfiles(previous => previous.map(profile => profile.id === updated.id ? updated : profile));
       }
       const run = await api<Run>('/runs', { method: 'POST', body: JSON.stringify({
-        session_id: sessionId, profile_id: selected, message, max_calls: maxCalls,
+        session_id: sessionId, profile_id: selected, message, max_calls: maxCalls, language,
         attachments: attachments.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
         request_id: pendingRequest.current,
       }) });
       merge(run); setRunContact({ runId: run.id, at: Date.now(), failed: false });
       setStreamId(run.id); setMessage(''); setAttachments([]); remember('session', sessionId);
-    } catch (error) { setError(errorText(error)); } finally { setSending(false); setPendingActivity(null); }
+    } catch (error) { setError(errorText(error, t)); } finally { setSending(false); setPendingActivity(null); }
   }
   async function stop() {
     if (!active) return;
     try { merge(await api<Run>(`/runs/${active.id}/stop`, { method: 'POST' })); }
-    catch (error) { setError(errorText(error)); }
+    catch (error) { setError(errorText(error, t)); }
   }
   async function confirm(approved: boolean) {
     if (!active?.confirmation) return;
     try { merge(await api<Run>(`/runs/${active.id}/confirm`, { method: 'POST', body: JSON.stringify({
       confirmation_id: active.confirmation.id, approved,
-    }) })); } catch (error) { setError(errorText(error)); }
+    }) })); } catch (error) { setError(errorText(error, t)); }
   }
   function newDialogue() {
     const id = crypto.randomUUID(); setSessionId(id); remember('session', id);
@@ -529,23 +540,28 @@ export default function App() {
       <div className="brand"><div className="brand-icon"><Icon name="cube" size={24} /></div>
         <h1>CAD-Agent-Next</h1></div></div>
       <div className="header-actions">
-        <button className="header-button" aria-label="Новый диалог" disabled={!!active || sending} onClick={newDialogue}>
-          <Icon name="plus" size={18} /><span className="button-label">Новый диалог</span></button>
-        <button ref={settingsButton} className="header-button" aria-label="Настройки" aria-expanded={settings} aria-controls="app-settings"
+        <label className="language-switcher"><span className="sr-only">{t('language')}</span>
+          <select aria-label={t('language')} value={language}
+            onChange={event => setLanguage(event.target.value as Language)}>
+            {languages.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </select></label>
+        <button className="header-button" aria-label={t('newDialogue')} disabled={!!active || sending} onClick={newDialogue}>
+          <Icon name="plus" size={18} /><span className="button-label">{t('newDialogue')}</span></button>
+        <button ref={settingsButton} className="header-button" aria-label={t('settings')} aria-expanded={settings} aria-controls="app-settings"
           disabled={savingProfile} onClick={openSettings}><Icon name="settings" size={18} />
-          <span className="button-label">Настройки</span></button></div></header>
+          <span className="button-label">{t('settings')}</span></button></div></header>
     <main>
       {error ? <p role="alert" className="error panel">{error}</p> : null}
-      <section className="chat" aria-label="Чат" tabIndex={0}>
-        {loading ? <p role="status">Загружаем состояние приложения…</p> : null}
+      <section className="chat" aria-label={t('chat')} tabIndex={0}>
+        {loading ? <p role="status">{t('loadingState')}</p> : null}
         {!loading && runs.length === 0 ? <div className="empty"><div className="empty-icon"><Icon name="cube" size={36} /></div>
-          <div className="eyebrow">Ваш помощник в SolidWorks</div>
-          <h2>Что создадим сегодня?</h2><p>Начните с идеи — или посмотрим на вашу деталь.</p>
-          {!profiles.length ? <button className="primary" onClick={openSettings}>Добавить подключение</button> : null}
+          <div className="eyebrow">{t('assistantEyebrow')}</div>
+          <h2>{t('emptyTitle')}</h2><p>{t('emptyText')}</p>
+          {!profiles.length ? <button className="primary" onClick={openSettings}>{t('addConnection')}</button> : null}
           <div className="suggestions">{([
-            ['tree', 'Изучить дерево', 'Покажи дерево элементов активной детали'],
-            ['image', 'Показать деталь', 'Покажи снимок из SolidWorks'],
-            ['ruler', 'Проверить размеры', 'Прочитай размеры активной детали'],
+            ['tree', t('suggestionTreeTitle'), t('suggestionTreeText')],
+            ['image', t('suggestionImageTitle'), t('suggestionImageText')],
+            ['ruler', t('suggestionRulerTitle'), t('suggestionRulerText')],
           ] as const).map(([icon, title, text]) => <button type="button" key={icon} onClick={() => {
             setMessage(text); input.current?.focus();
           }}><Icon name={icon} size={19} />{title}</button>)}</div>
@@ -556,18 +572,18 @@ export default function App() {
         <div ref={end} />
       </section>
       <ActivityIndicator run={active ?? runs.at(-1)} pending={pendingActivity} contact={runContact} />
-      <form className="composer" aria-label="Отправка сообщения" onSubmit={send}>
-        {attachments.length ? <div className="attachment-previews" role="region" aria-label="Вложения к сообщению">
+      <form className="composer" aria-label={t('messageForm')} onSubmit={send}>
+        {attachments.length ? <div className="attachment-previews" role="region" aria-label={t('attachmentsRegion')}>
           {attachments.map((image, index) => <div className="attachment-preview" key={index}>
             <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} />
             <span title={image.name}>{image.name}</span>
-            <button type="button" aria-label={`Удалить ${image.name}`} disabled={sending || readingImages}
+            <button type="button" aria-label={t('removeAttachment', { name: image.name })} disabled={sending || readingImages}
               onClick={() => setAttachments(previous => previous.filter((_, i) => i !== index))}>
               <Icon name="close" size={14} /></button></div>)}
         </div> : null}
-        <div className="composer-label"><label className="sr-only" htmlFor="chat-message">Сообщение</label>
+        <div className="composer-label"><label className="sr-only" htmlFor="chat-message">{t('message')}</label>
           <textarea id="chat-message" ref={input} rows={1} value={message} maxLength={20000}
-          onChange={e => setMessage(e.target.value)} placeholder="Спросите о детали или опишите задачу…"
+          onChange={e => setMessage(e.target.value)} placeholder={t('composerPlaceholder')}
           onKeyDown={event => {
             if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
               event.preventDefault();
@@ -577,35 +593,35 @@ export default function App() {
           disabled={loading} /></div>
         <div className="composer-footer">
           <div className="composer-controls">
-            <input ref={fileInput} type="file" hidden multiple accept={imageTypes.join(',')} aria-label="Файлы изображений"
+            <input ref={fileInput} type="file" hidden multiple accept={imageTypes.join(',')} aria-label={t('imageFiles')}
               disabled={!imagesAllowed || loading || sending || !!active || readingImages}
               onChange={event => {
                 const files = Array.from(event.currentTarget.files ?? []);
                 event.currentTarget.value = ''; void attach(files);
               }} />
-            <button type="button" className="attach-button" aria-label="Прикрепить изображение"
-              title={imagesAllowed ? 'PNG, JPEG, WebP · до 3 файлов по 2 МБ, всего до 4 МБ' : 'Выбранное подключение не поддерживает изображения'}
+            <button type="button" className="attach-button" aria-label={t('attachImage')}
+              title={imagesAllowed ? t('attachTitle') : t('attachUnsupported')}
               disabled={!imagesAllowed || loading || sending || !!active || readingImages} onClick={() => fileInput.current?.click()}>
               <Icon name="paperclip" size={20} /></button>
-            <label className="model-switcher"><span className="sr-only">Активное подключение</span><select value={selected}
-              title="Модель" onChange={e => { setSelected(e.target.value); remember('profile', e.target.value); }}
+            <label className="model-switcher"><span className="sr-only">{t('activeConnection')}</span><select value={selected}
+              title={t('model')} onChange={e => { setSelected(e.target.value); remember('profile', e.target.value); }}
               disabled={loading || sending || savingProfile || !!active}>
-              <option value="">Выберите модель</option>{profiles.map(profile => <option key={profile.id}
+              <option value="">{t('chooseModel')}</option>{profiles.map(profile => <option key={profile.id}
                 value={profile.id}>{profile.model} · {profile.name}</option>)}</select></label>
-            <label className="reasoning-switcher"><span className="sr-only">Сила рассуждения</span>
-              <select value={currentReasoningValue} title="Сила рассуждения"
+            <label className="reasoning-switcher"><span className="sr-only">{t('reasoningEffort')}</span>
+              <select value={currentReasoningValue} title={t('reasoningEffort')}
                 disabled={loading || sending || savingProfile || !currentProfile || !!active || (lookup.loading && !currentReasoning)}
                 onChange={event => void changeReasoning(event.target.value)}>
                 {currentReasoningOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
               </select></label>
           </div>
           <div className="actions">{active ? <button type="button" className="stop-button" onClick={stop}
-            aria-label="Остановить" title="Остановить" disabled={active.status === 'stopping'}><Icon name="stop" size={18} /></button>
-            : <button className="send-button" type="submit" aria-label="Отправить" title={sending ? 'Отправляем…' : 'Отправить'} disabled={!canSend}>
+            aria-label={t('stop')} title={t('stop')} disabled={active.status === 'stopping'}><Icon name="stop" size={18} /></button>
+            : <button className="send-button" type="submit" aria-label={t('send')} title={sending ? t('sending') : t('send')} disabled={!canSend}>
               <Icon name="send" size={22} /></button>}</div></div>
-        <p className="composer-hint" title={lookup.hint}><span>{readingImages ? 'Читаем изображения…' : savingProfile ? 'Сохраняем выбор…'
-          : attachments.length && !imagesAllowed ? 'Выбранное подключение не поддерживает изображения.'
-          : active ? 'Работаем с вашей деталью…' : 'Enter — отправить · Shift+Enter — новая строка'}</span>
+        <p className="composer-hint" title={lookup.hint}><span>{readingImages ? t('readingImages') : savingProfile ? t('savingChoice')
+          : attachments.length && !imagesAllowed ? t('imagesUnsupported')
+          : active ? t('working') : t('composerHint')}</span>
           {currentProfile ? ` · ${lookup.hint}` : ''}</p>
       </form>
     </main>

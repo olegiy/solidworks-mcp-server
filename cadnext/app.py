@@ -5,6 +5,7 @@ import json
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
@@ -16,6 +17,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from cadnext.agent import Agent, AgentBusy
 from cadnext.attachments import AttachmentError
+from cadnext.i18n import get_language, language_from_header, set_language, t
 from cadnext.mcp import ROOT, SolidWorksMcp
 from cadnext.privacy import PrivacyContext
 from cadnext.provider import Provider, ProviderError
@@ -57,6 +59,7 @@ class RunBody(BaseModel):
     sensitive: list[str] = Field(default_factory=list, max_length=100)
     request_id: str | None = Field(default=None, min_length=1, max_length=100,
                                    pattern=r"^[A-Za-z0-9_-]+$")
+    language: Literal["ru", "en"] | None = None
 
 
 class ModelListBody(BaseModel):
@@ -105,13 +108,17 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
 
     @app.middleware("http")
     async def boundary(request: Request, call_next):
+        set_language(language_from_header(request.headers.get("accept-language")))
         origin = request.headers.get("origin")
         if origin and origin != f"{request.url.scheme}://{request.headers.get('host', '')}":
-            return JSONResponse({"detail": "Запрос с другого сайта запрещён."}, status_code=403)
+            return JSONResponse({"detail": t("Запрос с другого сайта запрещён.",
+                                             "A request from another site is not allowed.")}, status_code=403)
         try:
             response = await call_next(request)
         except Exception:
-            return JSONResponse({"detail": "Внутренняя ошибка приложения. Данные запроса не раскрываются."},
+            return JSONResponse({"detail": t(
+                "Внутренняя ошибка приложения. Данные запроса не раскрываются.",
+                "Internal application error. Request data is not disclosed.")},
                                 status_code=500)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
@@ -123,12 +130,14 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
 
     @app.exception_handler(RequestValidationError)
     async def invalid_request(request, error):
-        return JSONResponse({"detail": "Некорректные поля запроса. Проверьте введённые значения."},
+        return JSONResponse({"detail": t("Некорректные поля запроса. Проверьте введённые значения.",
+                                              "Invalid request fields. Check the entered values.")},
                             status_code=422)
 
     @app.exception_handler(ValueError)
     async def invalid_value(request, error):
-        return JSONResponse({"detail": "Некорректные настройки или параметры запроса."}, status_code=422)
+        return JSONResponse({"detail": t("Некорректные настройки или параметры запроса.",
+                                              "Invalid settings or request parameters.")}, status_code=422)
 
     @app.exception_handler(AttachmentError)
     async def invalid_attachment(request, error):
@@ -136,7 +145,8 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
 
     @app.exception_handler(KeyError)
     async def missing(request, error):
-        return JSONResponse({"detail": "Подключение или запрос не найден."}, status_code=404)
+        return JSONResponse({"detail": t("Подключение или запрос не найден.",
+                                              "Connection or request not found.")}, status_code=404)
 
     @app.exception_handler(ProviderError)
     async def provider_error(request, error):
@@ -232,15 +242,19 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     async def test_profile(profile_id: str):
         provider = provider_for(store().get(profile_id))
         try:
-            result = await provider.complete([{"role": "user", "content":
-                "Проверь native tool calling: вызови cadnext_connection_test без аргументов."}],
+            result = await provider.complete([{"role": "user", "content": t(
+                "Проверь native tool calling: вызови cadnext_connection_test без аргументов.",
+                "Check native tool calling: call cadnext_connection_test with no arguments.")}],
                 [{"type": "function", "function": {"name": "cadnext_connection_test",
-                    "description": "Проверка подключения без CAD-операций.", "parameters": {
+                    "description": t("Проверка подключения без CAD-операций.",
+                                     "Connection check without CAD operations."), "parameters": {
                         "type": "object", "properties": {}, "additionalProperties": False}}}])
             calls = result.get("tool_calls", [])
             if not calls or any(call["function"]["name"] != "cadnext_connection_test" for call in calls):
-                raise ProviderError("Модель не выполнила native tool calling. Проверьте поддержку инструментов.")
-            return {"ok": True, "message": "Подключение и вызовы инструментов работают."}
+                raise ProviderError(t("Модель не выполнила native tool calling. Проверьте поддержку инструментов.",
+                                           "The model did not perform native tool calling. Check tool support."))
+            return {"ok": True, "message": t("Подключение и вызовы инструментов работают.",
+                                                  "The connection and tool calls work.")}
         finally:
             await provider.aclose()
 
@@ -257,21 +271,25 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     async def start_run(body: RunBody):
         if body.request_id and (body.request_id in app.state.stopped_requests
                                 or body.request_id in app.state.request_runs):
-            raise HTTPException(status_code=409, detail="Запрос уже отправлен или остановлен.")
+            raise HTTPException(status_code=409, detail=t("Запрос уже отправлен или остановлен.",
+                                                               "The request was already sent or stopped."))
         profile = store().get(body.profile_id)
         if body.attachments and not profile.vision:
-            raise AttachmentError("Для отправки изображений включите Vision в настройках подключения.")
+            raise AttachmentError(t("Для отправки изображений включите Vision в настройках подключения.",
+                                       "Enable images in the connection settings to send pictures."))
         key = (body.session_id, *asdict(profile).values(), tuple(body.sensitive))
         privacy = app.state.contexts.get(key)
         if privacy is None:
             privacy = PrivacyContext(local=profile.local, vision=profile.vision,
                 session_id=body.session_id, profile_id=profile.id, sensitive=body.sensitive)
             app.state.contexts[key] = privacy
+        if body.language is not None:
+            set_language(body.language)
         provider = provider_for(profile, privacy=privacy)
         try:
             run = agent().start(session_id=body.session_id, provider=provider,
                                 message=body.message, attachments=[item.model_dump() for item in body.attachments],
-                                max_calls=body.max_calls)
+                                max_calls=body.max_calls, language=body.language or get_language())
         except (AgentBusy, RuntimeError) as error:
             await provider.aclose()
             raise HTTPException(status_code=409, detail=str(error)) from None
@@ -290,7 +308,7 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     async def stop_request(request_id: str):
         # A beacon can arrive before the corresponding POST /runs.
         if not 1 <= len(request_id) <= 100:
-            raise HTTPException(status_code=422, detail="Некорректный ID запроса.")
+            raise HTTPException(status_code=422, detail=t("Некорректный ID запроса.", "Invalid request ID."))
         app.state.stopped_requests.add(request_id)
         run_id = app.state.request_runs.get(request_id)
         if run_id:
@@ -315,7 +333,8 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         try:
             agent().confirm(run_id, body.confirmation_id, body.approved, images=body.images)
         except ValueError:
-            raise HTTPException(status_code=409, detail="Подтверждение устарело или имеет другой ID.") from None
+            raise HTTPException(status_code=409, detail=t("Подтверждение устарело или имеет другой ID.",
+                                                                   "The confirmation is stale or has a different ID.")) from None
         return agent().get(run_id).snapshot()
 
     @app.get("/api/runs/{run_id}/events")
@@ -326,7 +345,8 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
             if cursor < 0 or cursor > len(run.events):
                 raise ValueError
         except ValueError:
-            raise HTTPException(status_code=422, detail="Некорректный номер события.") from None
+            raise HTTPException(status_code=422, detail=t("Некорректный номер события.",
+                                                               "Invalid event sequence number.")) from None
 
         async def stream():
             iterator = agent().events(run_id, after=cursor)
@@ -348,7 +368,8 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     async def index():
         path = ui_dir / "index.html"
         if not path.is_file():
-            return JSONResponse({"detail": "Интерфейс не собран. Выполните npm ci и npm run build в ui/."},
+            return JSONResponse({"detail": t("Интерфейс не собран. Выполните npm ci и npm run build в ui/.",
+                                              "The interface is not built. Run npm ci and npm run build in ui/.")},
                                 status_code=503)
         return FileResponse(path)
 

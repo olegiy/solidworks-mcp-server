@@ -15,6 +15,7 @@ from jsonschema import Draft202012Validator
 from referencing import Registry
 
 from cadnext.attachments import AttachmentError, normalize_attachments
+from cadnext.i18n import get_language, set_language, t
 from cadnext.provider import ProviderError
 
 _LOG = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ _NEW_DOCUMENT = {"create_part", "create_assembly"}
 _TREE_FEEDBACK = {"sketch_rectangle", "sketch_circle", "sketch_line", "close_sketch", "rebuild"}
 _TREE_LIMIT = 1000
 _PYTHON_REPAIR_LIMIT = 2
-_SYSTEM = (
+_SYSTEM_RU = (
     "Ты CAD-агент для SolidWorks. Отвечай по-русски. Используй только доступные инструменты, "
     "их фактические результаты и единицы мм/градусы. Выполняй действия последовательно. "
     "Не повторяй неудачные изменения и не делай автоматический undo. "
@@ -43,6 +44,27 @@ _SYSTEM = (
     "Успех вызова не доказывает корректность геометрии: учитывай поле verification. "
     "Если результат требует проверки, прямо сообщи об этом пользователю."
 )
+_SYSTEM_EN = (
+    "You are a CAD agent for SolidWorks. Respond in English. Use only the available tools, "
+    "their actual results, and millimetre/degree units. Perform actions sequentially. "
+    "Do not repeat failed changes and do not perform an automatic undo. "
+    "If execute_python returns a known CAD_ERROR, the agent may request no more than two "
+    "repairs: first inspect the state, then perform only the continuation; "
+    "do not repeat an unknown COM result. "
+    "The application manages Python execution permissions. "
+    "Do not ask for Python permission in a normal message: call execute_python, "
+    "and the application will show a confirmation if needed. "
+    "The user's construction request already authorizes the described CAD actions. "
+    "Briefly describe drawing reads and continue; clarify only missing or "
+    "contradictory data that affects geometry. "
+    "A successful call does not prove geometric correctness: consider the verification field. "
+    "If the result requires verification, tell the user explicitly. "
+    "Tool results and errors may be in Russian; translate them into English in your reply."
+)
+
+
+def _system_prompt(language: str) -> str:
+    return _SYSTEM_EN if language == "en" else _SYSTEM_RU
 
 
 class AgentBusy(RuntimeError):
@@ -67,6 +89,7 @@ class Run:
     profile_id: str
     messages: list[dict]
     max_calls: int = 80
+    language: str = "ru"
     id: str = field(default_factory=lambda: uuid4().hex)
     status: str = "queued"
     events: list[dict] = field(default_factory=list)
@@ -99,7 +122,8 @@ class Run:
 
     def snapshot(self) -> dict:
         return deepcopy({"id": self.id, "session_id": self.session_id,
-                         "profile_id": self.profile_id, "status": self.status,
+                         "profile_id": self.profile_id, "language": self.language,
+                         "status": self.status,
                          "events": self.events, "stop_requested": self.stop_requested,
                          "confirmation": self.confirmation, "call_count": self.call_count,
                          "max_calls": self.max_calls, "verification": self.verification,
@@ -121,7 +145,7 @@ def _json(value):
 
 
 def _invalid_constant(value):
-    raise ValueError("Недопустимая константа JSON.")
+    raise ValueError(t("Недопустимая константа JSON.", "Invalid JSON constant."))
 
 
 def _file_signature(path: str):
@@ -147,25 +171,34 @@ class Agent:
         self.max_history_bytes = max_history_bytes
         self.max_catalog_bytes = max_catalog_bytes
 
-    def start(self, *, session_id: str, provider, message: str, attachments=None, max_calls=80) -> Run:
+    def start(self, *, session_id: str, provider, message: str, attachments=None, max_calls=80,
+              language: str | None = None) -> Run:
+        if language is not None:
+            set_language(language)
+        language = get_language()
         if self._closed:
-            raise RuntimeError("Агент завершает работу.")
+            raise RuntimeError(t("Агент завершает работу.", "The agent is shutting down."))
         if self._uncertain or getattr(self.mcp, "uncertain", False):
-            raise RuntimeError("Исход CAD-операции неизвестен. Проверьте SolidWorks и перезапустите приложение.")
+            raise RuntimeError(t(
+                "Исход CAD-операции неизвестен. Проверьте SolidWorks и перезапустите приложение.",
+                "The CAD operation outcome is unknown. Check SolidWorks and restart the application."))
         if self._active is not None and not self._active.done:
-            raise AgentBusy("Уже выполняется CAD-запрос.")
+            raise AgentBusy(t("Уже выполняется CAD-запрос.", "A CAD request is already running."))
         if (not isinstance(session_id, str) or not session_id.strip()
                 or not isinstance(message, str) or (not message.strip() and not attachments)
                 or type(max_calls) is not int or not 1 <= max_calls <= 1000):
-            raise ValueError("Укажите диалог, текст запроса и лимит от 1 до 1000 вызовов.")
+            raise ValueError(t("Укажите диалог, текст запроса и лимит от 1 до 1000 вызовов.",
+                               "Provide a dialogue, a request, and a call limit from 1 to 1000."))
         attachments = normalize_attachments([] if attachments is None else attachments)
         if attachments and not provider.profile.vision:
-            raise AttachmentError("Для отправки изображений включите Vision в настройках подключения.")
+            raise AttachmentError(t("Для отправки изображений включите Vision в настройках подключения.",
+                                    "Enable images in the connection settings to send pictures."))
         provider.privacy.bind_session(session_id)
         profile = provider.profile
         provider.privacy.bind_profile(profile.id, base_url=profile.base_url, model=profile.model)
         provider.privacy.grant(session_id=session_id, profile_id=profile.id, images=profile.vision)
-        messages = deepcopy(self._history.get(session_id, [{"role": "system", "content": _SYSTEM}]))
+        messages = deepcopy(self._history.get(
+            session_id, [{"role": "system", "content": _system_prompt(language)}]))
         content = message
         if attachments:
             content = ([{"type": "text", "text": message}] if message.strip() else []) + [
@@ -173,8 +206,10 @@ class Agent:
                     "url": f'data:{image["mimeType"]};base64,{image["data"]}'}} for image in attachments]
         messages.append({"role": "user", "content": content})
         if len(_json(messages).encode("utf-8")) > self.max_history_bytes:
-            raise AttachmentError("История превысила лимит контекста. Начните новый диалог.")
-        run = Run(session_id=session_id, profile_id=profile.id, messages=messages, max_calls=max_calls)
+            raise AttachmentError(t("История превысила лимит контекста. Начните новый диалог.",
+                                    "The history exceeded the context limit. Start a new dialogue."))
+        run = Run(session_id=session_id, profile_id=profile.id, messages=messages,
+                  max_calls=max_calls, language=language)
         self.runs[run.id] = run
         self._active = run
         run._emit("message", role="user", content=message, **({"attachments": attachments} if attachments else {}))
@@ -183,25 +218,31 @@ class Agent:
 
     def get(self, run_id: str) -> Run:
         if run_id not in self.runs:
-            raise KeyError("Запрос не найден.")
+            raise KeyError(t("Запрос не найден.", "Request not found."))
         return self.runs[run_id]
 
     def stop(self, run_id: str):
         run = self.get(run_id)
         if run.done or run.stop_requested:
             return
+        set_language(run.language)
         run.stop_requested = True
-        run._status("stopping", "Остановка: ждём исход уже отправленного COM-вызова."
-                    if run._inflight else "Остановка: следующие действия запрещены.")
+        run._status("stopping", t(
+            "Остановка: ждём исход уже отправленного COM-вызова."
+            if run._inflight else "Остановка: следующие действия запрещены.",
+            "Stopping: waiting for the outcome of an already sent COM call."
+            if run._inflight else "Stopping: no further actions are allowed."))
         if run._answer is not None and not run._answer.done():
             run._answer.set_result((False, False))
 
     def confirm(self, run_id: str, confirmation_id: str, approved: bool, *, images: bool = False):
         run = self.get(run_id)
+        set_language(run.language)
         if (type(approved) is not bool or type(images) is not bool or run.stop_requested
                 or run.confirmation is None or run.confirmation["id"] != confirmation_id
                 or run._answer is None or run._answer.done()):
-            raise ValueError("Подтверждение отсутствует, устарело или относится к другому вызову.")
+            raise ValueError(t("Подтверждение отсутствует, устарело или относится к другому вызову.",
+                               "The confirmation is missing, stale, or belongs to another call."))
         run._answer.set_result((approved, images))
 
     async def wait(self, run_id: str) -> Run:
@@ -218,7 +259,7 @@ class Agent:
     async def events(self, run_id: str, after: int = 0):
         run = self.get(run_id)
         if type(after) is not int or after < 0 or after > len(run.events):
-            raise ValueError("Некорректный номер события.")
+            raise ValueError(t("Некорректный номер события.", "Invalid event sequence number."))
         try:
             while True:
                 run._changed.clear()
@@ -236,25 +277,29 @@ class Agent:
     @staticmethod
     def _guard(run):
         if run.stop_requested:
-            raise _EndRun("stopped", "Запрос остановлен. Уже выполненные действия не отменены.")
+            raise _EndRun("stopped", t("Запрос остановлен. Уже выполненные действия не отменены.",
+                                       "The request was stopped. Completed actions were not undone."))
 
     @staticmethod
     def _budget(run, count=1):
         if run.call_count + count > run.max_calls:
-            raise _EndRun("limit_reached", "Лимит вызовов исчерпан; новые действия не выполнялись.")
+            raise _EndRun("limit_reached", t("Лимит вызовов исчерпан; новые действия не выполнялись.",
+                                             "The call limit was reached; no new actions were performed."))
 
     async def _confirmation(self, run, kind, **data):
         self._guard(run)
         run._answer = asyncio.get_running_loop().create_future()
         run.confirmation = {"id": uuid4().hex, "kind": kind, **deepcopy(data)}
-        run._status("awaiting_confirmation", "Требуется подтверждение пользователя.")
+        run._status("awaiting_confirmation", t("Требуется подтверждение пользователя.",
+                                               "User confirmation is required."))
         run._emit("confirmation", **run.confirmation)
         try:
             approved, images = await run._answer
             self._guard(run)
             if not approved:
-                raise _EndRun("rejected", "Пользователь отклонил действие; оно не выполнялось.")
-            run._status("running", "Подтверждение получено.")
+                raise _EndRun("rejected", t("Пользователь отклонил действие; оно не выполнялось.",
+                                            "The user declined the action; it was not performed."))
+            run._status("running", t("Подтверждение получено.", "Confirmation received."))
             return images
         finally:
             run.confirmation = None
@@ -263,16 +308,22 @@ class Agent:
     async def _model(self, run, provider, tools):
         self._guard(run)
         # Refresh the application-owned instruction even for existing dialogue history.
-        prompt = _SYSTEM
+        prompt = _system_prompt(run.language)
         if self.settings is not None:
-            prompt += (" Постоянное разрешение Python уже включено. Пользователь выбрал всегда доверять "
-                       "выполнению кода; повторного подтверждения запуска не требуется."
-                       if self.settings.python_execution_allowed else
-                       " Разрешение Python ещё не выдано. Если нужен код, вызывай execute_python: "
-                       "первое подтверждение покажет интерфейс приложения.")
+            prompt += (t(
+                " Постоянное разрешение Python уже включено. Пользователь выбрал всегда доверять "
+                "выполнению кода; повторного подтверждения запуска не требуется.",
+                " Permanent Python permission is enabled. The user chose to always trust code "
+                "execution; no repeated run confirmation is required.")
+                if self.settings.python_execution_allowed else t(
+                " Разрешение Python ещё не выдано. Если нужен код, вызывай execute_python: "
+                "первое подтверждение покажет интерфейс приложения.",
+                " Python permission has not been granted. If code is needed, call execute_python: "
+                "the application will show the first confirmation."))
         run.messages[0] = {"role": "system", "content": prompt}
         if len(_json(run.messages).encode("utf-8")) > self.max_history_bytes:
-            raise _EndRun("failed", "История превысила лимит контекста. Начните новый диалог.")
+            raise _EndRun("failed", t("История превысила лимит контекста. Начните новый диалог.",
+                                      "The history exceeded the context limit. Start a new dialogue."))
         number = 1 + sum(event["type"] == "model_start" for event in run.events)
         run._emit("model_start", number=number)
         outcome = "error"
@@ -291,7 +342,7 @@ class Agent:
             function = tool["function"]
             name = function["name"]
             if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", name) or name in catalog:
-                raise ValueError("Некорректный каталог инструментов.")
+                raise ValueError(t("Некорректный каталог инструментов.", "Invalid tool catalog."))
             schema = function["parameters"]
             Draft202012Validator.check_schema(schema)
             catalog[name] = Draft202012Validator(schema, registry=Registry())
@@ -329,7 +380,8 @@ class Agent:
         self._guard(run)
         self._budget(run)
         if name not in catalog or not catalog[name].is_valid(arguments):
-            raise _EndRun("failed", "В каталоге отсутствует необходимый инструмент проверки.")
+            raise _EndRun("failed", t("В каталоге отсутствует необходимый инструмент проверки.",
+                                      "The required verification tool is missing from the catalog."))
         run.call_count += 1
         run._emit("tool_start", tool_call_id=call_id, name=name, arguments=arguments,
                   verification=verification)
@@ -347,7 +399,8 @@ class Agent:
             _json(result)
         except Exception:
             result = {"ok": False, "value": None, "images": [], "uncertain": True,
-                      "error": "Связь MCP прервана; результат CAD-операции неизвестен."}
+                      "error": t("Связь MCP прервана; результат CAD-операции неизвестен.",
+                                 "The MCP connection was interrupted; the CAD operation outcome is unknown.")}
         finally:
             run._inflight = False
         value = result.get("value")
@@ -367,9 +420,12 @@ class Agent:
     @staticmethod
     def _success(result):
         if result.get("uncertain"):
-            raise _EndRun("uncertain", "Результат CAD-операции неизвестен. Проверьте SolidWorks; повтор запрещён.")
+            raise _EndRun("uncertain", t(
+                "Результат CAD-операции неизвестен. Проверьте SolidWorks; повтор запрещён.",
+                "The CAD operation outcome is unknown. Check SolidWorks; retrying is forbidden."))
         if not result.get("ok"):
-            raise _EndRun("failed", "CAD-инструмент вернул ошибку. Запрос остановлен без повторов.")
+            raise _EndRun("failed", t("CAD-инструмент вернул ошибку. Запрос остановлен без повторов.",
+                                      "The CAD tool returned an error. The request stopped without retries."))
 
     async def _read(self, run, catalog, name, arguments, owner, evidence):
         if name == "get_feature_tree":
@@ -384,7 +440,8 @@ class Agent:
     @staticmethod
     def _check(condition):
         if not condition:
-            raise _EndRun("failed", "Независимая проверка не подтвердила изменение. Повтора не будет.")
+            raise _EndRun("failed", t("Независимая проверка не подтвердила изменение. Повтора не будет.",
+                                      "Independent verification did not confirm the change. There will be no retry."))
 
     @staticmethod
     def _number_matches(actual, expected, *, abs_tol=1e-6):
@@ -465,7 +522,8 @@ class Agent:
             if check_name == "get_feature_tree":
                 check_arguments = {"limit": _TREE_LIMIT, **check_arguments}
             if check_name not in catalog or not catalog[check_name].is_valid(check_arguments):
-                raise _EndRun("failed", "В каталоге отсутствует необходимый инструмент проверки.")
+                raise _EndRun("failed", t("В каталоге отсутствует необходимый инструмент проверки.",
+                                          "The required verification tool is missing from the catalog."))
         evidence = []
         before = None
         if name == "execute_python":
@@ -474,9 +532,13 @@ class Agent:
                         else scope in self._python_approved)
             if not approved:
                 await self._confirmation(run, "python", tool_call_id=call_id, code=arguments["code"],
-                    message="Разрешить выполнение Python-кода постоянно? Разрешение действует "
-                            "для всех диалогов и подключений, включая перезапуск приложения."
-                            if self.settings is not None else "Разрешить Python-код в этом диалоге и подключении?")
+                    message=t("Разрешить выполнение Python-кода постоянно? Разрешение действует "
+                              "для всех диалогов и подключений, включая перезапуск приложения.",
+                              "Allow Python code execution permanently? The permission applies "
+                              "to all dialogues and connections, including after an application restart.")
+                            if self.settings is not None else t(
+                              "Разрешить Python-код в этом диалоге и подключении?",
+                              "Allow Python code in this dialogue and connection?"))
                 if self.settings is not None:
                     self.settings.set_python_execution_allowed(True)
                 else:
@@ -484,7 +546,8 @@ class Agent:
         if name in _FEATURE_RESULTS:
             tree = await self._read(run, catalog, "get_feature_tree", {}, call_id, evidence)
             if len(tree["features"]) >= _TREE_LIMIT:
-                raise _EndRun("failed", "Дерево может быть усечено; создание не выполнялось.")
+                raise _EndRun("failed", t("Дерево может быть усечено; создание не выполнялось.",
+                                          "The feature tree may be truncated; nothing was created."))
             before = {item["name"] for item in tree["features"]}
         elif name in _NEW_DOCUMENT:
             documents = await self._read(run, catalog, "list_open_documents", {}, call_id, evidence)
@@ -504,7 +567,8 @@ class Agent:
         self._guard(run)
         mutating = name not in _READ_ONLY
         if mutating:
-            run.checks[call_id] = {"status": "pending", "message": "Изменение ещё не проверено."}
+            run.checks[call_id] = {"status": "pending", "message": t(
+                "Изменение ещё не проверено.", "The change has not been verified yet.")}
         message = content = None
         try:
             result = await self._call(run, catalog, name, arguments, call_id)
@@ -527,13 +591,17 @@ class Agent:
                 verified = await self._verify(run, catalog, call_id, name, arguments,
                     result["value"], before, path, file_before, evidence)
                 run.checks[call_id] = {"status": "verified" if verified else "unverified",
-                    "message": "Результат подтверждён." if verified else "Выполнено, результат требует проверки.",
+                    "message": t("Результат подтверждён.", "The result is confirmed.") if verified else t(
+                        "Выполнено, результат требует проверки.",
+                        "Completed; the result requires verification."),
                     "evidence": evidence}
                 if name == "execute_python" and run.repairing:
                     previous = run.checks.get(run._repair_call_id)
                     if previous and previous.get("status") == "failed":
                         previous["status"] = "repaired"
-                        previous["message"] = "Ошибка исправлена продолжением; исходный вызов не повторялся."
+                        previous["message"] = t(
+                            "Ошибка исправлена продолжением; исходный вызов не повторялся.",
+                            "The error was repaired with a continuation; the original call was not repeated.")
                     run.repairing = False
                     run._repair_call_id = None
         except _EndRun as error:
@@ -543,8 +611,9 @@ class Agent:
             raise
         except Exception:
             if mutating:
-                run.checks[call_id] = {"status": "failed", "message": "Проверка результата завершилась ошибкой.",
-                                       "evidence": evidence}
+                run.checks[call_id] = {"status": "failed", "message": t(
+                    "Проверка результата завершилась ошибкой.",
+                    "Result verification failed with an error."), "evidence": evidence}
             raise
         finally:
             if mutating and message is not None:
@@ -553,7 +622,9 @@ class Agent:
                 run._emit("tool_result", tool_call_id=call_id, name=name, result=content, verification=False)
 
     @staticmethod
-    def _close_pending(run, *, reason="Вызов не выполнялся: запрос остановлен."):
+    def _close_pending(run, *, reason=None):
+        reason = reason or t("Вызов не выполнялся: запрос остановлен.",
+                             "The call was not performed: the request was stopped.")
         for call_id in run._pending:
             run.messages.append({"role": "tool", "tool_call_id": call_id,
                 "content": _json({"ok": False, "error": reason,
@@ -562,54 +633,74 @@ class Agent:
 
     async def _prepare_python_repair(self, run, error):
         if run.repair_attempts >= _PYTHON_REPAIR_LIMIT:
-            raise _EndRun("failed", "Исправление Python-кода не удалось после двух попыток; повтор остановлен.")
+            raise _EndRun("failed", t(
+                "Исправление Python-кода не удалось после двух попыток; повтор остановлен.",
+                "Python code repair failed after two attempts; retrying was stopped."))
         run.repair_attempts += 1
         run.repairing = True
         run._repair_call_id = error.call_id
         value = error.result.get("value") if isinstance(error.result, dict) else None
         details = {key: value.get(key) for key in ("error", "error_code", "python_line", "error_type")
                    if isinstance(value, dict) and value.get(key) is not None}
-        message = (
+        message = t(
             f"Известная ошибка execute_python. Подготовь исправление, попытка "
             f"{run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}. "
             "Не повторяй уже выполненные шаги и не запускай исходный скрипт целиком. "
             "Сначала используй доступные read-only инструменты или безопасную инспекцию, "
             "затем вызови execute_python только с минимальным продолжением, исправляющим ошибку. "
             "Если исправление невозможно, сообщи об этом без нового изменения. "
-            f"Диагностика: {_json(details)}"
-        )
-        run._status("repairing", f"Анализируем ошибку Python; попытка {run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}.")
+            f"Диагностика: {_json(details)}",
+            f"A known execute_python error occurred. Prepare a repair, attempt "
+            f"{run.repair_attempts} of {_PYTHON_REPAIR_LIMIT}. "
+            "Do not repeat steps that already ran and do not rerun the entire original script. "
+            "First use the available read-only tools or a safe inspection, "
+            "then call execute_python only with a minimal continuation that fixes the error. "
+            "If repair is impossible, report that without another change. "
+            f"Diagnostics: {_json(details)}")
+        run._status("repairing", t(
+            f"Анализируем ошибку Python; попытка {run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}.",
+            f"Analyzing the Python error; attempt {run.repair_attempts} of {_PYTHON_REPAIR_LIMIT}."))
         run._emit("repair", attempt=run.repair_attempts, call_id=error.call_id,
-                  message=f"Подготовка исправления Python, попытка {run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}.")
-        self._close_pending(run, reason="Вызов не выполнялся: предыдущий скрипт завершился ошибкой.")
+                  message=t(f"Подготовка исправления Python, попытка {run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}.",
+                            f"Preparing a Python repair, attempt {run.repair_attempts} of {_PYTHON_REPAIR_LIMIT}."))
+        self._close_pending(run, reason=t("Вызов не выполнялся: предыдущий скрипт завершился ошибкой.",
+                                          "The call was not performed: the previous script failed."))
         self._flush_images(run)
         run.messages.append({"role": "user", "content": message})
 
     async def _run(self, run, provider):
+        set_language(run.language)
         try:
             self._guard(run)
-            run._status("running", "Запрос выполняется.")
+            run._status("running", t("Запрос выполняется.", "The request is running."))
             tools = await self.mcp.tools()
             if len(_json(tools).encode("utf-8")) > self.max_catalog_bytes:
-                raise _EndRun("failed", "Каталог инструментов превысил допустимый размер.")
+                raise _EndRun("failed", t("Каталог инструментов превысил допустимый размер.",
+                                          "The tool catalog exceeded the allowed size."))
             catalog = self._catalog(tools)
             while True:
                 response = await self._model(run, provider, tools)
                 if len(_json(response).encode("utf-8")) > self.max_history_bytes:
-                    raise _EndRun("failed", "Ответ модели превысил допустимый размер контекста.")
+                    raise _EndRun("failed", t("Ответ модели превысил допустимый размер контекста.",
+                                              "The model response exceeded the allowed context size."))
                 used_ids = {call["id"] for previous in run.messages
                             for call in previous.get("tool_calls", [])}
                 message, calls = self._prepare(response, provider, catalog, used_ids)
                 if len(_json([*run.messages, message]).encode("utf-8")) > self.max_history_bytes:
-                    raise _EndRun("failed", "История превысила лимит контекста. Начните новый диалог.")
+                    raise _EndRun("failed", t("История превысила лимит контекста. Начните новый диалог.",
+                                              "The history exceeded the context limit. Start a new dialogue."))
                 run.messages.append(message)
                 if message["content"]:
                     run._emit("message", role="assistant", content=message["content"])
                 if not calls:
                     if run.repairing:
-                        raise _EndRun("failed", "Модель не предложила исправление Python-кода; запрос остановлен.")
-                    run._status("completed", "Запрос завершён. Результат требует проверки."
-                                if run.verification == "unverified" else "Запрос завершён.")
+                        raise _EndRun("failed", t(
+                            "Модель не предложила исправление Python-кода; запрос остановлен.",
+                            "The model did not propose a Python repair; the request was stopped."))
+                    run._status("completed", t("Запрос завершён. Результат требует проверки.",
+                                               "The request completed. The result requires verification.")
+                                if run.verification == "unverified" else t("Запрос завершён.",
+                                                                            "The request completed."))
                     break
                 run._pending = {call_id: name for call_id, name, arguments in calls}
                 repair_requested = False
@@ -631,11 +722,15 @@ class Agent:
             run._status(error.status, error.message)
         except ProviderError as error:
             run._emit("error", message=str(error), uncertain=False)
-            run._status("failed", "Ошибка API модели; CAD-вызовы не повторялись.")
+            run._status("failed", t("Ошибка API модели; CAD-вызовы не повторялись.",
+                                    "Model API error; CAD calls were not repeated."))
         except Exception:
-            run._emit("error", message="Некорректные данные модели, каталога или проверки; запрос остановлен.",
+            run._emit("error", message=t(
+                "Некорректные данные модели, каталога или проверки; запрос остановлен.",
+                "Invalid model, catalog, or verification data; the request was stopped."),
                       uncertain=False)
-            run._status("failed", "Запрос остановлен из-за ошибки.")
+            run._status("failed", t("Запрос остановлен из-за ошибки.",
+                                    "The request was stopped because of an error."))
         finally:
             self._close_pending(run)
             self._flush_images(run)

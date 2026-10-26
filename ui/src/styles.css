@@ -30,6 +30,9 @@ svg { flex-shrink: 0; }
 .brand-icon { display: grid; place-items: center; width: 42px; height: 42px; color: #4774c6; border: 1px solid #dbe6fa; border-radius: 13px; background: #edf3ff; }
 .header-actions, .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .header-button { background: transparent; border-color: transparent; font-size: 13px; }
+.language-switcher { flex: 0 0 auto; }
+.language-switcher select { width: auto; border-color: transparent; background: transparent; font-size: 12px; font-weight: 600; padding: 8px 2px; color: var(--muted); }
+.language-switcher select:hover { color: #315ba5; }
 main { width: min(960px, 100%); padding: 0 24px 20px; margin: 0 auto; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .model-switcher { min-width: 0; max-width: 360px; flex: 1; }
 .model-switcher select { border-color: transparent; background: #f5f7fb; font-size: 12px; font-weight: 600; padding: 8px 4px; text-overflow: ellipsis; }

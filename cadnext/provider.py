@@ -6,6 +6,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from cadnext.i18n import t
 from cadnext.privacy import PrivacyContext
 from cadnext.settings import Profile, ReasoningEffort
 
@@ -15,7 +16,7 @@ class ProviderError(RuntimeError):
 
 
 def _invalid_json_constant(value):
-    raise ValueError("Недопустимая константа JSON.")
+    raise ValueError(t("Недопустимая константа JSON.", "Invalid JSON constant."))
 
 
 class Provider:
@@ -26,7 +27,8 @@ class Provider:
                                                   profile_id=profile.id)
         if self.privacy.local != profile.local or (self.privacy.vision and not profile.vision) or (
                 self.privacy.profile_id and self.privacy.profile_id != profile.id):
-            raise ValueError("Контекст приватности не соответствует подключению.")
+            raise ValueError(t("Контекст приватности не соответствует подключению.",
+                               "The privacy context does not match the connection."))
         self.privacy.bind_profile(profile.id, base_url=profile.base_url, model=profile.model)
         self._client = httpx.AsyncClient(
             base_url=profile.base_url + "/", transport=transport, trust_env=False,
@@ -41,17 +43,21 @@ class Provider:
         try:
             response = await self._client.request(method, path, **kwargs)
         except httpx.HTTPError:
-            raise ProviderError("Не удалось связаться с API модели. Проверьте адрес и соединение.") from None
+            raise ProviderError(t("Не удалось связаться с API модели. Проверьте адрес и соединение.",
+                                  "Could not reach the model API. Check the address and connection.")) from None
         if not response.is_success:
             if response.status_code in {400, 422}:
                 body = response.text.lower()
                 if any(word in body for word in ("tool", "function_call")):
-                    raise ProviderError("API отклонил вызовы инструментов. Нужна поддержка native tools.")
-            raise ProviderError(f"API модели вернул HTTP {response.status_code}. Проверьте подключение.")
+                    raise ProviderError(t("API отклонил вызовы инструментов. Нужна поддержка native tools.",
+                                          "The API rejected tool calls. Native tool support is required."))
+            raise ProviderError(t(f"API модели вернул HTTP {response.status_code}. Проверьте подключение.",
+                                  f"The model API returned HTTP {response.status_code}. Check the connection."))
         try:
             return response.json()
         except ValueError:
-            raise ProviderError("API модели вернул некорректный JSON.") from None
+            raise ProviderError(t("API модели вернул некорректный JSON.",
+                                  "The model API returned invalid JSON.")) from None
 
     def _is_openrouter(self) -> bool:
         return urlsplit(self.profile.base_url).hostname == "openrouter.ai"
@@ -96,7 +102,8 @@ class Provider:
                                self._reasoning_metadata(item) if self._is_openrouter() else None})
             return {"models": models}
         except (KeyError, TypeError, ValueError):
-            raise ProviderError("Не удалось прочитать список моделей; имя можно ввести вручную.") from None
+            raise ProviderError(t("Не удалось прочитать список моделей; имя можно ввести вручную.",
+                                  "Could not read the model list; you can enter the name manually.")) from None
 
     async def list_models(self) -> list[str]:
         catalog = await self.list_model_catalog()
@@ -113,7 +120,9 @@ class Provider:
         try:
             choice = data["choices"][0]
             if choice.get("finish_reason") not in {"stop", "tool_calls"}:
-                raise ProviderError("Ответ модели прерван или контекст исчерпан; запрос остановлен.")
+                raise ProviderError(t("Ответ модели прерван или контекст исчерпан; запрос остановлен.",
+                                      "The model response was interrupted or the context was exhausted; "
+                                      "the request was stopped."))
             message = choice["message"]
             content = message.get("content")
             calls = message.get("tool_calls") or []
@@ -134,4 +143,5 @@ class Provider:
                     raise ValueError
             return {"role": "assistant", "content": content, **({"tool_calls": calls} if calls else {})}
         except (KeyError, IndexError, TypeError, AttributeError, ValueError):
-            raise ProviderError("API вернул некорректный ответ или вызов инструмента.") from None
+            raise ProviderError(t("API вернул некорректный ответ или вызов инструмента.",
+                                  "The API returned an invalid response or tool call.")) from None
