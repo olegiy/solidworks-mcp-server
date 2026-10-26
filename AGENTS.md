@@ -51,7 +51,7 @@
 - `_run()` превращает любое исключение в JSON `{status:"error", error_code:"CAD_ERROR"|"CAD_OPERATION_UNCERTAIN"}`; вложенный `{"status":"error"}` считается ошибкой даже без MCP `isError` (`normalize_result`).
 - `cadnext/mcp.py` возвращает `{ok, value, images, error, uncertain}` и «залипает» в `uncertain` до перезапуска; изображения берутся только из MCP image-блоков (`screenshot` возвращает `Image`, а не JSON).
 - Инструментов ровно 27: `tests/test_mcp.py` проверяет количество и наличие `execute_python`. Добавление/удаление инструмента — осознанное изменение контракта вместе с тестом.
-- `screenshot` всегда подгоняет текущий вид через ViewZoomtofit2 и GraphicsRedraw2 в STA; void-команды поддерживают COM-свойство и метод без повторов. SaveBMP с (0,0) захватывает весь вид; PNG уменьшается пропорционально до width/height без обрезки. Аргумент zoom_to_fit сохранён для совместимости, False больше не отключает подгонку.
+- `screenshot` всегда подгоняет текущий вид через ViewZoomtofit2 и GraphicsRedraw2 в STA; void-команды поддерживают COM-свойство и метод без повторов. SaveBMP с (0,0) захватывает весь вид; PNG уменьшается пропорционально до width/height без обрезки; размер по умолчанию — 400×300. Аргумент zoom_to_fit сохранён для совместимости, False больше не отключает подгонку.
 
 ## Единицы и локализация
 

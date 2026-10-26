@@ -29,7 +29,11 @@ test('сохранить подключение, получить CAD-резул
   await page.reload();
   await expect(page.getByText('Размер 62 мм. Готово.', { exact: true })).toBeVisible();
   await send(page, 'Покажи снимок');
-  await expect(page.getByRole('img', { name: 'Снимок SolidWorks' })).toBeVisible();
+  const screenshot = page.getByRole('img', { name: 'Снимок SolidWorks' });
+  await expect(screenshot).toBeVisible();
+  const box = (await screenshot.boundingBox())!;
+  expect(box.width).toBeLessThanOrEqual(400);
+  expect(box.height).toBeLessThanOrEqual(300);
   await page.getByRole('button', { name: 'Журнал операций' }).last().click();
   await expect(page.getByText('screenshot', { exact: true })).toBeVisible();
 });

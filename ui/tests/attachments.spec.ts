@@ -29,6 +29,11 @@ test('модель и рассуждения рядом с отправкой в
     await expect(reasoning).toBeInViewport();
     await expect(page.getByRole('button', { name: 'Отправить', exact: true })).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    const send = page.getByRole('button', { name: 'Отправить', exact: true });
+    const reasonBox = (await reasoning.boundingBox())!;
+    const sendBox = (await send.boundingBox())!;
+    expect(sendBox.x - (reasonBox.x + reasonBox.width)).toBeLessThan(12);
+    expect(parseFloat(await reasoning.evaluate(el => getComputedStyle(el).fontSize))).toBeLessThan(11);
   }
   await reasoning.selectOption('high');
   await expect.poll(async () => (await (await page.request.get(`/api/profiles/${profile.id}`)).json()).reasoning_effort).toBe('high');

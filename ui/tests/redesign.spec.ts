@@ -62,6 +62,21 @@ test('ответ оформляется как Markdown, код копирует
   expect(requests).toEqual([]);
 });
 
+test('у сообщения пользователя есть копирование, а ключ API стоит сразу под адресом', async ({ page, context }) => {
+  await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+  await prepare(page);
+  await page.getByRole('button', { name: 'Копировать запрос', exact: true }).click();
+  await expect.poll(() => page.evaluate(async () => (await navigator.clipboard.readText()).replace(/\r\n/g, '\n')))
+    .toBe('Проверь размеры моей детали');
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Настройки', exact: true });
+  const address = (await dialog.getByLabel('Адрес API').boundingBox())!;
+  const key = (await dialog.getByLabel('Ключ API', { exact: true }).boundingBox())!;
+  const model = (await dialog.getByLabel('Имя модели', { exact: true }).boundingBox())!;
+  expect(key.y).toBeGreaterThan(address.y);
+  expect(key.y).toBeLessThan(model.y);
+});
+
 test('Enter отправляет один запрос, Shift+Enter сохраняет новую строку', async ({ page }) => {
   await prepare(page, false);
   await page.getByRole('button', { name: 'Новый диалог', exact: true }).click();

@@ -2,6 +2,7 @@
 
 import asyncio
 import base64
+import io
 import json
 import sys
 import tempfile
@@ -17,8 +18,9 @@ from cadnext.settings import SettingsStore
 from tests.fake_mcp import CATALOG, ok
 from tests.test_settings import MemorySecrets
 
-PNG = ("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a"
-       "d1sAAAAASUVORK5CYII=")
+_PNG_BUFFER = io.BytesIO()
+Image.new("RGB", (1000, 750), "white").save(_PNG_BUFFER, "PNG")
+PNG = base64.b64encode(_PNG_BUFFER.getvalue()).decode("ascii")
 
 
 class Backend:

@@ -201,6 +201,11 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
         <label>{t('apiAddress')}<input required type="url" value={form.base_url} placeholder="https://api.example.com/v1"
           onChange={e => { setCatalog(null); catalogRef.current = null;
             setForm({ ...form, base_url: e.target.value, local: localAddress(e.target.value) }); }} /></label>
+        <label>{t('apiKey')}<input type="password" autoComplete="new-password" value={key}
+          placeholder={profiles.find(p => p.id === editing)?.has_key ? t('savedKeyPlaceholder') : t('localKeyPlaceholder')}
+          onChange={e => { setKey(e.target.value); setClearKey(false); }} /></label>
+        {profiles.find(p => p.id === editing)?.has_key ? <label className="check"><input type="checkbox"
+          checked={clearKey} onChange={e => setClearKey(e.target.checked)} />{t('removeSavedKey')}</label> : null}
         <ModelPicker baseUrl={form.base_url} profileId={editing} value={form.model} disabled={busy}
           apiKey={clearKey ? '' : key || undefined} onChange={modelChanged} onCatalog={catalogChanged} />
         <label>{t('reasoningEffort')}<select value={selectedReasoning(metadata, form.reasoning_effort, t)} disabled={busy || (lookup.loading && !metadata)}
@@ -210,11 +215,6 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
         </select></label>
         <p id="reasoning-hint" className="hint">{lookup.hint} {t('reasoningSavedHint')}</p>
         <button type="button" disabled={busy || !form.model.trim()} onClick={lookup.refresh}>{t('refreshLevels')}</button>
-        <label>{t('apiKey')}<input type="password" autoComplete="new-password" value={key}
-          placeholder={profiles.find(p => p.id === editing)?.has_key ? t('savedKeyPlaceholder') : t('localKeyPlaceholder')}
-          onChange={e => { setKey(e.target.value); setClearKey(false); }} /></label>
-        {profiles.find(p => p.id === editing)?.has_key ? <label className="check"><input type="checkbox"
-          checked={clearKey} onChange={e => setClearKey(e.target.checked)} />{t('removeSavedKey')}</label> : null}
         <label className="check"><input type="checkbox" checked={form.vision}
           onChange={e => setForm({ ...form, vision: e.target.checked })} />{t('imageSupport')}</label>
         <label className="check"><input type="checkbox" checked={form.local}
@@ -304,7 +304,8 @@ function RunView({ run }: { run: Run }) {
       if (event.type === 'message') return <div key={event.seq}
         className={`message ${event.data.role === 'user' ? 'user' : 'assistant'}`}>
         <div className="message-heading"><span className="message-author">{event.data.role === 'user' ? t('you') : t('cadAgent')}</span>
-          {event.data.role === 'user' ? null : <CopyButton text={String(event.data.content)} label={t('copyAnswer')} />}</div>
+          {String(event.data.content) ? <CopyButton text={String(event.data.content)}
+            label={event.data.role === 'user' ? t('copyRequest') : t('copyAnswer')} /> : null}</div>
         {event.data.role === 'user' ? <>
           {event.data.content ? <p className="user-text">{String(event.data.content)}</p> : null}
           {Array.isArray(event.data.attachments) ? <div className="user-attachments">

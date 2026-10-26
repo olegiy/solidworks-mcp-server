@@ -39,6 +39,25 @@ def test_screenshot_fits_and_redraws_before_full_frame_capture(monkeypatch, as_p
         assert picture.getpixel((99, 25)) == (0, 0, 255)
 
 
+def test_screenshot_default_size_is_400_by_300(monkeypatch):
+    class Model:
+        def ViewZoomtofit2(self):
+            pass
+
+        def GraphicsRedraw2(self):
+            pass
+
+        def SaveBMP(self, path, width, height):
+            Image.new('RGB', (1000, 750), 'red').save(path)
+            return True
+
+    monkeypatch.setattr(server, '_model', Model)
+    monkeypatch.setattr(server, 'com_call', lambda job: job())
+    result = server.screenshot()
+    with Image.open(io.BytesIO(result.data)) as picture:
+        assert picture.size == (400, 300)
+
+
 def test_failed_fit_never_captures_or_repeats(monkeypatch):
     events = []
 
