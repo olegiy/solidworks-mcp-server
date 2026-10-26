@@ -1,14 +1,19 @@
 """One OpenAI-compatible native-tools transport with no retries or routing."""
 
+import asyncio
 import json
+import math
+import time
 from typing import get_args
 from urllib.parse import urlsplit
 
 import httpx
 
+from cadnext.context import model_context
 from cadnext.i18n import t
 from cadnext.privacy import PrivacyContext
 from cadnext.settings import Profile, ReasoningEffort
+from cadnext.streaming import CompletionStream
 
 
 class ProviderError(RuntimeError):
@@ -30,6 +35,9 @@ class Provider:
             raise ValueError(t("Контекст приватности не соответствует подключению.",
                                "The privacy context does not match the connection."))
         self.privacy.bind_profile(profile.id, base_url=profile.base_url, model=profile.model)
+        self.last_metrics = None
+        self._image_cache = {}
+        self._completion_slots = asyncio.Semaphore(2)
         self._client = httpx.AsyncClient(
             base_url=profile.base_url + "/", transport=transport, trust_env=False,
             follow_redirects=False, timeout=httpx.Timeout(120.0, connect=10.0),
@@ -109,14 +117,93 @@ class Provider:
         catalog = await self.list_model_catalog()
         return sorted(model["id"] for model in catalog["models"])
 
-    async def complete(self, messages, tools) -> dict:
-        payload = {"model": self.profile.model, "messages": self.privacy.outgoing_messages(messages)}
-        if self.profile.reasoning_effort is not None:
-            payload["reasoning_effort"] = self.profile.reasoning_effort
-        if tools:
-            payload["tools"] = self.privacy.outgoing_tools(tools)
-            payload["tool_choice"] = "auto"
-        data = await self._request("POST", "chat/completions", json=payload)
+    async def complete(self, messages, tools, *, stream=False, compact=True) -> dict:
+        queued = time.perf_counter()
+        async with self._completion_slots:
+            started = time.perf_counter()
+            metrics = {"request_bytes": 0, "image_count": 0,
+                "input_tokens": None, "output_tokens": None, "cached_tokens": None, "cost": None,
+                "first_token_seconds": None, "duration_seconds": 0.0,
+                "queue_seconds": started - queued}
+            try:
+                context = model_context(messages, image_cache=self._image_cache) if compact else [
+                    {key: value for key, value in message.items() if key != "_cadnext"}
+                    for message in messages]
+                payload = {"model": self.profile.model,
+                           "messages": self.privacy.outgoing_messages(context), "stream": stream}
+                if self.profile.reasoning_effort is not None:
+                    payload["reasoning_effort"] = self.profile.reasoning_effort
+                if tools:
+                    payload["tools"] = self.privacy.outgoing_tools(tools)
+                    payload["tool_choice"] = "auto"
+                if stream:
+                    payload["stream_options"] = {"include_usage": True}
+                body = json.dumps(payload, ensure_ascii=False, allow_nan=False,
+                                  separators=(",", ":")).encode("utf-8")
+                metrics["request_bytes"] = len(body)
+                metrics["image_count"] = sum(
+                    block.get("type") == "image_url" for message in payload["messages"]
+                    if isinstance(message.get("content"), list) for block in message["content"])
+                metrics["preparation_seconds"] = time.perf_counter() - started
+                if stream:
+                    data = await self._stream_request(body, metrics, started)
+                else:
+                    data = await self._request("POST", "chat/completions", content=body,
+                                               headers={"Content-Type": "application/json"})
+                self._usage_metrics(data, metrics)
+                return self._completion_message(data)
+            finally:
+                metrics["duration_seconds"] = time.perf_counter() - started
+                self.last_metrics = metrics
+
+    @staticmethod
+    def _usage_metrics(data, metrics):
+        usage = data.get("usage") if isinstance(data, dict) else None
+        if not isinstance(usage, dict):
+            return
+        details = usage.get("prompt_tokens_details")
+        values = {"input_tokens": usage.get("prompt_tokens"),
+                  "output_tokens": usage.get("completion_tokens"),
+                  "cached_tokens": details.get("cached_tokens") if isinstance(details, dict) else None}
+        for key, value in values.items():
+            if type(value) is int and value >= 0:
+                metrics[key] = value
+        cost = usage.get("cost")
+        if type(cost) in {int, float} and math.isfinite(cost) and cost >= 0:
+            metrics["cost"] = cost
+
+    async def _stream_request(self, body, metrics, started):
+        accumulated = CompletionStream()
+        pending = []
+        size = 0
+        try:
+            async with self._client.stream("POST", "chat/completions", content=body,
+                    headers={"Content-Type": "application/json"}) as response:
+                if not response.is_success:
+                    raise ProviderError(t(f"API модели вернул HTTP {response.status_code}.",
+                                          f"The model API returned HTTP {response.status_code}."))
+                async for line in response.aiter_lines():
+                    size += len(line.encode("utf-8"))
+                    if size > 8 * 1024 * 1024:
+                        raise ValueError("Stream too large")
+                    if line.startswith("data:"):
+                        pending.append(line[5:].lstrip(" "))
+                    elif not line and pending:
+                        generated = accumulated.feed("\n".join(pending))
+                        pending.clear()
+                        if generated and metrics["first_token_seconds"] is None:
+                            metrics["first_token_seconds"] = time.perf_counter() - started
+                        if accumulated.done:
+                            break
+            return accumulated.result()
+        except (httpx.HTTPError, ValueError, TypeError, KeyError, AttributeError):
+            raise ProviderError(t("API вернул незавершённый или некорректный поток ответа.",
+                                  "The API returned an incomplete or invalid response stream.")) from None
+        finally:
+            self._usage_metrics({"usage": accumulated.usage}, metrics)
+
+    @staticmethod
+    def _completion_message(data):
         try:
             choice = data["choices"][0]
             if choice.get("finish_reason") not in {"stop", "tool_calls"}:

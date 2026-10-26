@@ -31,6 +31,14 @@ _PYTHON_REPAIR_LIMIT = 2
 _SYSTEM_RU = (
     "Ты CAD-агент для SolidWorks. Отвечай по-русски. Используй только доступные инструменты, "
     "их фактические результаты и единицы мм/градусы. Выполняй действия последовательно. "
+    "Если аргументы нескольких действий уже известны, возвращай их одним ответом "
+    "с несколькими native tool calls: приложение выполнит их последовательно с проверками. "
+    "Если следующий шаг зависит от фактического результата, сначала дождись этого результата. "
+    "Делай снимок после завершённого этапа (эскиз, элемент, итоговая проверка), "
+    "а не после каждой линии; учитывай явные пожелания пользователя. "
+    "Числовое изменение сначала проверяй get_dimension; снимок нужен для визуальной оценки. "
+    "features_delta — точное изменение предыдущего нумерованного дерева: "
+    "применяй edits в обратном порядке start (delete элементов, затем insert). "
     "Не повторяй неудачные изменения и не делай автоматический undo. "
     "Если execute_python вернул известную CAD_ERROR, агент может запросить не более двух "
     "исправлений: сначала инспектируй состояние, затем выполняй только продолжение; "
@@ -47,6 +55,14 @@ _SYSTEM_RU = (
 _SYSTEM_EN = (
     "You are a CAD agent for SolidWorks. Respond in English. Use only the available tools, "
     "their actual results, and millimetre/degree units. Perform actions sequentially. "
+    "When several actions have known arguments, return them in one response with multiple "
+    "native tool calls: the application executes and verifies them sequentially. "
+    "Wait for actual results before deciding any dependent next action. "
+    "Take screenshots at completed stages (sketch, feature, final review), rather than "
+    "after each line; honor explicit user requests. Verify numerical changes with "
+    "get_dimension first; use screenshots for visual assessment. "
+    "features_delta exactly updates the previous numbered tree: apply edits in descending "
+    "start order (delete elements, then insert). "
     "Do not repeat failed changes and do not perform an automatic undo. "
     "If execute_python returns a known CAD_ERROR, the agent may request no more than two "
     "repairs: first inspect the state, then perform only the continuation; "
@@ -97,6 +113,12 @@ class Run:
     confirmation: dict | None = None
     call_count: int = 0
     checks: dict = field(default_factory=dict)
+    metrics: dict = field(default_factory=lambda: {
+        "model_calls": 0, "model_seconds": 0.0, "cad_calls": 0, "cad_seconds": 0.0,
+        "verification_calls": 0, "verification_seconds": 0.0,
+        "request_bytes": 0, "image_count": 0,
+        "input_tokens": None, "output_tokens": None, "cached_tokens": None, "cost": None})
+    _missing_usage: set = field(default_factory=set, repr=False)
     _task: asyncio.Task | None = field(default=None, repr=False)
     _changed: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     _answer: asyncio.Future | None = field(default=None, repr=False)
@@ -127,13 +149,21 @@ class Run:
                          "events": self.events, "stop_requested": self.stop_requested,
                          "confirmation": self.confirmation, "call_count": self.call_count,
                          "max_calls": self.max_calls, "verification": self.verification,
-                         "checks": self.checks, "messages": self.messages,
+                         "checks": self.checks, "messages": self.messages, "metrics": self.metrics,
                          "repair_attempts": self.repair_attempts, "repairing": self.repairing})
 
     def _emit(self, event_type: str, **data):
         self.events.append({"seq": len(self.events) + 1, "type": event_type,
-                            "at": time.time(), "data": deepcopy(data)})
+                            "at": time.time(), "data": deepcopy(data), "state": self.state()})
         self._changed.set()
+
+    def state(self):
+        """Small event-time state; never includes history, images, or tool evidence."""
+        return deepcopy({"status": self.status, "call_count": self.call_count,
+            "max_calls": self.max_calls, "verification": self.verification,
+            "stop_requested": self.stop_requested, "confirmation": self.confirmation,
+            "repair_attempts": self.repair_attempts, "repairing": self.repairing,
+            "metrics": self.metrics})
 
     def _status(self, status, message):
         self.status = status
@@ -325,12 +355,32 @@ class Agent:
             raise _EndRun("failed", t("История превысила лимит контекста. Начните новый диалог.",
                                       "The history exceeded the context limit. Start a new dialogue."))
         number = 1 + sum(event["type"] == "model_start" for event in run.events)
+        run.metrics["model_calls"] += 1
         run._emit("model_start", number=number)
+        started = time.perf_counter()
         outcome = "error"
         try:
             result = await provider.complete(deepcopy(run.messages), deepcopy(tools))
             outcome = "received"
         finally:
+            run.metrics["model_seconds"] += time.perf_counter() - started
+            metrics = getattr(provider, "last_metrics", None)
+            safe = {}
+            if isinstance(metrics, dict):
+                safe = {key: value for key, value in metrics.items()
+                        if value is None or (type(value) in {int, float}
+                                             and math.isfinite(value) and value >= 0)}
+                for key in ("request_bytes", "image_count"):
+                    value = safe.get(key)
+                    if value is not None:
+                        run.metrics[key] = (run.metrics[key] or 0) + value
+            for key in ("input_tokens", "output_tokens", "cached_tokens", "cost"):
+                value = safe.get(key)
+                if value is None:
+                    run._missing_usage.add(key)
+                run.metrics[key] = None if key in run._missing_usage else (run.metrics[key] or 0) + value
+            if safe:
+                run._emit("model_metrics", number=number, **safe)
             run._emit("model_end", number=number, outcome=outcome)
         self._guard(run)
         return result
@@ -403,6 +453,9 @@ class Agent:
                                  "The MCP connection was interrupted; the CAD operation outcome is unknown.")}
         finally:
             run._inflight = False
+            prefix = "verification" if verification else "cad"
+            run.metrics[prefix + "_calls"] += 1
+            run.metrics[prefix + "_seconds"] += time.perf_counter() - started
         value = result.get("value")
         nested_error = isinstance(value, dict) and value.get("status") == "error"
         uncertain = bool(result.get("uncertain")) or (isinstance(value, dict)
@@ -742,6 +795,7 @@ class Agent:
     @staticmethod
     def _flush_images(run):
         if run._images:
-            run.messages.append({"role": "user", "content": [{"type": "image_url", "image_url": {
+            run.messages.append({"role": "user", "_cadnext": {"source": "screenshot"},
+                "content": [{"type": "image_url", "image_url": {
                 "url": f'data:{image["mimeType"]};base64,{image["data"]}'}} for image in run._images]})
             run._images.clear()

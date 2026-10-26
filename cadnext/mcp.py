@@ -4,6 +4,7 @@ import json
 import os
 import sys
 from contextlib import AsyncExitStack
+from copy import deepcopy
 from datetime import timedelta
 from pathlib import Path
 
@@ -46,8 +47,10 @@ class SolidWorksMcp:
         self.session: ClientSession | None = None
         self._stack = AsyncExitStack()
         self.uncertain = False
+        self._tools = None
 
     async def __aenter__(self):
+        self._tools = None
         # SDK 1.30 otherwise force-terminates a process two seconds after stdin closes.
         # A timed-out COM worker may still mutate CAD: ownership must last until it exits.
         # This application owns one stdio transport; its shutdown policy is process-wide.
@@ -73,6 +76,8 @@ class SolidWorksMcp:
     async def tools(self) -> list[dict]:
         if not self.session:
             raise RuntimeError(t("MCP не подключён", "MCP is not connected"))
+        if self._tools is not None:
+            return deepcopy(self._tools)
         tools, cursor = [], None
         while True:
             result = await self.session.list_tools(cursor=cursor)
@@ -82,7 +87,8 @@ class SolidWorksMcp:
             }} for tool in result.tools)
             cursor = result.nextCursor
             if not cursor:
-                return tools
+                self._tools = tools
+                return deepcopy(tools)
 
     async def call(self, name: str, arguments: dict) -> dict:
         if self.uncertain:

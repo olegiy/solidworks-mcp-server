@@ -16,6 +16,7 @@ async function prepare(page: Page, changes: Partial<Run> = {}) {
       event(2, 'model_start', { number: 1 }, Date.now() / 1000 - 20)], ...changes,
   };
   let offline = false;
+  let sent = run.events.at(-1)?.seq ?? 0;
   await page.addInitScript(id => {
     localStorage.setItem('cadnext.v1.profile', id);
     localStorage.setItem('cadnext.v1.session', 'activity-session');
@@ -24,12 +25,53 @@ async function prepare(page: Page, changes: Partial<Run> = {}) {
     active_run_id: ['completed', 'failed', 'stopped'].includes(run.status) ? null : run.id, uncertain: false } }));
   await page.route('**/api/runs?session_id=activity-session', route => route.fulfill({ json: [run] }));
   await page.route('**/api/runs/activity-run', route => offline ? route.abort() : route.fulfill({ json: run }));
-  await page.route('**/api/runs/activity-run/events', route => route.fulfill({ contentType: 'text/event-stream', body: ': test\n\n' }));
+  await page.addInitScript(() => {
+    const target = window as typeof window & { activitySources: EventTarget[]; activityOffline: boolean };
+    target.activitySources = [];
+    target.activityOffline = false;
+    class ActivitySource extends EventTarget {
+      onerror: (() => void) | null = null;
+      onopen: (() => void) | null = null;
+      timer: number;
+      constructor() {
+        super();
+        target.activitySources.push(this);
+        setTimeout(() => this.onopen?.(), 0);
+        this.timer = window.setInterval(() => {
+          if (target.activityOffline) this.onerror?.();
+          else this.dispatchEvent(new MessageEvent('heartbeat', { data: '{}' }));
+        }, 500);
+      }
+      close() { clearInterval(this.timer); }
+    }
+    Object.defineProperty(window, 'EventSource', { value: ActivitySource });
+  });
   await page.goto('/');
   return {
     indicator: page.getByRole('region', { name: 'Ход выполнения', exact: true }),
-    update: (changes: Partial<Run>) => { run = { ...run, ...changes }; },
-    offline: (value: boolean) => { offline = value; },
+    update: async (changes: Partial<Run>) => {
+      run = { ...run, ...changes };
+      let updates = run.events.filter(item => item.seq > sent);
+      if (!updates.length) {
+        const change = event(sent + 1, 'status', { status: run.status });
+        run = { ...run, events: [...run.events, change] };
+        updates = [change];
+      }
+      sent = updates.at(-1)!.seq;
+      const { events: _events, ...state } = run;
+      await page.evaluate(({ updates, state }) => {
+        const target = window as typeof window & { activitySources: EventTarget[] };
+        for (const source of target.activitySources) for (const update of updates) {
+          source.dispatchEvent(new MessageEvent('update', { data: JSON.stringify({ ...update, state }) }));
+        }
+      }, { updates, state });
+    },
+    offline: async (value: boolean) => {
+      offline = value;
+      await page.evaluate(value => {
+        (window as typeof window & { activityOffline: boolean }).activityOffline = value;
+      }, value);
+    },
   };
 }
 

@@ -12,7 +12,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
-from sse_starlette.sse import EventSourceResponse
+from sse_starlette.sse import EventSourceResponse, ServerSentEvent
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from cadnext.agent import Agent, AgentBusy
@@ -361,7 +361,9 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         async def disconnected(message):
             agent().stop(run_id)
 
-        return EventSourceResponse(stream(), ping=10, send_timeout=15,
+        return EventSourceResponse(stream(), ping=2, send_timeout=15,
+                                   ping_message_factory=lambda: ServerSentEvent(event="heartbeat",
+                                       data=json.dumps({"last_seq": len(run.events)})),
                                    client_close_handler_callable=disconnected)
 
     @app.get("/")

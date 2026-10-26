@@ -331,8 +331,15 @@ def test_main_refuses_occupied_port_before_constructing_application(monkeypatch)
     created = []
     monkeypatch.setattr("cadnext.__main__.create_app", lambda: created.append(True))
     with socket.socket() as listener:
-        listener.bind(("127.0.0.1", 8876))
+        listener.bind(("127.0.0.1", 0))
         listener.listen()
+        reserved = listener.getsockname()
+        original_bind = socket.socket.bind
+
+        def bind_reserved(sock, address):
+            return original_bind(sock, reserved if address == ("127.0.0.1", 8876) else address)
+
+        monkeypatch.setattr(socket.socket, "bind", bind_reserved)
         with pytest.raises(SystemExit):
             main()
     assert created == []

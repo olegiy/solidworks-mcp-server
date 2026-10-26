@@ -8,6 +8,7 @@ import useReasoning from './useReasoning';
 import MessageContent, { CopyButton } from './MessageContent';
 import Icon from './Icon';
 import ActivityIndicator from './ActivityIndicator';
+import { applyRunEvent } from './runEvents';
 import type { PendingActivity, RunContact } from './ActivityIndicator';
 import { useI18n } from './i18n';
 import type { MessageKey } from './i18n';
@@ -340,6 +341,8 @@ export default function App() {
   const [selected, setSelected] = useState(() => stored('profile', ''));
   const [sessionId, setSessionId] = useState(() => stored('session', crypto.randomUUID()));
   const [runs, setRuns] = useState<Run[]>([]);
+  const runsRef = useRef(runs);
+  runsRef.current = runs;
   const [streamId, setStreamId] = useState('');
   const [settings, setSettings] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -417,34 +420,69 @@ export default function App() {
 
   useEffect(() => {
     if (!streamId) return;
+    let current = runsRef.current.find(run => run.id === streamId);
+    if (!current || terminal(current.status)) return;
     let disposed = false;
     let refreshing = false;
     let finished = false;
+    let lastContact = Date.now();
+    let lastRecovery = 0;
     let controller: AbortController | null = null;
-    const source = new EventSource(`/api/runs/${streamId}/events`);
+    const after = current.events.at(-1)?.seq ?? 0;
+    const source = new EventSource(`/api/runs/${streamId}/events?after=${after}`);
+    function contacted() {
+      lastContact = Date.now();
+      setRunContact({ runId: streamId, at: lastContact, failed: false });
+    }
     async function refresh() {
       if (disposed || refreshing || finished) return;
       refreshing = true;
+      lastRecovery = Date.now();
       controller = new AbortController();
       const timeout = window.setTimeout(() => controller?.abort(), 5000);
       try {
         const snapshot = await api<Run>(`/runs/${streamId}`, { signal: controller.signal });
         if (disposed) return;
+        if (!current || current.events.length <= snapshot.events.length) current = snapshot;
         merge(snapshot);
-        setRunContact({ runId: streamId, at: Date.now(), failed: false });
+        contacted();
         if (terminal(snapshot.status)) { finished = true; source.close(); }
       } catch {
         if (!disposed) setRunContact(previous => ({ runId: streamId,
           at: previous?.runId === streamId ? previous.at : Date.now(), failed: true }));
       } finally { clearTimeout(timeout); refreshing = false; controller = null; }
     }
-    source.addEventListener('update', refresh);
+    source.addEventListener('update', event => {
+      if (disposed || finished) return;
+      try {
+        const restored = runsRef.current.find(run => run.id === streamId);
+        if (restored && (!current || restored.events.length > current.events.length)) current = restored;
+        const update = JSON.parse((event as MessageEvent).data) as RunEvent;
+        if (!current || !update.state) { void refresh(); return; }
+        current = applyRunEvent(current, update);
+        merge(current);
+        contacted();
+        if (terminal(current.status)) { finished = true; source.close(); }
+      } catch { void refresh(); }
+    });
+    source.addEventListener('heartbeat', event => {
+      if (disposed || finished) return;
+      try {
+        JSON.parse((event as MessageEvent).data);
+        contacted();
+        // The producer may be ahead of queued SSE updates; only update seq detects gaps.
+      } catch { void refresh(); }
+    });
+    source.onopen = contacted;
     source.onerror = () => { void refresh(); };
-    const poll = window.setInterval(refresh, 1000);
+    // A quiet healthy stream sends heartbeats; snapshots are recovery only.
+    const watchdog = window.setInterval(() => {
+      if (Date.now() - lastContact >= 8000 && Date.now() - lastRecovery >= 3000) void refresh();
+    }, 1000);
     const leave = () => { navigator.sendBeacon(`/api/runs/${streamId}/stop`); };
     window.addEventListener('pagehide', leave);
     return () => {
-      disposed = true; source.close(); clearInterval(poll); controller?.abort();
+      disposed = true; source.close(); clearInterval(watchdog); controller?.abort();
       window.removeEventListener('pagehide', leave);
     };
   }, [streamId]);

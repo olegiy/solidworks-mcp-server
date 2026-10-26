@@ -70,6 +70,30 @@ def test_user_image_reaches_real_provider_with_masked_text_and_survives_reload(a
     assert content in [message["content"] for message in backend.requests[1]["messages"]]
 
 
+def test_model_receives_cropped_derivative_while_local_attachment_keeps_full_drawing(api):
+    from PIL import ImageDraw
+
+    client, backend = api
+    saved = profile(client, base_url="https://example.test/v1", vision=True)
+    drawing = Image.new("RGB", (600, 400), "white")
+    ImageDraw.Draw(drawing).rectangle((200, 150, 399, 249), outline="black")
+    buffer = io.BytesIO()
+    drawing.save(buffer, "PNG")
+    image = {"name": "Company-drawing.png", "mimeType": "image/png",
+             "data": base64.b64encode(buffer.getvalue()).decode()}
+    response = start(client, saved["id"], r"Прочитай C:\Company\drawing.png", attachments=[image])
+    result = wait(client, response.json()["id"])
+    assert result["status"] == "completed"
+    local = result["events"][0]["data"]["attachments"][0]["data"]
+    outgoing = backend.requests[0]["messages"][-1]["content"][-1]["image_url"]["url"].split(",", 1)[1]
+    with Image.open(io.BytesIO(base64.b64decode(local))) as original:
+        assert original.size == (600, 400)
+    with Image.open(io.BytesIO(base64.b64decode(outgoing))) as cropped:
+        assert cropped.size == (216, 116)
+    assert "Company" not in json.dumps(backend.requests)
+    assert "_cadnext" not in json.dumps(backend.requests)
+
+
 def test_image_only_request_is_accepted_but_empty_request_is_rejected(api):
     client, backend = api
     saved = profile(client, vision=True)
