@@ -1,3 +1,6 @@
+import json
+from types import SimpleNamespace
+
 from tests.fake_mcp import FakeMcp, ok
 from tests.test_agent import ScriptedProvider, pending, reply, settle
 
@@ -6,6 +9,74 @@ def cad_error(message="<unknown>.GetFeature", *, line=14):
     return {"ok": False, "value": {"status": "error", "error": message,
         "error_code": "CAD_ERROR", "python_line": line, "error_type": "AttributeError"},
         "images": [], "error": None, "uncertain": False}
+
+
+async def test_repair_model_receives_preflight_phase_and_actionable_hint():
+    error = cad_error("Invalid endpoint", line=2)
+    error["value"].update(phase="preflight", changes_started=False,
+                          hint="Use endpoints 1 and 2", error_type="PythonPreflightError")
+    mcp = FakeMcp([("execute_python", error), ("execute_python", ok({"result": "done"}))])
+    model = ScriptedProvider([
+        reply(("broken", "execute_python", {"code": "dim.SetArcEndCondition(0, 3)"})),
+        reply(("fixed", "execute_python", {"code": "dim.SetArcEndCondition(1, 3)"})),
+        reply(content="Требуется проверка размеров"),
+    ])
+    agent = __import__("cadnext.agent", fromlist=["Agent"]).Agent(mcp)
+    run = agent.start(session_id="s", provider=model, message="Оформи размер")
+    confirmation = await pending(run)
+    agent.confirm(run.id, confirmation["id"], True)
+    await settle(agent, run)
+    diagnostic = json.loads(model.requests[1][-1]["content"].split("Диагностика: ", 1)[1])
+    assert diagnostic["phase"] == "preflight"
+    assert diagnostic["changes_started"] is False
+    assert diagnostic["hint"] == "Use endpoints 1 and 2"
+    assert diagnostic["python_line"] == 2
+    assert run.status == "completed"
+    assert [args["code"] for _, args in mcp.calls] == [
+        "dim.SetArcEndCondition(0, 3)", "dim.SetArcEndCondition(1, 3)"]
+    assert run.verification == "unverified"
+
+
+async def test_preflight_repair_initializes_objects_from_the_unexecuted_fragment(monkeypatch):
+    import solidworks_mcp_server as server
+
+    preparations = []
+    conditions = {}
+
+    def prepare():
+        preparations.append(True)
+        return SimpleNamespace(SetArcEndCondition=lambda index, value: conditions.update({index: value}))
+
+    model_doc = SimpleNamespace(prepare_dimension=prepare)
+    monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(ActiveDoc=model_doc))
+    monkeypatch.setattr(server, "_nothing", lambda: None)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    broken = "dim = model.prepare_dimension()\ndim.SetArcEndCondition(0, 3)"
+    corrected = "dim = model.prepare_dimension()\ndim.SetArcEndCondition(1, 3)"
+
+    def execute(arguments):
+        value = json.loads(server.execute_python(arguments["code"]))
+        return {"ok": value["status"] == "ok", "value": value, "images": [],
+                "error": value.get("error"), "uncertain": False}
+
+    mcp = FakeMcp([("execute_python", execute), ("execute_python", execute)])
+    model = ScriptedProvider([
+        reply(("broken", "execute_python", {"code": broken})),
+        reply(("fixed", "execute_python", {"code": corrected})),
+        reply(content="Требуется проверка"),
+    ])
+    agent = __import__("cadnext.agent", fromlist=["Agent"]).Agent(mcp)
+    run = agent.start(session_id="s", provider=model, message="Оформи размер")
+    confirmation = await pending(run)
+    agent.confirm(run.id, confirmation["id"], True)
+    await settle(agent, run)
+    repair_prompt = model.requests[1][-1]["content"]
+    assert "Исправь отклонённый фрагмент целиком" in repair_prompt
+    assert "не запускай исходный скрипт целиком" not in repair_prompt
+    assert preparations == [True]
+    assert conditions == {1: 3}
+    assert run.status == "completed"
+    assert run.verification == "unverified"
 
 
 async def test_known_python_error_requests_repair_and_executes_only_replacement_script():

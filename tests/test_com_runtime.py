@@ -12,6 +12,103 @@ import pytest
 import solidworks_mcp_server as server
 
 
+@pytest.mark.parametrize("statement", [
+    "model.Extension.SelectByID2('Front Plane', 'PLANE', 0., 0., 0., False, 0, None, 0)",
+    "model.Extension.SelectByID2(Callout=None)",
+    "GET(model.Extension, 'SelectByID2', '', '', 0., 0., 0., False, 0, None, 0)",
+    "dimension.SetArcEndCondition(0, 3)",
+    "dimension.GetArcEndCondition(3)",
+    "dimension.SetArcEndCondition(Index=0, Condition=3)",
+    "GET(dimension, 'GetArcEndCondition', -1)",
+])
+def test_python_preflight_rejects_known_bad_api_before_accessing_cad(monkeypatch, statement):
+    accesses = []
+    model = SimpleNamespace(changed=False)
+    monkeypatch.setattr(server, "_app", lambda: accesses.append(True) or SimpleNamespace(ActiveDoc=model))
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    response = json.loads(server.execute_python("model.changed = True\n" + statement))
+    assert response["status"] == "error"
+    assert response["error_code"] == "CAD_ERROR"
+    assert response["python_line"] == 2
+    assert response["phase"] == "preflight"
+    assert response["changes_started"] is False
+    assert response["hint"]
+    assert model.changed is False
+    assert accesses == []
+
+
+def test_python_preflight_preserves_valid_api_arguments_and_fresh_environments(monkeypatch):
+    selections = []
+    conditions = {1: 1, 2: 1}
+    nothing = object()
+
+    def select(*args):
+        assert args[7] is nothing
+        selections.append(args)
+        return True
+
+    def set_condition(index, condition):
+        assert index in (1, 2)
+        conditions[index] = condition
+        return True
+
+    dimension = SimpleNamespace(SetArcEndCondition=set_condition, GetArcEndCondition=conditions.get)
+    model = SimpleNamespace(Extension=SimpleNamespace(SelectByID2=select), dimension=dimension)
+    monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(ActiveDoc=model))
+    monkeypatch.setattr(server, "_nothing", lambda: nothing)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    response = json.loads(server.execute_python(
+        "tl = 'local only'\n"
+        "model.Extension.SelectByID2('', '', 0., 0., 0., False, 0, NOTHING, 0)\n"
+        "dimension = model.dimension\n"
+        "dimension.SetArcEndCondition(1, 3)\n"
+        "index = 2\n"
+        "GET(dimension, 'SetArcEndCondition', index, 3)\n"
+        "result = [dimension.GetArcEndCondition(1), GET(dimension, 'GetArcEndCondition', 2)]"))
+    assert response["status"] == "ok", response
+    assert ast.literal_eval(response["result"]) == [3, 3]
+    assert len(selections) == 1
+    # Python globals are deliberately not persisted between tool calls.
+    response = json.loads(server.execute_python("result = tl"))
+    assert response["error_type"] == "NameError"
+
+
+def test_python_preflight_ignores_api_examples_in_text(monkeypatch):
+    monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(ActiveDoc=None))
+    monkeypatch.setattr(server, "_nothing", lambda: None)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    response = json.loads(server.execute_python(
+        "# dimension.SetArcEndCondition(0, 3)\n"
+        "result = 'model.Extension.SelectByID2(Callout=None)'"))
+    assert response["status"] == "ok", response
+
+
+def test_python_syntax_error_does_not_access_cad(monkeypatch):
+    accesses = []
+    monkeypatch.setattr(server, "_app", lambda: accesses.append(True))
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    response = json.loads(server.execute_python("model.changed = True\nif :\n    pass"))
+    assert response["error_type"] == "SyntaxError"
+    assert response["python_line"] == 2
+    assert accesses == []
+
+
+def test_runtime_validation_exception_does_not_claim_no_changes(monkeypatch):
+    model = SimpleNamespace(changed=False)
+    monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(ActiveDoc=model))
+    monkeypatch.setattr(server, "_nothing", lambda: None)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    response = json.loads(server.execute_python(
+        "from cadnext.python_preflight import PythonPreflightError\n"
+        "model.changed = True\n"
+        "raise PythonPreflightError('Runtime failure', 1)"))
+    assert model.changed is True
+    assert response["status"] == "error"
+    assert response["python_line"] == 3
+    assert response.get("changes_started") is not False
+    assert response.get("phase") != "preflight"
+
+
 def test_python_error_reports_line_without_repeating_partial_changes(monkeypatch):
     rebuilds = []
 

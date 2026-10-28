@@ -74,6 +74,8 @@ from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as _FutTimeout
 
+from cadnext.python_preflight import PythonPreflightError, compile_python
+
 # ---------------------------------------------------------------------------
 # ДИАГНОСТИКА (v0.4). Причина "MCP solidworks: Server disconnected" — это всегда
 # смерть ЭТОГО процесса. Три главных сценария: (1) жёсткий сбой в COM/SolidWorks
@@ -1032,6 +1034,27 @@ def execute_python(code: str) -> str:
     win32com, pythoncom, VARIANT, MM (мм→м: MM(25.4)==0.0254),
     GET(obj, name, *args) для методов/свойств pywin32, byref_i4, NOTHING.
     Результат: положи значение в переменную result и/или используй print().
+    Каждый вызов имеет НОВОЕ окружение: переменные (включая tl), функции и импорты
+    предыдущего вызова недоступны. Заново получай COM-объекты из текущего документа.
+    Не рассчитывай на requests: для HTTP доступна стандартная urllib.request
+    с явным коротким timeout; предпочитай локальную библиотеку типов без сети.
+    Получить её без угадывания версии/GUID можно так:
+    tl = swApp._oleobj_.GetTypeInfo().GetContainingTypeLib()[0]
+    Через tl.GetTypeInfoCount(), GetTypeInfo(i), GetDocumentation(i),
+    ti.GetFuncDesc(j), ti.GetNames(desc.memid) проверь имена/аргументы до мутации.
+    У IExtrudeFeatureData2: GetDepth(True), GetDraftAngle(True) (радианы),
+    GetDraftWhileExtruding(True), а не свойства DraftAngle/DraftWhileExtruding.
+    В SelectByID2 восьмой аргумент Callout — NOTHING, не None, например:
+    model.Extension.SelectByID2("Спереди", "PLANE", 0., 0., 0., False, 0, NOTHING, 0).
+    Проверяй возвращённый bool до создания эскиза.
+    Create3PointArc принимает НАЧАЛО, КОНЕЦ, ТОЧКУ НА ДУГЕ (9 координат в метрах),
+    а не начало/промежуточную/конец. Проверь замкнутость и касательность контура.
+    GetArcEndCondition/SetArcEndCondition используют Index=1 и 2, не 0 и 1.
+    После изменения прочитай оба условия и SystemValue*1000; сравни с исходным
+    размером чертежа. Например, габарит 200 мм нельзя принять как 170 мм.
+    Не заменяй значение размера текстом. Успешный COM-вызов не доказывает геометрию.
+    Известные неверные литеральные Callout/Index отклоняются до доступа к CAD
+    (phase=preflight, changes_started=false); динамические значения не проверяются.
     Применяй, когда готового инструмента нет или сигнатура API отличается.
     COM-члены без аргументов используй через GET: pywin32 может выполнить
     вызов уже при чтении атрибута. model.EditRebuild3() тогда пытается вызвать
@@ -1039,7 +1062,10 @@ def execute_python(code: str) -> str:
     с ошибкой перестроения.
     После известной ошибки CAD агент может запросить ограниченное исправление:
     не повторяй весь исходный сценарий, используй read-only инспекцию и запускай
-    только минимальное продолжение. При неизвестном результате COM повтор запрещён:
+    только минимальное продолжение. Исключение: phase=preflight вместе с
+    changes_started=false означает, что ни одна строка отклонённого фрагмента
+    не исполнялась; передай его полную исправленную версию с подготовкой объектов,
+    не повторяя действия предыдущих вызовов. При неизвестном результате COM повтор запрещён:
     предыдущие изменения могли уже выполниться.
     Не угадывай API: у IBody2 есть GetBodyBox, а не GetBoundingBox.
     GetBodyBox возвращает приблизительный bbox в метрах: не используй его
@@ -1077,6 +1103,7 @@ def execute_python(code: str) -> str:
     ```
     """
     def job():
+        compiled = compile_python(code)
         import win32com.client
         import pythoncom
         from win32com.client import VARIANT
@@ -1086,7 +1113,7 @@ def execute_python(code: str) -> str:
                "MM": _mm, "byref_i4": _byref_i4, "GET": _get, "NOTHING": _nothing()}
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
-            exec(compile(code, "<cadnext-python>", "exec"), env)
+            exec(compiled, env)
         return _ok(stdout=buf.getvalue(),
                    result=repr(env.get("result")) if "result" in env else None)
     return _run(job)
@@ -1124,6 +1151,11 @@ def _run(job) -> str:
                 "COM-члены без аргументов используй через GET(obj, name), "
                 'например GET(model, "EditRebuild3").'
             )
+        if isinstance(e, PythonPreflightError) and not frames:
+            error.update(python_line=e.python_line, error_type=type(e).__name__,
+                         phase="preflight", changes_started=False,
+                         hint="Код отклонён до обращения к SolidWorks; этот фрагмент не выполнялся. "
+                              + str(e))
         return json.dumps(error, ensure_ascii=False, indent=1)
 
 

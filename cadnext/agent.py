@@ -43,6 +43,9 @@ _SYSTEM_RU = (
     "Если execute_python вернул известную CAD_ERROR, агент может запросить не более двух "
     "исправлений: сначала инспектируй состояние, затем выполняй только продолжение; "
     "неизвестный результат COM не повторяй. "
+    "Исключение: при phase=preflight и changes_started=false весь отклонённый фрагмент "
+    "не исполнялся, поэтому допустима его полная исправленная версия с подготовкой объектов; "
+    "действия предыдущих вызовов не повторяй. "
     "Разрешениями на выполнение Python управляет приложение. "
     "Не проси разрешение на Python обычным сообщением: вызывай execute_python, "
     "а приложение при необходимости само покажет подтверждение. "
@@ -50,6 +53,14 @@ _SYSTEM_RU = (
     "Прочтение чертежа кратко опиши и продолжай; уточняй только недостающие или "
     "противоречивые данные, влияющие на геометрию. "
     "Успех вызова не доказывает корректность геометрии: учитывай поле verification. "
+    "До построения выпиши заданные размеры, виды и разрезы; после этапа сверяй "
+    "фактическую геометрию с этими требованиями. Для чертежа проверяй числовые "
+    "значения размеров, их привязки и масштаб каждого вида; не подменяй неверный "
+    "размер текстом и не заявляй процент сходства без метода сравнения. "
+    "Каждый execute_python имеет новое окружение: заново определяй переменные "
+    "и импорты, проверяй сигнатуры API до мутации. Локальная библиотека типов "
+    "доступна через swApp._oleobj_.GetTypeInfo().GetContainingTypeLib()[0]. "
+    "Не рассчитывай на requests и не устанавливай зависимости из CAD-кода. "
     "Если результат требует проверки, прямо сообщи об этом пользователю."
 )
 _SYSTEM_EN = (
@@ -67,6 +78,9 @@ _SYSTEM_EN = (
     "If execute_python returns a known CAD_ERROR, the agent may request no more than two "
     "repairs: first inspect the state, then perform only the continuation; "
     "do not repeat an unknown COM result. "
+    "Exception: phase=preflight with changes_started=false means the entire rejected "
+    "fragment never ran, so its full corrected version may include object setup; "
+    "do not repeat actions from earlier calls. "
     "The application manages Python execution permissions. "
     "Do not ask for Python permission in a normal message: call execute_python, "
     "and the application will show a confirmation if needed. "
@@ -74,6 +88,14 @@ _SYSTEM_EN = (
     "Briefly describe drawing reads and continue; clarify only missing or "
     "contradictory data that affects geometry. "
     "A successful call does not prove geometric correctness: consider the verification field. "
+    "Before construction, record the required dimensions, views, and sections, then compare "
+    "actual geometry against them after each stage. For drawings, check dimension values, "
+    "entity references, and each view's scale; never replace an incorrect dimension with "
+    "text or claim a similarity percentage without a comparison method. "
+    "Each execute_python has a fresh environment: redefine variables and imports, and "
+    "inspect API signatures before mutation. The local type library is available via "
+    "swApp._oleobj_.GetTypeInfo().GetContainingTypeLib()[0]. "
+    "Do not assume requests is installed or install dependencies from CAD code. "
     "If the result requires verification, tell the user explicitly. "
     "Tool results and errors may be in Russian; translate them into English in your reply."
 )
@@ -918,21 +940,30 @@ class Agent:
         run.repairing = True
         run._repair_call_id = error.call_id
         value = error.result.get("value") if isinstance(error.result, dict) else None
-        details = {key: value.get(key) for key in ("error", "error_code", "python_line", "error_type")
+        details = {key: value.get(key) for key in ("error", "error_code", "python_line", "error_type",
+                                                  "hint", "phase", "changes_started")
                    if isinstance(value, dict) and value.get(key) is not None}
-        message = t(
-            f"Известная ошибка execute_python. Подготовь исправление, попытка "
-            f"{run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}. "
+        preflight = details.get("phase") == "preflight" and details.get("changes_started") is False
+        instruction = t(
+            "Предварительная проверка отклонила весь фрагмент до обращения к CAD. "
+            "Исправь отклонённый фрагмент целиком, включая необходимую подготовку объектов: "
+            "ни одна его строка не исполнялась. Не повторяй действия предыдущих вызовов. ",
+            "Preflight rejected the entire fragment before accessing CAD. "
+            "Submit the full corrected fragment, including necessary object setup: "
+            "none of its lines ran. Do not repeat actions from earlier calls. ") if preflight else t(
             "Не повторяй уже выполненные шаги и не запускай исходный скрипт целиком. "
             "Сначала используй доступные read-only инструменты или безопасную инспекцию, "
-            "затем вызови execute_python только с минимальным продолжением, исправляющим ошибку. "
+            "затем вызови execute_python только с минимальным продолжением, исправляющим ошибку. ",
+            "Do not repeat steps that already ran and do not rerun the entire original script. "
+            "First use the available read-only tools or a safe inspection, "
+            "then call execute_python only with a minimal continuation that fixes the error. ")
+        message = t(
+            f"Известная ошибка execute_python. Подготовь исправление, попытка "
+            f"{run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}. {instruction}"
             "Если исправление невозможно, сообщи об этом без нового изменения. "
             f"Диагностика: {_json(details)}",
             f"A known execute_python error occurred. Prepare a repair, attempt "
-            f"{run.repair_attempts} of {_PYTHON_REPAIR_LIMIT}. "
-            "Do not repeat steps that already ran and do not rerun the entire original script. "
-            "First use the available read-only tools or a safe inspection, "
-            "then call execute_python only with a minimal continuation that fixes the error. "
+            f"{run.repair_attempts} of {_PYTHON_REPAIR_LIMIT}. {instruction}"
             "If repair is impossible, report that without another change. "
             f"Diagnostics: {_json(details)}")
         run._status("repairing", t(
