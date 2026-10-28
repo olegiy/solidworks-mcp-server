@@ -71,6 +71,7 @@ import threading
 import faulthandler
 import math
 from pathlib import Path
+from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as _FutTimeout
 
@@ -138,6 +139,7 @@ _sw = {"app": None}  # кэш COM-объекта приложения (живё�
 _pending = {"fut": None, "started": 0.0, "what": ""}
 _poisoned = False
 _submit_lock = threading.Lock()
+_python_sessions = {}  # Accessed and released only on the STA worker.
 
 # Сколько ждать ответа SolidWorks. Мост Claude обрывает вызов на 60 с, поэтому
 # отвечаем понятной ошибкой чуть раньше — так процесс остаётся живым.
@@ -165,13 +167,17 @@ class ComOutcomeUnknown(RuntimeError):
     """The worker may still be inside a COM mutation."""
 
 
-def com_call(fn, *args, **kwargs):
+def com_call(fn, *args, _cleanup=False, **kwargs):
     global _poisoned
     with _submit_lock:
+        prev = _pending["fut"]
+        if _cleanup and (_poisoned or (prev is not None and not prev.done())):
+            # Reference release only: queue behind the original worker, never touch CAD.
+            _ensure_executor().submit(fn, *args, **kwargs)
+            return _ok(cleanup_queued=True)
         if _poisoned:
             raise ComOutcomeUnknown("Результат предыдущей операции неизвестен. "
                                     "Проверьте SolidWorks и перезапустите приложение.")
-        prev = _pending["fut"]
         if prev is not None and not prev.done():
             raise RuntimeError("SolidWorks занят предыдущей операцией.")
         fut = _ensure_executor().submit(fn, *args, **kwargs)
@@ -1028,14 +1034,40 @@ def add_mate(mate_type: str = "coincident", alignment: str = "closest",
 # ========================== АВАРИЙНЫЙ ЛЮК ==================================
 
 @mcp.tool()
-def execute_python(code: str) -> str:
+def open_python_session() -> str:
+    """Application-owned environment; not offered to the language model."""
+    def job():
+        session_id = uuid4().hex
+        _python_sessions[session_id] = {"env": {}, "document": None}
+        return _ok(session_id=session_id)
+    return _run(job)
+
+
+@mcp.tool()
+def close_python_session(session_id: str) -> str:
+    """Release references in STA, including after an unknown worker outcome."""
+    def job():
+        state = _python_sessions.pop(session_id, None)
+        if state is not None:
+            state["env"].clear()
+            state.clear()
+        return _ok()
+    try:
+        return com_call(job, _cleanup=True)
+    except ComOutcomeUnknown:
+        return json.dumps({"status": "error", "error_code": "CAD_OPERATION_UNCERTAIN"})
+
+
+@mcp.tool()
+def execute_python(code: str, session_id: str | None = None) -> str:
     """Выполнить произвольный Python-код с доступом к SolidWorks COM API.
     Доступные переменные: swApp (ISldWorks), model (активный документ или None),
     win32com, pythoncom, VARIANT, MM (мм→м: MM(25.4)==0.0254),
     GET(obj, name, *args) для методов/свойств pywin32, byref_i4, NOTHING.
     Результат: положи значение в переменную result и/или используй print().
-    Каждый вызов имеет НОВОЕ окружение: переменные (включая tl), функции и импорты
-    предыдущего вызова недоступны. Заново получай COM-объекты из текущего документа.
+    В агентском Run переменные, функции и импорты сохраняются между этапами.
+    Прямой вызов без служебной сессии имеет новое окружение. session_id задаёт
+    только приложение; не передавай его самостоятельно. Новый Run — новое окружение.
     Не рассчитывай на requests: для HTTP доступна стандартная urllib.request
     с явным коротким timeout; предпочитай локальную библиотеку типов без сети.
     Получить её без угадывания версии/GUID можно так:
@@ -1107,13 +1139,26 @@ def execute_python(code: str) -> str:
         import win32com.client
         import pythoncom
         from win32com.client import VARIANT
+        state = _python_sessions[session_id] if session_id is not None else None
         app = _app()
-        env = {"swApp": app, "model": app.ActiveDoc,
-               "win32com": win32com, "pythoncom": pythoncom, "VARIANT": VARIANT,
-               "MM": _mm, "byref_i4": _byref_i4, "GET": _get, "NOTHING": _nothing()}
+        if state is not None and state["document"] is not None:
+            pinned = state["document"]
+            documents = _get(app, "GetDocuments") or ()
+            if not any(getattr(doc, "_oleobj_", doc) == getattr(pinned, "_oleobj_", pinned)
+                       for doc in documents):
+                raise RuntimeError("Документ Python-сессии закрыт; автоматическая подмена запрещена.")
+        env = state["env"] if state is not None else {}
+        env.update({"swApp": app, "model": app.ActiveDoc,
+                    "win32com": win32com, "pythoncom": pythoncom, "VARIANT": VARIANT,
+                    "MM": _mm, "byref_i4": _byref_i4, "GET": _get, "NOTHING": _nothing()})
+        env.pop("result", None)
         buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
-            exec(compiled, env)
+        try:
+            with contextlib.redirect_stdout(buf):
+                exec(compiled, env)
+        finally:
+            if state is not None:
+                state["document"] = env.get("model")
         return _ok(stdout=buf.getvalue(),
                    result=repr(env.get("result")) if "result" in env else None)
     return _run(job)

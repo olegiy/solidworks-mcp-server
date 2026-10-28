@@ -150,6 +150,8 @@ class Run:
     repair_attempts: int = 0
     repairing: bool = False
     _repair_call_id: str | None = field(default=None, repr=False)
+    _python_session: str | None = field(default=None, repr=False)
+    _session_capable: bool = field(default=False, repr=False)
 
     @property
     def done(self):
@@ -267,7 +269,8 @@ class Agent:
         if self._saving:
             raise AgentBusy(t("Дождитесь завершения сохранения.",
                               "Wait for the save to complete."))
-        if self._active is not None and not self._active.done:
+        if self._active is not None and (not self._active.done or
+                (self._active._task is not None and not self._active._task.done())):
             raise AgentBusy(t("Уже выполняется CAD-запрос.", "A CAD request is already running."))
         if (not isinstance(session_id, str) or not session_id.strip()
                 or not isinstance(message, str) or (not message.strip() and not attachments)
@@ -685,7 +688,17 @@ class Agent:
         started = time.perf_counter()
         run._inflight = True
         try:
-            result = deepcopy(await self.mcp.call(name, deepcopy(arguments)))
+            transport_arguments = deepcopy(arguments)
+            if name == "execute_python" and run._session_capable:
+                if run._python_session is None:
+                    opened = await self.mcp.call("open_python_session", {})
+                    self._success(opened)
+                    run._python_session = opened["value"]["session_id"]
+                    if not isinstance(run._python_session, str) or not run._python_session:
+                        raise ValueError("Invalid Python session")
+                self._guard(run)
+                transport_arguments["session_id"] = run._python_session
+            result = deepcopy(await self.mcp.call(name, transport_arguments))
             if (not isinstance(result, dict)
                     or not {"ok", "value", "images", "error", "uncertain"} <= result.keys()
                     or type(result["ok"]) is not bool or type(result["uncertain"]) is not bool
@@ -983,6 +996,17 @@ class Agent:
             self._guard(run)
             run._status("running", t("Запрос выполняется.", "The request is running."))
             tools = await self.mcp.tools()
+            run._session_capable = {"open_python_session", "close_python_session"} <= {
+                tool["function"]["name"] for tool in tools}
+            tools = deepcopy([tool for tool in tools if tool["function"]["name"] not in
+                              {"open_python_session", "close_python_session"}])
+            for tool in tools:
+                if tool["function"]["name"] == "execute_python":
+                    schema = tool["function"]["parameters"]
+                    schema["properties"].pop("session_id", None)
+                    schema["required"] = [key for key in schema.get("required", [])
+                                          if key != "session_id"]
+                    schema["additionalProperties"] = False
             if len(_json(tools).encode("utf-8")) > self.max_catalog_bytes:
                 raise _EndRun("failed", t("Каталог инструментов превысил допустимый размер.",
                                           "The tool catalog exceeded the allowed size."))
@@ -1041,6 +1065,20 @@ class Agent:
             run._status("failed", t("Запрос остановлен из-за ошибки.",
                                     "The request was stopped because of an error."))
         finally:
+            if run._python_session is not None:
+                try:
+                    closed = await self.mcp.call("close_python_session", {
+                        "session_id": run._python_session})
+                    if not closed.get("ok"):
+                        self._uncertain = True
+                        run._status("uncertain", t("Не удалось подтвердить закрытие Python-сессии.",
+                                                    "Python session closure could not be confirmed."))
+                except Exception:
+                    self._uncertain = True
+                    run._status("uncertain", t("Связь MCP прервана при закрытии Python-сессии.",
+                                                "MCP disconnected while closing the Python session."))
+                finally:
+                    run._python_session = None
             self._close_pending(run)
             self._flush_images(run)
             run.repairing = False
