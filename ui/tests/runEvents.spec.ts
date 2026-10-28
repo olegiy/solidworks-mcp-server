@@ -23,3 +23,14 @@ test('a missing event requires snapshot recovery instead of skipping history', (
     state: { status: 'completed' } })).toThrow('gap');
   expect(run.status).toBe('running');
 });
+
+test('construction updates retain checks, replay once, and preserve the previous plan', () => {
+  const stages = [{ id: 'profile', title: 'Профиль', expected_result: '80 мм', status: 'done',
+    tool_call_ids: ['py'], checks: [{ passed: true, expected: { kind: 'dimension' }, observed: [] }] }];
+  const event = { seq: 2, type: 'construction_plan', data: { stages, history: [{ revision: 1 }] } };
+  const next = applyRunEvent(run, event);
+  expect(next.construction_plan).toEqual(stages);
+  expect(next.construction_plan_history).toEqual([{ revision: 1 }]);
+  expect(applyRunEvent(next, event)).toBe(next);
+  expect(run.construction_plan).toBeUndefined();
+});
