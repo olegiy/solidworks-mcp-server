@@ -1558,6 +1558,9 @@ class Agent:
                                 "The error was repaired with a continuation; the original call was not repeated.")
                     run.repairing = False
                     run._repair_call_id = None
+                    run._status("running", t(
+                        "Ошибка Python исправлена; продолжаем выполнение.",
+                        "The Python error was repaired; continuing the run."))
         except _EndRun as error:
             if mutating:
                 run.checks[call_id] = {"status": "failed" if error.status == "failed" else "unverified",

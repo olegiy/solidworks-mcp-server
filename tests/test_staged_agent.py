@@ -235,11 +235,16 @@ async def test_python_diagnostics_preserve_failed_stage_and_repair_until_explici
     from tests.test_python_repair import cad_error
 
     observed = []
+    resumed = []
 
     def continue_profile(messages):
         observed.append((run.repairing, deepcopy(run.construction_plan), deepcopy(run.checks)))
         return reply(("fixed", "execute_python", {
             "code": "continue_existing_profile()", "stage_id": "profile", "checks": CHECKS}))
+
+    def build_body(messages):
+        resumed.append((run.status, run.repairing))
+        return reply(("body", "execute_python", {"code": "create_body()", "stage_id": "body"}))
 
     provider = ScriptedProvider([
         reply(("plan", "set_construction_plan", {"stages": STAGES})),
@@ -247,7 +252,7 @@ async def test_python_diagnostics_preserve_failed_stage_and_repair_until_explici
             "code": f"partial_step_{i}()", "stage_id": "profile"})) for i in range(failures)),
         reply(("diagnostics", "execute_python", {"code": "result = inspect_existing_features()"})),
         continue_profile,
-        reply(("body", "execute_python", {"code": "create_body()", "stage_id": "body"})),
+        build_body,
         reply(content="Готово")])
     mcp = staged_mcp([
         *(("execute_python", cad_error()) for _ in range(failures)),
@@ -267,6 +272,7 @@ async def test_python_diagnostics_preserve_failed_stage_and_repair_until_explici
     assert stages[-1]["application_owned"] is True
     assert stages[-1]["tool_call_ids"] == ["diagnostics"]
     assert run.status == "completed"
+    assert resumed == [("running", False)]
     assert run.repairing is False
     assert run.repair_attempts == failures
     assert all(run.checks[f"broken-{i}"]["status"] == "repaired" for i in range(failures))
