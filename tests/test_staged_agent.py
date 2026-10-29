@@ -230,6 +230,26 @@ STAGES = [{"id": "profile", "title": "Профиль", "expected_result": "Дл�
 CHECKS = [{"kind": "dimension", "name": "Length@Profile", "value": 80, "unit": "mm"}]
 
 
+@pytest.mark.parametrize("same_document", [True, False])
+async def test_project_state_uses_document_identity_after_python_save_as(same_document):
+    provider = ScriptedProvider([reply(("connect", "connect_solidworks", {})), reply(content="Read")])
+    mcp = staged_mcp([
+        ("connect_solidworks", ok({"active_document": "Part1", "document_id": "original"})),
+        ("list_open_documents", ok({"documents": [{
+            "title": "Flange.SLDPRT" if same_document else "Part1",
+            "path": "C:/Documents/Flange.SLDPRT",
+            "document_id": "original" if same_document else "replacement"}]}))])
+    agent = Agent(mcp)
+    run = agent.start(session_id="s", provider=provider, message="Read")
+    await settle(agent, run)
+    snapshot = run.snapshot()
+    assert await agent.project_state("s") == {"closed": not same_document}
+    assert (run.id in agent.runs) is same_document
+    if same_document:
+        assert agent.get(run.id).snapshot() == snapshot
+        assert agent._documents["s"]["path"] == "C:/Documents/Flange.SLDPRT"
+
+
 async def test_supplemental_python_does_not_complete_a_pending_construction_stage():
     observed = []
 

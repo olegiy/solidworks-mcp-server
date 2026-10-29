@@ -12,6 +12,28 @@ import pytest
 import solidworks_mcp_server as server
 
 
+def test_document_identity_survives_save_as_and_retires_after_closure(monkeypatch):
+    first = SimpleNamespace(_oleobj_=object(), GetTitle="Part1", GetPathName="", GetType=1)
+    second = SimpleNamespace(_oleobj_=object(), GetTitle="Part2", GetPathName="", GetType=1, GetNext=None)
+    first.GetNext = second
+    app = SimpleNamespace(ActiveDoc=first, RevisionNumber="33.3.0", GetFirstDocument=first)
+    monkeypatch.setattr(server, "_app", lambda: app)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    monkeypatch.setattr(server, "_document_ids", [], raising=False)
+    connected = json.loads(server.connect_solidworks())
+    first.GetTitle = "Flange.SLDPRT"
+    first.GetPathName = "C:/Documents/Flange.SLDPRT"
+    listed = json.loads(server.list_open_documents())["documents"]
+    assert connected.get("document_id")
+    assert listed[0]["document_id"] == connected["document_id"]
+    assert listed[1]["document_id"] != connected["document_id"]
+    app.GetFirstDocument = second
+    server.list_open_documents()
+    app.GetFirstDocument = first
+    reopened = json.loads(server.list_open_documents())["documents"]
+    assert reopened[0]["document_id"] != connected["document_id"]
+
+
 @pytest.mark.parametrize("status,success", [(1, True), (0, False), (4, False)])
 def test_native_mate_rejects_error_status_even_if_api_returns_an_object(monkeypatch, status, success):
     calls = []

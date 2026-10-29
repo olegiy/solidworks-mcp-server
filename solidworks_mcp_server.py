@@ -145,6 +145,7 @@ _pending = {"fut": None, "started": 0.0, "what": ""}
 _poisoned = False
 _submit_lock = threading.Lock()
 _python_sessions = {}  # Accessed and released only on the STA worker.
+_document_ids = []  # COM identities and opaque IDs, accessed only on the STA worker.
 _api_index = None
 
 # Сколько ждать ответа SolidWorks. Мост Claude обрывает вызов на 60 с, поэтому
@@ -490,6 +491,16 @@ _log_write({"t": round(_time.time(), 3),
 
 # ============================= ПОДКЛЮЧЕНИЕ =================================
 
+def _document_identity(document):
+    identity = getattr(document, "_oleobj_", document)
+    for known, identifier in _document_ids:
+        if known == identity:
+            return identifier
+    identifier = uuid4().hex
+    _document_ids.append((identity, identifier))
+    return identifier
+
+
 @mcp.tool()
 def connect_solidworks() -> str:
     """Подключиться к запущенному SolidWorks и вернуть информацию о нём."""
@@ -500,7 +511,8 @@ def connect_solidworks() -> str:
         active = _get(model, "GetTitle") if model is not None else None
         return _ok(revision=str(ver),
                    hint="Revision 31=SW2023, 32=SW2024, 33=SW2025",
-                   active_document=active)
+                   active_document=active,
+                   document_id=_document_identity(model) if model is not None else None)
     return _run(job)
 
 
@@ -513,8 +525,12 @@ def list_open_documents() -> str:
         d = _get(app, "GetFirstDocument")
         while d is not None:
             docs.append({"title": _get(d, "GetTitle"), "path": _get(d, "GetPathName"),
+                         "document_id": _document_identity(d),
                          "type": {1: "part", 2: "assembly", 3: "drawing"}.get(_get(d, "GetType"), "?")})
             d = _get(d, "GetNext")
+        live_ids = {document["document_id"] for document in docs}
+        _document_ids[:] = [(identity, identifier) for identity, identifier in _document_ids
+                            if identifier in live_ids]
         return _ok(documents=docs)
     return _run(job)
 

@@ -568,12 +568,19 @@ class Agent:
             previous = self._documents.get(session_id, {})
             self._documents[session_id] = (previous if previous.get("title") == title
                                            else {"title": title, "path": ""})
+            if value.get("document_id"):
+                self._documents[session_id]["document_id"] = value["document_id"]
         elif name == "list_open_documents":
             bound = self._documents.get(session_id)
             if bound:
                 documents = value.get("documents")
                 for document in documents if isinstance(documents, list) else []:
-                    if isinstance(document, dict) and document.get("title") == bound.get("title"):
+                    if not isinstance(document, dict):
+                        continue
+                    same = (document.get("document_id") == bound["document_id"]
+                            if bound.get("document_id") and document.get("document_id") else
+                            document.get("title") == bound.get("title"))
+                    if same:
                         self._documents[session_id] = dict(document)
                         break
         elif name in {"create_part", "create_assembly", "open_document", "save_document"}:
@@ -626,11 +633,16 @@ class Agent:
             def matches(document):
                 if not isinstance(document, dict):
                     return False
+                if (session_id not in self._restored_documents and bound.get("document_id")
+                        and document.get("document_id")):
+                    return bound["document_id"] == document["document_id"]
                 if bound.get("path") and document.get("path"):
                     return str(bound["path"]).replace("/", "\\").casefold() == str(
                         document["path"]).replace("/", "\\").casefold()
                 return bound.get("title") == document.get("title")
             if any(matches(document) for document in result["documents"]):
+                matched = next(document for document in result["documents"] if matches(document))
+                self._documents[session_id] = dict(matched)
                 self._restored_documents.discard(session_id)
                 self._observe_document(session_id, "list_open_documents", result)
                 return {"closed": False}
