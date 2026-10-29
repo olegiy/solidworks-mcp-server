@@ -98,6 +98,14 @@ export interface Run {
   repair_attempts?: number; repairing?: boolean; evaluation?: GoalOptions | null;
   goal?: GoalState | null;
   metrics?: Record<string, number | null>;
+  construction_plan?: ConstructionStage[];
+  construction_plan_history?: Record<string, unknown>[];
+}
+export interface ConstructionStage {
+  id: string; title: string; expected_result: string;
+  status: 'pending' | 'running' | 'done' | 'error' | 'stopped';
+  tool_call_ids: string[];
+  checks: { passed: boolean; expected: Record<string, unknown>; observed: unknown }[];
 }
 export const terminal = (status: string) =>
   ['completed', 'stopped', 'failed', 'uncertain', 'limit_reached', 'rejected'].includes(status);

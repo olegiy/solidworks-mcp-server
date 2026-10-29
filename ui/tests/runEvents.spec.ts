@@ -76,3 +76,14 @@ test('goal events publish frozen requirements and evaluations before completion'
   expect(evaluated.goal?.evaluations[0].per_requirement[0].status).toBe('fail');
   expect(evaluated.goal?.last_score).toBe(0);
 });
+
+test('construction updates retain checks, replay once, and preserve the previous plan', () => {
+  const stages = [{ id: 'profile', title: 'Профиль', expected_result: '80 мм', status: 'done',
+    tool_call_ids: ['py'], checks: [{ passed: true, expected: { kind: 'dimension' }, observed: [] }] }];
+  const event = { seq: 2, type: 'construction_plan', data: { stages, history: [{ revision: 1 }] } };
+  const next = applyRunEvent(run, event);
+  expect(next.construction_plan).toEqual(stages);
+  expect(next.construction_plan_history).toEqual([{ revision: 1 }]);
+  expect(applyRunEvent(next, event)).toBe(next);
+  expect(run.construction_plan).toBeUndefined();
+});

@@ -91,7 +91,7 @@ class SolidWorksMcp:
                 return deepcopy(tools)
 
     async def call(self, name: str, arguments: dict) -> dict:
-        if self.uncertain:
+        if self.uncertain and name != "close_python_session":
             return {"ok": False, "value": None, "images": [], "uncertain": True,
                     "error": t("Результат предыдущей операции неизвестен. Проверьте SolidWorks.",
                                "The previous operation outcome is unknown. Check SolidWorks.")}

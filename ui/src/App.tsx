@@ -9,6 +9,7 @@ import MessageContent, { CopyButton } from './MessageContent';
 import Icon from './Icon';
 import ActivityIndicator from './ActivityIndicator';
 import GoalEvaluationCard from './GoalEvaluation';
+import ConstructionPlan from './ConstructionPlan';
 import { applyRunEvent } from './runEvents';
 import type { PendingActivity, RunContact } from './ActivityIndicator';
 import { useI18n } from './i18n';
@@ -408,6 +409,7 @@ function RunView({ run }: { run: Run }) {
     </div>
     {run.status === 'stopping' ? <p className="hint">{t('stopHint')}</p> : null}
     {run.status === 'uncertain' ? <p className="error">{t('uncertainHint')}</p> : null}
+    <ConstructionPlan run={run} />
     <OperationLog events={run.events} />
   </article>;
 }

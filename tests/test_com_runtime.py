@@ -12,6 +12,23 @@ import pytest
 import solidworks_mcp_server as server
 
 
+@pytest.mark.parametrize("status,success", [(1, True), (0, False), (4, False)])
+def test_native_mate_rejects_error_status_even_if_api_returns_an_object(monkeypatch, status, success):
+    calls = []
+
+    def add(*args):
+        calls.append(args)
+        args[-1].value = status
+        return SimpleNamespace(Name="Concentric")
+
+    monkeypatch.setattr(server, "_model", lambda kind: SimpleNamespace(AddMate5=add, EditRebuild3=True))
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    monkeypatch.setattr(server, "_byref_i4", lambda value=-1: SimpleNamespace(value=value))
+    result = json.loads(server.add_mate("concentric"))
+    assert (result["status"] == "ok") is success
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize("statement", [
     "model.Extension.SelectByID2('Front Plane', 'PLANE', 0., 0., 0., False, 0, None, 0)",
     "model.Extension.SelectByID2(Callout=None)",
@@ -203,7 +220,7 @@ def test_timeout_blocks_followup_even_after_call_finishes(monkeypatch):
 
 
 def test_angular_dimension_conversion(monkeypatch):
-    dimension = SimpleNamespace(SystemValue=math.pi / 2, GetType=3)
+    dimension = SimpleNamespace(SystemValue=math.pi / 2, GetType=1)
     model = SimpleNamespace(Parameter=lambda name: dimension, EditRebuild3=True)
     monkeypatch.setattr(server, "_model", lambda *args: model)
     monkeypatch.setattr(server, "com_call", lambda job: job())

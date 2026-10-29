@@ -1,4 +1,4 @@
-import type { GoalContract, GoalEvaluation, Run, RunEvent } from './api';
+import type { ConstructionStage, GoalContract, GoalEvaluation, Run, RunEvent } from './api';
 
 export function applyRunEvent(run: Run, event: RunEvent): Run {
   const last = run.events.at(-1)?.seq ?? 0;
@@ -83,6 +83,10 @@ export function applyRunEvent(run: Run, event: RunEvent): Run {
       };
     }
     next.goal = goal;
+  }
+  if (event.type === 'construction_plan') {
+    next.construction_plan = event.data.stages as ConstructionStage[];
+    next.construction_plan_history = event.data.history as Record<string, unknown>[];
   }
   return next;
 }

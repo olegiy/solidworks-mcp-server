@@ -14,7 +14,7 @@ from PIL import Image
 
 from cadnext.provider import Provider
 from cadnext.settings import SettingsStore
-from tests.fake_mcp import CATALOG, ok
+from tests.fake_mcp import CATALOG, ok, tool
 from tests.test_settings import MemorySecrets
 
 _PNG_BUFFER = io.BytesIO()
@@ -49,7 +49,9 @@ class Backend:
             self.mcp_closed = True
 
     async def tools(self):
-        return CATALOG
+        return [*CATALOG, tool("inspect_cad", {
+            "sections": {"type": "array", "items": {"type": "string"}},
+            "dimension_names": {"type": "array", "items": {"type": "string"}}}, ["sections"])]
 
     async def call(self, name, arguments):
         self.calls.append((name, arguments))
@@ -79,6 +81,9 @@ class Backend:
         if name == "set_dimension":
             self.dimensions[arguments["name"]] = arguments["value_mm"]
             return ok({"name": arguments["name"], "unit": "mm"})
+        if name == "inspect_cad":
+            return ok({"dimensions": [{"name": "Length@Profile", "value": 80,
+                                       "unit": "mm", "driving": True}]})
         return ok({"name": arguments.get("name"), "value": 62, "value_mm": 62, "unit": "mm"})
 
     def tool_response(self, name, arguments, *, extra=None):
@@ -109,6 +114,25 @@ class Backend:
             tool_names = {item.get("function", {}).get("name")
                           for item in payload.get("tools", [])}
             latest = messages[-1]
+            if any(message.get("content") == "stage-demo" for message in messages):
+                completed = [message for message in messages if message["role"] == "tool"]
+                sequence = [
+                    ("set_construction_plan", {"stages": [
+                        {"id": "profile", "title": "Профиль втулки", "expected_result": "Длина 80 мм"},
+                        {"id": "body", "title": "Вращение", "expected_result": "Одно тело"}]}),
+                    ("execute_python", {"code": "result = 80", "stage_id": "profile", "checks": [
+                        {"kind": "dimension", "name": "Length@Profile", "value": 80, "unit": "mm"}]}),
+                    ("execute_python", {"code": "result = 'body'", "stage_id": "body"}),
+                ]
+                if len(completed) < len(sequence):
+                    name, arguments = sequence[len(completed)]
+                    response = {"role": "assistant", "content": None, "tool_calls": [{
+                        "id": f"stage_{len(completed)}", "type": "function", "function": {
+                            "name": name, "arguments": json.dumps(arguments)}}]}
+                else:
+                    response = {"role": "assistant", "content": "Заданные свойства проверены."}
+                return httpx.Response(200, json={"choices": [{"message": response,
+                    "finish_reason": "tool_calls" if response.get("tool_calls") else "stop"}]})
             calls_by_id = {}
             for message in messages:
                 for item in message.get("tool_calls", []):
