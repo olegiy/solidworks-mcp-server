@@ -1222,7 +1222,9 @@ def execute_python(code: str, session_id: str | None = None) -> str:
     GetBodyBox возвращает приблизительный bbox в метрах: не используй его
     как точное доказательство размеров/геометрии. GetStartPoint2/GetEndPoint2
     возвращают ISketchPoint: читай X/Y/Z, не перебирай объект как массив.
-    Имя эскиза бери у feature.Name, не у sketch.GetName(). Координаты точек
+    У ISketch нет GetFeature и GetName. Элемент эскиза (IFeature) найди в дереве
+    через FirstFeature/GetNextFeature по прочитанному имени; GetSpecificFeature2
+    этого элемента возвращает ISketch. Имя бери у feature.Name. Координаты точек
     эскиза локальные; для совмещения с bbox в системе модели нужно преобразование.
     Пример только чтения (имя нужного эскиза укажи явно):
     ```python

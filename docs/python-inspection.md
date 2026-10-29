@@ -12,6 +12,9 @@
 В этом же фрагменте были ещё две ошибки: `GetStartPoint2`/`GetEndPoint2` возвращают
 объекты `ISketchPoint`, поэтому координаты читаются через `X`, `Y`, `Z`; имя эскиза
 читается у `feature.Name`, а не у `sketch.GetName()`.
+У `ISketch` также нет `GetFeature`: найди `IFeature` нужного эскиза обходом
+`FirstFeature`/`GetNextFeature` по заранее прочитанному имени, затем получи
+`ISketch` через `GetSpecificFeature2`. Создавать ещё один эскиз для этого не нужно.
 
 В `execute_python` уже доступен `GET(obj, name, *args)`: он учитывает, что pywin32
 может представить COM-метод как свойство. Минимальные исправления:
