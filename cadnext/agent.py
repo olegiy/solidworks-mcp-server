@@ -77,6 +77,7 @@ _SYSTEM_RU = (
     "размер текстом и не заявляй процент сходства без метода сравнения. "
     "Перед построением задай set_construction_plan: короткие этапы с постоянными ID и "
     "ожидаемым результатом. Один execute_python выполняет один этап; укажи stage_id. "
+    "Python без stage_id получает отдельный служебный этап и не завершает этапы плана. "
     "Готовые инструменты изменения, например create_part, получают отдельные служебные этапы "
     "и не завершают запланированный этап Python; их ID возвращается в construction_stage. "
     "Служебные этапы приложение сохраняет само: при изменении плана их можно не перечислять. "
@@ -131,7 +132,8 @@ _SYSTEM_EN = (
     "entity references, and each view's scale; never replace an incorrect dimension with "
     "text or claim a similarity percentage without a comparison method. "
     "Before construction use set_construction_plan with stable stage IDs and expected results. "
-    "One execute_python completes one stage; supply stage_id. Only pending stages may change. "
+    "One execute_python completes one stage; supply stage_id. Python without stage_id gets "
+    "a separate application-owned stage and does not complete planned stages. Only pending stages may change. "
     "Native mutations such as create_part get separate application stages; they do not consume "
     "a planned Python stage. Their IDs are returned in construction_stage. "
     "The application retains its own stages automatically; you may omit them when revising the plan. "
@@ -1511,8 +1513,7 @@ class Agent:
         supplemental_python = (name == "execute_python" and repair_stage is not None
                                and not repair_stage.get("application_owned")
                                and arguments.get("stage_id") != repair_stage["id"])
-        stage = self._begin_stage(run, call_id, name, arguments,
-                                  use_pending=not supplemental_python) if mutating else None
+        stage = self._begin_stage(run, call_id, name, arguments) if mutating else None
         if mutating:
             if run.goal is not None and run.goal.get("contract") is not None:
                 run.goal["revision"] = int(run.goal["revision"]) + 1
@@ -1591,15 +1592,13 @@ class Agent:
         run._emit("construction_plan", stages=run.construction_plan,
                   history=run.construction_plan_history)
 
-    def _begin_stage(self, run, call_id, name, arguments, *, use_pending=True):
+    def _begin_stage(self, run, call_id, name, arguments):
         requested = arguments.get("stage_id")
         stage = next((stage for stage in run.construction_plan if stage["id"] == requested), None)
         if requested and (stage is None or (stage["status"] != "pending" and
                 not (stage["status"] == "error" and run.repairing))):
             raise _EndRun("failed", t("Этап отсутствует или уже завершён.",
                                       "The stage is missing or already finished."))
-        if stage is None and name == "execute_python" and use_pending:
-            stage = next((stage for stage in run.construction_plan if stage["status"] == "pending"), None)
         if stage is None:
             if len(run.construction_plan) >= 32:
                 raise _EndRun("failed", t("Достигнут лимит этапов.", "The stage limit was reached."))

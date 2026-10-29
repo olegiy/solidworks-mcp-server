@@ -67,7 +67,8 @@ def model_tools(tools):
     tools.append({"type": "function", "function": {
         "name": "set_construction_plan",
         "description": "Задать этапы до построения. Изменять можно только ещё не начатые этапы. "
-                       "Один execute_python завершает этап; для продолжения добавь следующий этап.",
+                       "Один execute_python с stage_id завершает этот этап; для продолжения добавь следующий. "
+                       "Python без stage_id получает служебный этап и не завершает этапы плана.",
         "parameters": PLAN_SCHEMA}})
     return tools
 

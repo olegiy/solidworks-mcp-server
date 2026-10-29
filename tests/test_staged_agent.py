@@ -230,6 +230,34 @@ STAGES = [{"id": "profile", "title": "Профиль", "expected_result": "Дл�
 CHECKS = [{"kind": "dimension", "name": "Length@Profile", "value": 80, "unit": "mm"}]
 
 
+async def test_supplemental_python_does_not_complete_a_pending_construction_stage():
+    observed = []
+
+    def build_profile(messages):
+        observed.append(deepcopy(run.construction_plan))
+        return reply(("profile", "execute_python", {"code": "build_profile()", "stage_id": "profile"}))
+
+    provider = ScriptedProvider([
+        reply(("plan", "set_construction_plan", {"stages": STAGES})),
+        reply(("diagnostics", "execute_python", {"code": "result = read_existing_profile()"})),
+        build_profile,
+        reply(("body", "execute_python", {"code": "build_body()", "stage_id": "body"})),
+        reply(content="Готово")])
+    mcp = staged_mcp([("execute_python", ok({})) for _ in range(3)])
+    agent = trusted_agent(mcp, provider)
+    run = agent.start(session_id="s", provider=provider, message="Продолжи деталь")
+    await settle(agent, run)
+    assert run.status == "completed"
+    assert [stage["status"] for stage in observed[0][:2]] == ["pending", "pending"]
+    diagnostic_stage = observed[0][-1]
+    assert diagnostic_stage["application_owned"] is True
+    assert diagnostic_stage["status"] == "done"
+    assert diagnostic_stage["tool_call_ids"] == ["diagnostics"]
+    assert run.construction_plan[0]["tool_call_ids"] == ["profile"]
+    assert run.construction_plan[1]["tool_call_ids"] == ["body"]
+    assert len(mcp.calls) == 3
+
+
 @pytest.mark.parametrize("failures", [1, 2])
 async def test_python_diagnostics_preserve_failed_stage_and_repair_until_explicit_continuation(failures):
     from tests.test_python_repair import cad_error
