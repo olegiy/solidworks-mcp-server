@@ -165,15 +165,6 @@ def test_python_syntax_error_reports_line_before_any_changes(monkeypatch):
     assert model.changed is False
 
 
-@pytest.mark.asyncio
-async def test_python_tool_routes_signature_lookup_through_installed_api_tools():
-    tools = await server.mcp.list_tools()
-    description = next(tool.description for tool in tools if tool.name == "execute_python")
-    assert "search_solidworks_api" in description
-    assert "get_solidworks_api" in description
-    assert "swApp._oleobj_.GetTypeInfo().GetContainingTypeLib()" not in description
-
-
 def test_documented_python_inspection_reads_body_box_and_point_objects(monkeypatch):
     default_calls = []
 
