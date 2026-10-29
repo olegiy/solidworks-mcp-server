@@ -134,7 +134,14 @@ def validate_saved_plan(stages, history):
                 if (not isinstance(check, dict) or type(check.get("passed")) is not bool
                         or not isinstance(check.get("observed"), list)):
                     raise ValueError("Некорректные доказательства этапа.")
-                inspection_request([check.get("expected")])
+                expected = check.get("expected")
+                # Earlier versions accepted Toolbox's GOST hole ID for threads.
+                # Keep that historical evidence readable, without allowing it
+                # in new checks or rewriting the archived expectation.
+                if (isinstance(expected, dict) and expected.get("kind") == "cosmetic_thread"
+                        and type(expected.get("standard")) is int and expected["standard"] == 20):
+                    expected = {**expected, "standard": -2}
+                inspection_request([expected])
             clean.append({key: stage.get(key) for key in ("id", "title", "expected_result")})
         if clean:
             set_plan([], clean)

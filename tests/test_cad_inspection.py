@@ -96,6 +96,22 @@ def test_unknown_observed_cosmetic_standard_cannot_pass_without_standard_expecta
     assert not construction.evaluate_checks([check], {"cosmetic_threads": [item]})[0]["passed"]
 
 
+@pytest.mark.parametrize("in_history", [False, True])
+def test_saved_legacy_thread_checks_remain_readable_without_allowing_new_checks(in_history):
+    expected = {"kind": "cosmetic_thread", "name": "Thread", "diameter_mm": 24.,
+                "diameter_type": 2, "end_condition": 0, "standard": 20}
+    stage = {"id": "thread", "title": "Thread", "expected_result": "Thread exists",
+             "status": "done", "tool_call_ids": ["old_call"],
+             "checks": [{"expected": expected, "observed": [], "passed": False}]}
+    stages = [] if in_history else [stage]
+    history = [{"revision": 1, "stages": [stage]}] if in_history else []
+    restored = construction.validate_saved_plan(stages, history)
+    assert restored == (stages, history)
+    assert expected["standard"] == 20
+    with pytest.raises(ValueError):
+        construction.inspection_request([expected])
+
+
 @pytest.mark.parametrize("api_type,legacy_type,expected", [
     ("ICE", "Cut", "Cut"), ("ICE", "Boss", "Boss"),
     ("Revolution", "legacy-value", "Revolution"),
