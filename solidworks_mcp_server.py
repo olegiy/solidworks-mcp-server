@@ -1189,10 +1189,10 @@ def execute_python(code: str, session_id: str | None = None) -> str:
     только приложение; не передавай его самостоятельно. Новый Run — новое окружение.
     Не рассчитывай на requests: для HTTP доступна стандартная urllib.request
     с явным коротким timeout; предпочитай локальную библиотеку типов без сети.
-    Получить её без угадывания версии/GUID можно так:
-    tl = swApp._oleobj_.GetTypeInfo().GetContainingTypeLib()[0]
-    Через tl.GetTypeInfoCount(), GetTypeInfo(i), GetDocumentation(i),
-    ti.GetFuncDesc(j), ti.GetNames(desc.memid) проверь имена/аргументы до мутации.
+    До мутации проверь имена, аргументы и enum через search_solidworks_api /
+    get_solidworks_api: они читают библиотеку установленной версии без угадывания GUID.
+    Получение содержащей библиотеки через GetTypeInfo у активного COM-объекта
+    может вернуть «Элемент не найден»; не используй его как обязательный шаг подготовки.
     У IExtrudeFeatureData2: GetDepth(True), GetDraftAngle(True) (радианы),
     GetDraftWhileExtruding(True), а не свойства DraftAngle/DraftWhileExtruding.
     В SelectByID2 восьмой аргумент Callout — NOTHING, не None, например:
