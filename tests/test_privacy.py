@@ -134,6 +134,23 @@ def test_sentence_period_after_cad_path_does_not_enter_tool_argument(path):
     assert ctx.restore(filtered) == prose
 
 
+@pytest.mark.parametrize("path", [
+    r"C:\Client Projects\version.2\part.SLDPRT",
+    r"\\server\Client Projects\part.sldprt",
+    "C:/Client Projects/part.sldprt",
+])
+def test_cad_path_boundary_precedes_decimal_measurements_in_following_prose(path):
+    from cadnext.privacy import PrivacyContext
+
+    ctx = PrivacyContext(local=False, consent=True)
+    prose = f"Открой {path}. SHA256 abc123. Объём 478388.5960025985. Проверь."
+    filtered = ctx.outgoing(prose)
+    token = filtered.split()[1].removesuffix(".")
+    assert ctx.restore({"path": token}) == {"path": path}
+    assert "Объём 478388.5960025985" in filtered
+    assert ctx.restore(filtered) == prose
+
+
 @pytest.mark.parametrize('path', [
     r'C:\Client Projects\SecretCustomer\prototype.sldprt',
     r'\\server\Client Projects\SecretCustomer\prototype.sldprt',
