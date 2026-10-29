@@ -28,6 +28,13 @@ CHECKS_SCHEMA = {"type": "array", "minItems": 0, "maxItems": 32, "items": {"oneO
     _check_schema("body_count", {"expected": {"type": "integer", "minimum": 0}}, ["expected"]),
     _check_schema("dimension", {"name": _TEXT, "value": _NUMBER,
                                 "unit": {"enum": ["mm", "deg"]}}, ["name", "value", "unit"]),
+    _check_schema("cosmetic_thread", {"name": _TEXT,
+        "diameter_mm": {"type": "number", "exclusiveMinimum": 0},
+        "diameter_type": {"enum": [1, 2, 3]},
+        "end_condition": {"enum": [0, 1, 2]},
+        "blind_depth_mm": {"type": "number", "exclusiveMinimum": 0},
+        "standard": {"type": "integer"}, "standard_type": _TEXT, "size": _TEXT},
+        ["name", "diameter_mm", "diameter_type", "end_condition"]),
     _check_schema("sheet_metal", {"thickness_mm": {"type": "number", "exclusiveMinimum": 0},
                                   "bend_radius_mm": {"type": "number", "minimum": 0}},
                   ["thickness_mm", "bend_radius_mm"]),
@@ -46,7 +53,7 @@ CHECKS_SCHEMA = {"type": "array", "minItems": 0, "maxItems": 32, "items": {"oneO
 ]}}
 _SECTIONS = {"feature": "features", "body_count": "bodies", "dimension": "dimensions",
              "sheet_metal": "sheet_metal", "cylinder": "surfaces",
-             "component": "components", "mate": "mates"}
+             "component": "components", "mate": "mates", "cosmetic_thread": "cosmetic_threads"}
 
 
 def model_tools(tools):
@@ -204,6 +211,13 @@ def evaluate_checks(checks, data):
                 passed = any(item["name"] == check["name"] and item.get("driving") is True and
                     item["unit"] == check["unit"] and _near(item["value"], check["value"],
                         .01 if check["unit"] == "deg" else .001) for item in observed)
+            elif kind == "cosmetic_thread":
+                passed = any(item.get("type") == "CosmeticThread" and
+                    item.get("suppressed") is False and item.get("error_code") == 0 and
+                    item.get("warning") is False and
+                    all(_near(item.get(key), value) if key in {"diameter_mm", "blind_depth_mm"}
+                        else item.get(key) == value
+                        for key, value in check.items() if key != "kind") for item in observed)
             elif kind == "sheet_metal":
                 passed = any(all(_near(item.get(key), check[key])
                                 for key in ("thickness_mm", "bend_radius_mm")) for item in observed)

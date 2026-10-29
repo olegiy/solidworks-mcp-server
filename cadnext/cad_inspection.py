@@ -2,7 +2,8 @@
 
 import math
 
-SECTIONS = {"features", "dimensions", "bodies", "sheet_metal", "surfaces", "components", "mates"}
+SECTIONS = {"features", "dimensions", "bodies", "sheet_metal", "surfaces", "components", "mates",
+            "cosmetic_threads"}
 LIMIT = 1000
 
 
@@ -44,7 +45,7 @@ def inspect_model(model, sections, dimension_names, get):
         raise ValueError("Некорректные разделы инспекции.")
     kind = int(get(model, "GetType"))
     result = {"document": get(model, "GetTitle"), "document_type": kind, "truncated": False}
-    if set(sections) & {"features", "sheet_metal", "mates"} or (
+    if set(sections) & {"features", "sheet_metal", "mates", "cosmetic_threads"} or (
             "dimensions" in sections and not dimension_names):
         features = list(_features(model, get, result))
     else:
@@ -52,6 +53,31 @@ def inspect_model(model, sections, dimension_names, get):
     if "features" in sections:
         result["features"] = [{"name": get(f, "Name"), "type": get_feature_type(f, get)}
                               for f in features]
+    if "cosmetic_threads" in sections:
+        import pythoncom
+        from win32com.client import VARIANT
+
+        result["cosmetic_threads"] = []
+        for feature in features:
+            if get(feature, "GetTypeName2") != "CosmeticThread":
+                continue
+            definition = get(feature, "GetDefinition")
+            warning = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_BOOL, False)
+            error = feature.GetErrorCode2(warning)
+            result["cosmetic_threads"].append({
+                "name": get(feature, "Name"), "type": "CosmeticThread",
+                "standard": get(definition, "Standard"),
+                "standard_type": get(definition, "StandardType"),
+                "size": get(definition, "Size"),
+                "diameter_mm": get(definition, "Diameter")*1000,
+                "diameter_type": get(definition, "DiameterType"),
+                "blind_depth_mm": get(definition, "BlindDepth")*1000,
+                "end_condition": get(definition, "EndCondition"),
+                "apply_thread": get(definition, "ApplyThread"),
+                "callout": get(definition, "ThreadCallout"),
+                "suppressed": bool(get(feature, "IsSuppressed")),
+                "error_code": error[0] if isinstance(error, tuple | list) else error,
+                "warning": bool(error[1]) if isinstance(error, tuple | list) else bool(warning.value)})
     if "dimensions" in sections:
         dimensions = {}
         if dimension_names:

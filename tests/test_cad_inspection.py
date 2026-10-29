@@ -35,6 +35,51 @@ def test_cyclic_sibling_chain_is_bounded_and_cannot_pass_checks():
     assert not construction.evaluate_checks([{"kind": "feature", "name": "Boss"}], data)[0]["passed"]
 
 
+def test_cosmetic_thread_inspection_reads_definition_not_feature_name():
+    definition = NS(Standard=20, StandardType="Machine Threads", Size="M24",
+                    Diameter=.024, DiameterType=2, BlindDepth=.044, EndCondition=0,
+                    ApplyThread=0, ThreadCallout="custom note")
+    thread = NS(Name="Actual thread", GetTypeName2="CosmeticThread", GetNextFeature=None,
+                GetDefinition=definition, IsSuppressed=False, GetErrorCode2=lambda warning: 0)
+    cylinder = NS(Name="M24x3 thread", GetTypeName2="Revolution", GetNextFeature=thread)
+    model = NS(GetTitle="Part", GetType=1, FirstFeature=cylinder)
+    data = inspection.inspect_model(model, ["cosmetic_threads"], [], get)
+    assert data["cosmetic_threads"] == [{
+        "name": "Actual thread", "type": "CosmeticThread", "standard": 20,
+        "standard_type": "Machine Threads", "size": "M24", "diameter_mm": 24.,
+        "diameter_type": 2, "blind_depth_mm": 44., "end_condition": 0,
+        "apply_thread": 0, "callout": "custom note", "suppressed": False,
+        "error_code": 0, "warning": False}]
+
+
+def test_cosmetic_thread_checks_reject_cylinder_named_as_thread():
+    check = {"kind": "cosmetic_thread", "name": "M24", "diameter_mm": 24.,
+             "diameter_type": 2, "end_condition": 0, "blind_depth_mm": 44.,
+             "size": "M24", "standard": 20}
+    assert construction.inspection_request([check]) == {
+        "sections": ["cosmetic_threads"], "dimension_names": []}
+    cylinder = NS(Name="M24", GetTypeName2="Revolution", GetNextFeature=None)
+    data = inspection.inspect_model(NS(GetTitle="Part", GetType=1, FirstFeature=cylinder),
+                                    ["cosmetic_threads"], [], get)
+    assert construction.evaluate_checks([check], data)[0]["passed"] is False
+
+
+@pytest.mark.parametrize("changed", [{}, {"diameter_mm": 24.01}, {"blind_depth_mm": 43.9},
+    {"size": ""}, {"standard": -2}, {"suppressed": True}, {"error_code": 1},
+    {"diameter_type": 3}, {"end_condition": 1}, {"warning": True}, {"type": "Revolution"}])
+def test_cosmetic_thread_checks_compare_actual_values(changed):
+    check = {"kind": "cosmetic_thread", "name": "Thread", "diameter_mm": 24.,
+             "diameter_type": 2, "end_condition": 0, "blind_depth_mm": 44.,
+             "size": "M24", "standard": 20}
+    item = {key: value for key, value in check.items() if key != "kind"}
+    item.update(type="CosmeticThread", suppressed=False, error_code=0, warning=False)
+    item.update(changed)
+    data = {"cosmetic_threads": [item]}
+    assert construction.evaluate_checks([check], data)[0]["passed"] is (not changed)
+    data["truncated"] = True
+    assert construction.evaluate_checks([check], data)[0]["passed"] is False
+
+
 @pytest.mark.parametrize("api_type,legacy_type,expected", [
     ("ICE", "Cut", "Cut"), ("ICE", "Boss", "Boss"),
     ("Revolution", "legacy-value", "Revolution"),

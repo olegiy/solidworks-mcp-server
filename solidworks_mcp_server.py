@@ -1155,7 +1155,9 @@ def get_cad_example(example_id: str) -> str:
 @mcp.tool()
 def inspect_cad(sections: list[str], dimension_names: list[str] | None = None) -> str:
     """Независимое чтение CAD. Разделы: features, dimensions, bodies, sheet_metal,
-    surfaces (цилиндры), components, mates. Размеры в мм/градусах.
+    surfaces (цилиндры), components, mates, cosmetic_threads. Размеры в мм/градусах.
+    cosmetic_threads читает реальные CosmeticThread: размеры, стандарт, типоразмер,
+    подавление, ошибки. Callout и имя не доказывают стандарт; привязка кромки здесь не читается.
     dimensions без имён перечисляет доступные размеры дерева. Bbox приблизительный.
     Инспекция не выполняет перестроение и не изменяет модель.
     """
