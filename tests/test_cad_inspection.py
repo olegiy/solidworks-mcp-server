@@ -11,6 +11,21 @@ def get(obj, name, *args):
     return value(*args) if callable(value) else value
 
 
+@pytest.mark.parametrize("api_type,legacy_type,expected", [
+    ("ICE", "Cut", "Cut"), ("ICE", "Boss", "Boss"),
+    ("Revolution", "legacy-value", "Revolution"),
+])
+def test_instant3d_feature_checks_use_underlying_type(api_type, legacy_type, expected):
+    feature = NS(Name="Feature1", GetTypeName2=api_type, GetTypeName=legacy_type,
+                 GetNextFeature=None)
+    model = NS(GetTitle="Part", GetType=1, FirstFeature=feature)
+    data = inspection.inspect_model(model, ["features"], [], get)
+    check = {"kind": "feature", "name": "Feature1", "type": expected}
+    assert construction.evaluate_checks([check], data)[0]["passed"]
+    wrong = {**check, "type": "Cut" if expected != "Cut" else "Boss"}
+    assert not construction.evaluate_checks([wrong], data)[0]["passed"]
+
+
 def test_inspection_reads_driving_dimensions_angles_and_surfaces_without_bbox_proof():
     # Values read from installed SW2025 swconst.tlb, rather than web snippets.
     dims = {"OD@Profile": NS(SystemValue=.030, GetType=0, DrivenState=2),

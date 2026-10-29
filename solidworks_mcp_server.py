@@ -78,7 +78,7 @@ from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as _FutTimeout
 
 from cadnext.python_preflight import PythonPreflightError, compile_python
-from cadnext.cad_inspection import inspect_model
+from cadnext.cad_inspection import get_feature_type, inspect_model
 from cadnext.cad_geometry import transform_point
 from cadnext import cad_reference
 
@@ -373,7 +373,7 @@ def _feature_names(model, type_filter=None, limit=200):
     out = []
     feat = _get(model, "FirstFeature")
     while feat is not None and len(out) < limit:
-        t = _get(feat, "GetTypeName2")
+        t = get_feature_type(feat, _get)
         if type_filter is None or t == type_filter:
             out.append((_get(feat, "Name"), t))
         feat = _get(feat, "GetNextFeature")

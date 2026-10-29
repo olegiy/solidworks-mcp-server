@@ -6,6 +6,12 @@ SECTIONS = {"features", "dimensions", "bodies", "sheet_metal", "surfaces", "comp
 LIMIT = 1000
 
 
+def get_feature_type(feature, get):
+    """Resolve Instant3D's generic ICE marker to the underlying feature type."""
+    kind = get(feature, "GetTypeName2")
+    return get(feature, "GetTypeName") if kind == "ICE" else kind
+
+
 def _features(model, get, result):
     visited = set()
 
@@ -39,7 +45,7 @@ def inspect_model(model, sections, dimension_names, get):
     else:
         features = []
     if "features" in sections:
-        result["features"] = [{"name": get(f, "Name"), "type": get(f, "GetTypeName2")}
+        result["features"] = [{"name": get(f, "Name"), "type": get_feature_type(f, get)}
                               for f in features]
     if "dimensions" in sections:
         dimensions = {}

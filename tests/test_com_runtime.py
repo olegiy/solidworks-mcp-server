@@ -12,6 +12,16 @@ import pytest
 import solidworks_mcp_server as server
 
 
+def test_feature_tree_resolves_instant3d_type(monkeypatch):
+    feature = SimpleNamespace(Name="Cut1", GetTypeName2="ICE", GetTypeName="Cut",
+                              GetNextFeature=None)
+    monkeypatch.setattr(server, "_model", lambda: SimpleNamespace(FirstFeature=feature))
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    data = json.loads(server.get_feature_tree())
+    assert data["features"] == [{"name": "Cut1", "type": "Cut"}]
+    assert server._feature_names(SimpleNamespace(FirstFeature=feature), "Cut") == [("Cut1", "Cut")]
+
+
 def test_document_identity_survives_save_as_and_retires_after_closure(monkeypatch):
     first = SimpleNamespace(_oleobj_=object(), GetTitle="Part1", GetPathName="", GetType=1)
     second = SimpleNamespace(_oleobj_=object(), GetTitle="Part2", GetPathName="", GetType=1, GetNext=None)
