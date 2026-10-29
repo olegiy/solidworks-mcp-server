@@ -129,7 +129,19 @@ def inspect_model(model, sections, dimension_names, get):
 
                 warning = VARIANT(pythoncom.VT_BYREF | pythoncom.VT_BOOL, False)
                 error = feature.GetErrorCode2(warning)
+                entity_data = []
+                for entity in entities:
+                    params = list(get(entity, "EntityParams") or ())
+                    entity_data.append({
+                        "reference_type": int(get(entity, "ReferenceType")),
+                        "point_mm": [v*1000 for v in params[:3]] if len(params) >= 3 else None,
+                        "direction": params[3:6] if len(params) >= 6 else None,
+                        "radii_mm": [v*1000 for v in params[6:8]],
+                    })
                 result["mates"].append({"name": get(feature, "Name"), "type": int(mate.Type),
+                    "lock_rotation": bool(get(feature, "GetDefinition").LockRotation)
+                                     if int(mate.Type) == 1 else None,
+                    "entities": entity_data,
                     "suppressed": bool(get(feature, "IsSuppressed")),
                     "alignment": int(mate.Alignment),
                     "error_code": error[0] if isinstance(error, tuple | list) else error,

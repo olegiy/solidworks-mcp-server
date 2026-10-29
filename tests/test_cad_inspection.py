@@ -31,10 +31,11 @@ def test_inspection_reads_driving_dimensions_angles_and_surfaces_without_bbox_pr
 
 def test_inspection_reads_components_and_mates_in_subfeatures():
     mate = NS(Type=1, Alignment=0, GetMateEntityCount=2,
-              MateEntity=lambda i: NS(ReferenceComponent=NS(Name2=["Bushing-1", "Shaft-1"][i])))
+              MateEntity=lambda i: NS(ReferenceComponent=NS(Name2=["Bushing-1", "Shaft-1"][i]),
+                  ReferenceType=2, EntityParams=[0, .02, 0, 0, 1, 0, .008, 0]))
     sub = NS(Name="Concentric", GetTypeName2="MateConcentric", GetSpecificFeature2=mate,
              GetFirstSubFeature=None, GetNextSubFeature=None, GetErrorCode2=lambda warning: 0,
-             IsSuppressed=False)
+             IsSuppressed=False, GetDefinition=NS(LockRotation=False))
     group = NS(Name="Mates", GetTypeName2="MateGroup", GetFirstSubFeature=sub,
                GetNextFeature=None)
     component = NS(Name2="Bushing-1", GetPathName="bushing.sldprt", IsFixed=True,
@@ -46,8 +47,16 @@ def test_inspection_reads_components_and_mates_in_subfeatures():
     assert data["components"][0]["fixed"] is True
     assert data["mates"][0]["components"] == ["Bushing-1", "Shaft-1"]
     assert data["mates"][0]["type"] == 1
+    assert data["mates"][0]["lock_rotation"] is False
+    assert data["mates"][0]["entities"][0]["point_mm"] == [0, 20, 0]
+    assert data["mates"][0]["entities"][0]["radii_mm"] == [8, 0]
     checks = [{"kind": "mate", "mate_type": 1, "components": ["Bushing-1", "Shaft-1"]}]
     assert construction.evaluate_checks(checks, data)[0]["passed"]
+    unlocked = [{**checks[0], "lock_rotation": False}]
+    assert construction.evaluate_checks(unlocked, data)[0]["passed"]
+    sub.GetDefinition.LockRotation = True
+    locked = inspection.inspect_model(model, ["mates"], [], get)
+    assert not construction.evaluate_checks(unlocked, locked)[0]["passed"]
     sub.IsSuppressed = True
     suppressed = inspection.inspect_model(model, ["mates"], [], get)
     assert not construction.evaluate_checks(checks, suppressed)[0]["passed"]

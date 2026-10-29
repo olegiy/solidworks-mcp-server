@@ -6,7 +6,6 @@ import pytest
 from cadnext.cad_geometry import transform_point
 from cadnext.cad_reference import get_example
 from scripts.staged_acceptance import (
-    DEGREES_OF_FREEDOM_CODE,
     HOLE_CODE,
     REVOLVED_PROFILE_CODE,
     DirectAcceptance,
@@ -14,26 +13,44 @@ from scripts.staged_acceptance import (
 )
 
 
-@pytest.mark.parametrize("flags,accepted", [([1, 1, 0, 0, 0, 0], True),
-                                          ([1, 1, 0, 0, 1, 1], False),
-                                          ([0, 0, 0, 0, 0, 0], False)])
-def test_acceptance_requires_only_one_axial_rotation(flags, accepted):
-    def dofs(*args):
-        for index, flag in enumerate(flags):
-            args[2*index].value = flag
-        args[3].value = NS(ArrayData=[0., 1., 0.])
-        return 0
+@pytest.mark.parametrize("defect", [None, "locked", "extra", "off_axis", "angled_end", "offset_end",
+                                    "suppressed", "fixed_shaft", "missing_entities"])
+def test_axial_joint_proof_uses_actual_constraints_and_entity_geometry(defect):
+    from copy import deepcopy
 
-    env = {"shaft": NS(GetRemainingDOFs=dofs, GetConstrainedStatus=2),
-           "byref_i4": lambda value=-1: NS(value=value),
-           "VARIANT": lambda kind, value: NS(value=value),
-           "pythoncom": NS(VT_BYREF=1, VT_DISPATCH=2), "GET": getattr}
-    if accepted:
-        exec(DEGREES_OF_FREEDOM_CODE, env)
-        assert env["result"]["flags"] == flags
+    from scripts.staged_acceptance import axial_joint_evidence
+
+    cylinder = {"reference_type": 4, "point_mm": [0, 0, 0], "direction": [0, 1, 0], "radii_mm": [8, 0]}
+    plane = {"reference_type": 3, "point_mm": [0, 0, 0], "direction": [0, -1, 0], "radii_mm": [0, 0]}
+    pair = ["bushing-1", "shaft-1"]
+    data = {"components": [{"name": pair[0], "fixed": True, "suppressed": False},
+                           {"name": pair[1], "fixed": False, "suppressed": False}],
+            "mates": [{"type": 1, "lock_rotation": False, "error_code": 0, "suppressed": False,
+                       "components": pair, "entities": [deepcopy(cylinder), deepcopy(cylinder)]},
+                      {"type": 0, "error_code": 0, "suppressed": False,
+                       "components": pair, "entities": [deepcopy(plane), deepcopy(plane)]}]}
+    if defect == "locked":
+        data["mates"][0]["lock_rotation"] = True
+    elif defect == "extra":
+        data["mates"].append(deepcopy(data["mates"][1]))
+    elif defect == "off_axis":
+        data["mates"][0]["entities"][1]["point_mm"] = [1, 0, 0]
+    elif defect == "angled_end":
+        data["mates"][1]["entities"][0]["direction"] = [1, 0, 0]
+    elif defect == "offset_end":
+        data["mates"][1]["entities"][1]["point_mm"] = [0, 1, 0]
+    elif defect == "suppressed":
+        data["mates"][0]["suppressed"] = True
+    elif defect == "fixed_shaft":
+        data["components"][1]["fixed"] = True
+    elif defect == "missing_entities":
+        data["mates"][0]["entities"] = []
+    if defect:
+        with pytest.raises(RuntimeError):
+            axial_joint_evidence(data)
     else:
-        with pytest.raises(RuntimeError, match="подвижность"):
-            exec(DEGREES_OF_FREEDOM_CODE, env)
+        assert axial_joint_evidence(data) == {"method": "analytic_cylindrical_joint",
+            "remaining_translations": 0, "remaining_rotations": 1, "axis_direction": [0, 1, 0]}
 
 
 def test_revolved_profile_handles_select_data_as_com_property():
@@ -72,6 +89,35 @@ async def test_acceptance_forwards_named_dimension_argument(tmp_path):
     assert result == {"changed": True}
 
 
+async def test_bracket_reads_profile_before_separate_sheet_metal_mutation(tmp_path):
+    snippets, inspections = [], []
+
+    class Captured(DirectAcceptance):
+        async def new_part(self):
+            pass
+
+        async def python(self, code):
+            snippets.append(code)
+            if len(snippets) == 2:
+                raise RuntimeError("captured second stage")
+
+        async def inspect(self, checks):
+            inspections.append(checks)
+
+        async def vertices(self, expected):
+            pass
+
+        async def call(self, tool, **arguments):
+            return {}
+
+    with pytest.raises(RuntimeError, match="captured second stage"):
+        await Captured(None, tmp_path).bracket()
+    assert "InsertSheetMetalBaseFlange2" not in snippets[0]
+    assert "InsertSheetMetalBaseFlange2" in snippets[1]
+    assert {"kind": "body_count", "expected": 0} in inspections[0]
+    assert {"kind": "feature", "name": "BracketProfile", "type": "ProfileFeature"} in inspections[0]
+
+
 def test_open_profile_uses_direction_one_and_explicit_bend_allowance():
     from contextlib import nullcontext
 
@@ -98,8 +144,12 @@ def test_open_profile_uses_direction_one_and_explicit_bend_allowance():
         value = getattr(obj, name)
         return value(*args) if callable(value) else value
 
-    exec(get_example("sheet-open-profile")["code"], {"model": model, "MM": lambda v: v/1000,
-         "GET": get, "NOTHING": None, "DIMENSIONS": nullcontext})
+    example = get_example("sheet-open-profile")
+    env = {"model": model, "MM": lambda v: v/1000,
+           "GET": get, "NOTHING": None, "DIMENSIONS": nullcontext}
+    exec(example["preparation_code"], env)
+    assert not calls
+    exec(example["code"], env)
     assert len(calls) == 1
     assert calls[0][0] == pytest.approx(.002)
 

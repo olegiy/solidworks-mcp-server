@@ -84,6 +84,26 @@ def test_switching_active_document_cannot_silently_redirect_session_mutations(ca
         server.close_python_session(session)
 
 
+def test_application_can_explicitly_bind_created_document_without_losing_namespace(cad):
+    app, original = cad
+    session = json.loads(server.open_python_session())["session_id"]
+    try:
+        execute("saved_part = model\nlength = 60", session)
+        assembly = SimpleNamespace(GetTitle="Assembly", changed=0)
+        app.GetDocuments, app.ActiveDoc = [original, assembly], assembly
+        result = json.loads(server.open_python_session(session_id=session, expected_document="Assembly"))
+        assert result["session_id"] == session
+        assert execute("model.changed += length\nresult = saved_part.GetTitle", session)["result"] == "'Part'"
+        assert assembly.changed == 60 and original.changed == 0
+        app.ActiveDoc = original
+        refused = json.loads(server.open_python_session(session_id=session, expected_document="Assembly"))
+        assert refused["status"] == "error"
+        assert execute("model.changed += 1", session)["status"] == "error"
+        assert original.changed == 0
+    finally:
+        server.close_python_session(session)
+
+
 def test_session_cleanup_waits_for_timed_out_worker_and_runs_on_same_thread(monkeypatch):
     executor = ThreadPoolExecutor(max_workers=1)
     gate = threading.Event()

@@ -39,6 +39,7 @@ CHECKS_SCHEMA = {"type": "array", "minItems": 0, "maxItems": 32, "items": {"oneO
                                 "rotation": {"type": "array", "items": _NUMBER,
                                              "minItems": 9, "maxItems": 9}}, ["name"]),
     _check_schema("mate", {"name": _TEXT, "mate_type": {"type": "integer", "minimum": 0},
+                           "lock_rotation": {"type": "boolean"},
                            "components": {"type": "array", "items": _TEXT,
                                           "minItems": 2, "maxItems": 4}}, ["mate_type"]),
 ]}}
@@ -70,6 +71,15 @@ def set_plan(current, stages):
         raise ValueError("Некорректный план построения.")
     if len({stage["id"] for stage in stages}) != len(stages):
         raise ValueError("ID этапов должны быть уникальны.")
+    automatic = {stage["id"]: stage for stage in current if stage.get("application_owned") is True}
+    for stage in stages:
+        if stage["id"] in automatic and any(stage[key] != automatic[stage["id"]][key]
+                                           for key in ("id", "title", "expected_result")):
+            raise ValueError("Служебный этап нельзя менять.")
+    stages = [stage for stage in stages if stage["id"] not in automatic]
+    current = [stage for stage in current if stage["id"] not in automatic]
+    if len(stages) + len(automatic) > 32:
+        raise ValueError("Достигнут лимит этапов.")
     previous = {stage["id"]: stage for stage in current}
     for index, stage in enumerate(current):
         if stage["status"] != "pending":
@@ -78,7 +88,8 @@ def set_plan(current, stages):
                 raise ValueError("Начатый этап нельзя менять, удалять или переставлять.")
     return [deepcopy(previous[stage["id"]]) if stage["id"] in previous and
             previous[stage["id"]]["status"] != "pending" else
-            {**stage, "status": "pending", "checks": [], "tool_call_ids": []} for stage in stages]
+            {**stage, "status": "pending", "checks": [], "tool_call_ids": []} for stage in stages
+            ] + deepcopy(list(automatic.values()))
 
 
 def validate_saved_plan(stages, history):
@@ -95,6 +106,7 @@ def validate_saved_plan(stages, history):
             allowed = {"done", "error", "stopped"} if finished else {
                 "pending", "running", "done", "error", "stopped"}
             if (not isinstance(stage.get("status"), str) or stage["status"] not in allowed
+                    or type(stage.get("application_owned", False)) is not bool
                     or not isinstance(stage.get("checks"), list)
                     or len(stage["checks"]) > 32
                     or not isinstance(stage.get("tool_call_ids"), list)
@@ -199,6 +211,7 @@ def evaluate_checks(checks, data):
             elif kind == "mate":
                 passed = any(item["type"] == check["mate_type"] and item.get("error_code") == 0 and
                     item.get("suppressed") is False and
+                    ("lock_rotation" not in check or item.get("lock_rotation") is check["lock_rotation"]) and
                     ("name" not in check or item["name"] == check["name"]) and
                     ("components" not in check or sorted(item["components"]) == sorted(check["components"]))
                     for item in observed)

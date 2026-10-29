@@ -1042,12 +1042,22 @@ def add_mate(mate_type: str = "coincident", alignment: str = "closest",
 # ========================== АВАРИЙНЫЙ ЛЮК ==================================
 
 @mcp.tool()
-def open_python_session() -> str:
-    """Application-owned environment; not offered to the language model."""
+def open_python_session(session_id: str | None = None, expected_document: str | None = None) -> str:
+    """Create an environment or explicitly bind an application-verified new document."""
     def job():
-        session_id = uuid4().hex
-        _python_sessions[session_id] = {"env": {}, "document": None}
-        return _ok(session_id=session_id)
+        if session_id is not None:
+            state = _python_sessions[session_id]
+            model = _model()
+            if not expected_document or _get(model, "GetTitle") != expected_document:
+                raise RuntimeError("Активный документ отличается от созданного приложением; подмена запрещена.")
+            state["document"] = model
+            state["env"]["model"] = model
+            return _ok(session_id=session_id)
+        if expected_document is not None:
+            raise ValueError("Привязка документа требует существующее окружение.")
+        created_id = uuid4().hex
+        _python_sessions[created_id] = {"env": {}, "document": None}
+        return _ok(session_id=created_id)
     return _run(job)
 
 
@@ -1151,6 +1161,8 @@ def execute_python(code: str, session_id: str | None = None) -> str:
     Для AddDimension2/AddHorizontalDimension2 и других размеров используй
     with DIMENSIONS(): — ввод значения в модальном окне временно отключается,
     прежняя настройка восстанавливается при известном исходе.
+    win32com.client.constants без makepy не заполнен. Значения enum прочитай через
+    get_solidworks_api и присвой числам понятные имена в Python; не импортируй их из constants.
     Результат: положи значение в переменную result и/или используй print().
     В агентском Run переменные, функции и импорты сохраняются между этапами.
     Прямой вызов без служебной сессии имеет новое окружение. session_id задаёт

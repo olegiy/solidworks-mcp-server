@@ -4,10 +4,14 @@ import argparse
 import ast
 import asyncio
 import json
+import math
 import tempfile
+import time
 from pathlib import Path
 from textwrap import dedent
 
+from cadnext.cad_examples import HOLE_PROFILE_CODE as HOLE_CODE
+from cadnext.cad_examples import MATE_SELECTION_CODE, REVOLVED_PROFILE_CODE, SHAFT_PROFILE_CODE
 from cadnext.cad_reference import get_example
 from cadnext.construction import evaluate_checks, inspection_request
 from cadnext.mcp import SolidWorksMcp
@@ -18,117 +22,6 @@ BRACKET_CHECKS = [
     {"kind": "sheet_metal", "thickness_mm": 2, "bend_radius_mm": 2},
 ]
 
-
-HOLE_CODE = dedent('''
-            bodies = model.GetBodies2(0, False)
-            candidates = []
-            for face in GET(bodies[0], "GetFaces"):
-                surface = GET(face, "GetSurface")
-                if GET(surface, "IsPlane"):
-                    p = surface.PlaneParams
-                    if abs(abs(p[1])-1) < 1e-7:
-                        candidates.append(p[4])
-            if not candidates:
-                raise RuntimeError("Грань полки не найдена")
-            face_y = min(candidates)
-            model.ClearSelection2(True)
-            if not model.Extension.SelectByID2("", "FACE", MM(30), face_y, MM(40), False, 0, NOTHING, 0):
-                raise RuntimeError("Грань полки не выбрана")
-            model.SketchManager.InsertSketch(True)
-            hole_sketch = GET(model.SketchManager, "ActiveSketch")
-            transform = hole_sketch.ModelToSketchTransform
-            origin_feature = GET(model, "FirstFeature")
-            while origin_feature is not None and GET(origin_feature, "GetTypeName2") != "OriginProfileFeature":
-                origin_feature = GET(origin_feature, "GetNextFeature")
-            if origin_feature is None:
-                raise RuntimeError("Начало координат не найдено")
-            origin_points = GET(GET(origin_feature, "GetSpecificFeature2"), "GetSketchPoints2")
-            origin = origin_points[0]
-            end_vertices = [v for v in GET(bodies[0], "GetVertices")
-                if abs(GET(v, "GetPoint")[0]-MM(60)) < 1e-8
-                and abs(GET(v, "GetPoint")[1]-face_y) < 1e-8
-                and abs(GET(v, "GetPoint")[2]-MM(80)) < 1e-8]
-            if len(end_vertices) != 1:
-                raise RuntimeError("Торцевая вершина неоднозначна")
-            for index, z_mm in enumerate((20., 60.), 1):
-                local = TRANSFORM_POINT([MM(30), face_y, MM(z_mm)], list(transform.ArrayData))
-                circle = model.SketchManager.CreateCircleByRadius(*local, MM(4.5))
-                if circle is None:
-                    raise RuntimeError("Окружность не создана")
-                if not circle.Select4(False, NOTHING):
-                    raise RuntimeError("Окружность не выбрана")
-                with DIMENSIONS():
-                    dim = model.AddDiameterDimension2(local[0]+MM(10), local[1]+MM(10), 0.)
-                if dim is None:
-                    raise RuntimeError("Диаметр не создан")
-                dim.GetDimension2(0).Name = f"Hole{index}Diameter"
-                center = GET(circle, "GetCenterPoint2")
-                for axis, method, position in (
-                    ("X", model.AddHorizontalDimension2, (local[0]/2, local[1]-MM(10), 0.)),
-                    ("Z", model.AddVerticalDimension2, (local[0]+MM(10), local[1]/2, 0.))):
-                    model.ClearSelection2(True)
-                    if not center.Select4(False, NOTHING):
-                        raise RuntimeError("Центр отверстия не выбран")
-                    datum = end_vertices[0] if index == 2 and axis == "Z" else origin
-                    if not datum.Select4(True, NOTHING):
-                        raise RuntimeError("Опорная точка не выбрана")
-                    with DIMENSIONS():
-                        display = method(*position)
-                    if display is None:
-                        raise RuntimeError("Позиционный размер не создан")
-                    display.GetDimension2(0).Name = f"Hole{index}{axis}"
-            model.ClearSelection2(True)
-            model.SketchManager.InsertSketch(True)
-            feature = GET(model, "FirstFeature")
-            profiles = []
-            while feature is not None:
-                if GET(feature, "GetTypeName2") == "ProfileFeature":
-                    profiles.append(feature)
-                feature = GET(feature, "GetNextFeature")
-            if not profiles:
-                raise RuntimeError("Эскиз отверстий не найден")
-            profiles[-1].Name = "HoleSketch"
-            result = "hole sketch"
-        ''').strip()
-
-REVOLVED_PROFILE_CODE = dedent('''
-    inner_radius_mm, outer_radius_mm, length_mm = 8., 15., 40.
-    sm = model.SketchManager
-    axis = sm.CreateCenterLine(0., 0., 0., 0., MM(length_mm), 0.)
-    points = [(inner_radius_mm, 0), (outer_radius_mm, 0),
-              (outer_radius_mm, length_mm), (inner_radius_mm, length_mm)]
-    lines = []
-    for start, end in zip(points, points[1:] + points[:1]):
-        line = sm.CreateLine(MM(start[0]), MM(start[1]), 0., MM(end[0]), MM(end[1]), 0.)
-        if line is None:
-            raise RuntimeError("Профиль вращения не создан")
-        lines.append(line)
-    with DIMENSIONS():
-        for name, line, position, reference in (
-                ("OuterRadius", lines[1], (MM(20), MM(20), 0.), axis),
-                ("InnerRadius", lines[3], (MM(4), MM(20), 0.), axis),
-                ("Length", lines[1], (MM(25), MM(20), 0.), None)):
-            model.ClearSelection2(True)
-            if not line.Select4(False, NOTHING):
-                raise RuntimeError("Линия профиля не выбрана")
-            if reference is not None and not reference.Select4(True, NOTHING):
-                raise RuntimeError("Ось не выбрана")
-            display = model.AddDimension2(*position)
-            if display is None:
-                raise RuntimeError("Управляющий размер профиля не создан")
-            display.GetDimension2(0).Name = name
-    model.ClearSelection2(True)
-    sm.InsertSketch(True)
-    profile = model.FeatureByPositionReverse(0)
-    profile.Name = "BushingProfile"
-    if not profile.Select2(False, 0):
-        raise RuntimeError("Профиль не выбран")
-    selection = GET(GET(model, "SelectionManager"), "CreateSelectData")
-    selection.Mark = 16
-    if not axis.Select4(True, selection):
-        raise RuntimeError("Ось вращения не выбрана")
-    result = "dimensioned profile ready"
-''').strip()
 
 CHAMFER_SELECTION_CODE = dedent('''
     body = model.GetBodies2(0, False)[0]
@@ -148,86 +41,55 @@ CHAMFER_SELECTION_CODE = dedent('''
     result = "two outer edges selected"
 ''').strip()
 
-SHAFT_PROFILE_CODE = dedent('''
-    sm = model.SketchManager
-    axis = sm.CreateCenterLine(0., MM(-10), 0., 0., MM(70), 0.)
-    lines = sm.CreateCornerRectangle(0., 0., 0., MM(7.9), MM(60), 0.)
-    if lines is None or len(lines) != 4:
-        raise RuntimeError("Профиль вала не создан")
-    with DIMENSIONS():
-        for name, line, position in (("Radius", lines[0], (MM(4), MM(-10), 0.)),
-                                     ("Length", lines[1], (MM(20), MM(30), 0.))):
-            if not line.Select4(False, NOTHING):
-                raise RuntimeError("Линия вала не выбрана")
-            display = model.AddDimension2(*position)
-            if display is None:
-                raise RuntimeError("Размер вала не создан")
-            display.GetDimension2(0).Name = name
-    model.ClearSelection2(True)
-    sm.InsertSketch(True)
-    profile = model.FeatureByPositionReverse(0)
-    profile.Name = "ShaftProfile"
-    if not profile.Select2(False, 0):
-        raise RuntimeError("Профиль вала не выбран")
-    selection = GET(GET(model, "SelectionManager"), "CreateSelectData")
-    selection.Mark = 16
-    if not axis.Select4(True, selection):
-        raise RuntimeError("Ось вала не выбрана")
-    result = "shaft profile ready"
-''').strip()
 
-MATE_SELECTION_CODE = dedent('''
-    components = model.GetComponents(False)
-    if len(components) != 2:
-        raise RuntimeError("Ожидалось два компонента")
-    bushing = next(c for c in components if "bushing" in c.Name2.lower())
-    shaft = next(c for c in components if "shaft" in c.Name2.lower())
-    if not GET(bushing, "IsFixed") or GET(shaft, "IsFixed"):
-        raise RuntimeError("Неверное закрепление компонентов")
-    selected_faces = []
-    for component, radius_mm in ((bushing, 8), (shaft, 7.9)):
-        part = GET(component, "GetModelDoc2")
-        faces = []
-        for body in part.GetBodies2(0, False):
-            for face in GET(body, "GetFaces"):
-                surface = GET(face, "GetSurface")
-                if mate_kind == "concentric":
-                    suitable = GET(surface, "IsCylinder") and abs(surface.CylinderParams[6]-MM(radius_mm)) < 1e-8
-                else:
-                    suitable = GET(surface, "IsPlane") and abs(surface.PlaneParams[4]) < 1e-8
-                if suitable:
-                    faces.append(face)
-        if len(faces) != 1:
-            raise RuntimeError(f"Грани сопряжения неоднозначны: {len(faces)}")
-        entity = component.GetCorrespondingEntity(faces[0])
-        if entity is None:
-            raise RuntimeError("Грань в контексте сборки не найдена")
-        selected_faces.append(entity)
-    model.ClearSelection2(True)
-    selection = GET(GET(model, "SelectionManager"), "CreateSelectData")
-    selection.Mark = 1
-    for index, face in enumerate(selected_faces):
-        if not face.Select4(index > 0, selection):
-            raise RuntimeError("Грань сопряжения не выбрана")
-    result = "mate faces selected"
-''').strip()
 
-DEGREES_OF_FREEDOM_CODE = dedent('''
-    args = []
-    for _ in range(6):
-        args.extend([byref_i4(-1), VARIANT(pythoncom.VT_BYREF | pythoncom.VT_DISPATCH, None)])
-    status = shaft.GetRemainingDOFs(*args)
-    flags = [args[i].value for i in range(0, 12, 2)]
-    vectors = [list(args[i].value.ArrayData) if args[i].value is not None else None
-               for i in range(1, 12, 2)]
-    if status != 0 or flags != [1, 1, 0, 0, 0, 0]:
-        raise RuntimeError(f"Остаточная подвижность вала не подтверждена: {status}, {flags}")
-    direction = vectors[1]
-    if direction is None or abs(abs(direction[1])-1) > 1e-8 or abs(direction[0])+abs(direction[2]) > 1e-8:
-        raise RuntimeError("Ось свободного вращения не совпадает с осью вала")
-    result = {"status": status, "flags": flags, "vectors": vectors,
-              "constrained_status": GET(shaft, "GetConstrainedStatus")}
-''').strip()
+def axial_joint_evidence(data):
+    """Prove this two-body cylindrical joint from documented constraint geometry."""
+    def require(condition):
+        if not condition:
+            raise AcceptanceFailure("Остаточная подвижность вала не подтверждена геометрией сопряжений.")
+
+    require(not data.get("truncated"))
+    components, mates = data.get("components", []), data.get("mates", [])
+    require(len(components) == 2 and len(mates) == 2)
+    require(all(not c["suppressed"] for c in components))
+    require(sum(c["fixed"] for c in components) == 1)
+    fixed = next(c for c in components if c["fixed"])
+    require("bushing" in fixed["name"].lower())
+    pair = sorted(c["name"] for c in components)
+    require(sorted(m["type"] for m in mates) == [0, 1])
+    for mate in mates:
+        require(mate["suppressed"] is False and mate["error_code"] == 0)
+        require(sorted(mate["components"]) == pair and len(mate["entities"]) == 2)
+    concentric = next(m for m in mates if m["type"] == 1)
+    coincident = next(m for m in mates if m["type"] == 0)
+    require(concentric.get("lock_rotation") is False)
+    # Installed SW2025 swMateEntityTypes_e: swMateCylinder=4, swMatePlane=3.
+    require(all(e["reference_type"] == 4 for e in concentric["entities"]))
+    require(all(e["reference_type"] == 3 for e in coincident["entities"]))
+    entities = concentric["entities"] + coincident["entities"]
+    vectors = []
+    for entity in entities:
+        direction, point = entity.get("direction"), entity.get("point_mm")
+        require(isinstance(direction, list) and len(direction) == 3)
+        require(isinstance(point, list) and len(point) == 3)
+        require(all(type(v) in {int, float} and math.isfinite(v) for v in direction + point))
+        length = math.hypot(*direction)
+        require(length > 1e-12)
+        vectors.append([v/length for v in direction])
+    axis = vectors[0]
+
+    def dot(a, b):
+        return sum(x*y for x, y in zip(a, b, strict=True))
+
+    require(all(abs(dot(axis, vector)) >= math.cos(math.radians(.01)) for vector in vectors[1:]))
+    delta = [a-b for a, b in zip(entities[0]["point_mm"], entities[1]["point_mm"], strict=True)]
+    along = dot(delta, axis)
+    require(math.hypot(*(d-along*v for d, v in zip(delta, axis, strict=True))) <= .001)
+    delta = [a-b for a, b in zip(entities[2]["point_mm"], entities[3]["point_mm"], strict=True)]
+    require(abs(dot(delta, axis)) <= .001)
+    return {"method": "analytic_cylindrical_joint", "remaining_translations": 0,
+            "remaining_rotations": 1, "axis_direction": axis}
 
 class AcceptanceFailure(RuntimeError):
     pass
@@ -240,8 +102,10 @@ class DirectAcceptance:
         self.report = {"status": "failed", "steps": [], "cases": {}}
 
     async def call(self, tool, **arguments):
+        started = time.perf_counter()
         result = await self.mcp.call(tool, arguments)
         self.report["steps"].append({"tool": tool, "ok": result["ok"],
+                                      "duration_seconds": time.perf_counter()-started,
                                       "uncertain": result.get("uncertain", False)})
         if not result["ok"]:
             self.report["last_error"] = result
@@ -311,8 +175,10 @@ class DirectAcceptance:
 
     async def bracket(self):
         await self.new_part()
-        code = get_example("sheet-open-profile")["code"]
-        await self.python(code)
+        example = get_example("sheet-open-profile")
+        await self.python(example["preparation_code"])
+        await self.inspect(example["preparation_checks"])
+        await self.python(example["code"])
         await self.inspect(BRACKET_CHECKS)
         await self.vertices([60, 40, 80])
         data = await self.call("inspect_cad", sections=["features", "dimensions", "surfaces"])
@@ -427,8 +293,12 @@ result = "folded state restored"
                   {"kind": "mate", "mate_type": n, "components": [bushing["name"], shaft["name"]]}
                   for n in (0, 1)]
         await self.inspect(checks)
-        await self.python(DEGREES_OF_FREEDOM_CODE)
+        await self.save("bushing-shaft.sldasm")
+        self.session = (await self.call("open_python_session"))["session_id"]
+        data = await self.call("inspect_cad", sections=["components", "mates"])
+        self.report.setdefault("mobility", []).append({**axial_joint_evidence(data), "observations": data})
         await self.python(dedent('''
+            bushing = next(c for c in model.GetComponents(False) if "bushing" in c.Name2.lower())
             part = GET(bushing, "GetModelDoc2")
             radius = part.Parameter("OuterRadius@BushingProfile")
             if radius is None or abs(radius.SystemValue-MM(15)) > 1e-8:
@@ -447,8 +317,10 @@ result = "folded state restored"
             result = {"outer_radius_mm": radius.SystemValue*1000}
         ''').strip())
         await self.inspect(checks)
-        await self.python(DEGREES_OF_FREEDOM_CODE)
         await self.save("bushing-shaft.sldasm")
+        self.session = (await self.call("open_python_session"))["session_id"]
+        data = await self.call("inspect_cad", sections=["components", "mates"])
+        self.report["mobility"].append({**axial_joint_evidence(data), "observations": data})
         self.report["cases"]["assembly"] = "passed_declared_checks"
 
 

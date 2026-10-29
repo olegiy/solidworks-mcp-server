@@ -76,6 +76,29 @@ async def test_stop_waits_for_python_and_releases_session_without_another_cad_st
     assert mcp.lifecycle[-1][0] == "close_python_session"
 
 
+async def test_native_created_assembly_explicitly_rebinds_existing_python_session_after_checks():
+    provider = ScriptedProvider([
+        reply(("part", "execute_python", {"code": "part_ref = model"})),
+        reply(("new", "create_assembly", {})),
+        reply(("assembly", "execute_python", {"code": "insert(part_ref)"})),
+        reply(content="Готово")])
+    mcp = SessionMcp([
+        ("execute_python", ok({})),
+        ("list_open_documents", ok({"documents": [{"title": "Part1", "type": "part"}]})),
+        ("create_assembly", ok({"created": "Assembly1"})),
+        ("list_open_documents", ok({"documents": [{"title": "Part1", "type": "part"},
+                                                   {"title": "Assembly1", "type": "assembly"}]})),
+        ("get_feature_tree", ok({"features": []})), ("execute_python", ok({}))])
+    agent = trusted_agent(mcp, provider)
+    run = agent.start(session_id="s", provider=provider, message="Создай сборку")
+    await settle(agent, run)
+    assert run.status == "completed"
+    assert mcp.lifecycle == [("open_python_session", {}),
+        ("open_python_session", {"session_id": "private-env", "expected_document": "Assembly1"}),
+        ("close_python_session", {"session_id": "private-env"})]
+    assert "private-env" not in json.dumps(run.snapshot())
+
+
 def staged_mcp(steps, **kwargs):
     catalog = deepcopy(CATALOG)
     catalog += [tool("inspect_cad", {"sections": {"type": "array", "items": {"type": "string"}},
@@ -87,6 +110,47 @@ def staged_mcp(steps, **kwargs):
 STAGES = [{"id": "profile", "title": "Профиль", "expected_result": "Длина 80 мм"},
           {"id": "body", "title": "Тело", "expected_result": "Одно тело"}]
 CHECKS = [{"kind": "dimension", "name": "Length@Profile", "value": 80, "unit": "mm"}]
+
+
+async def test_pending_plan_revision_retains_application_owned_native_stages():
+    extra = {"id": "edges", "title": "Кромки", "expected_result": "Выбраны торцы"}
+    provider = ScriptedProvider([
+        reply(("plan", "set_construction_plan", {"stages": STAGES})),
+        reply(("new", "create_part", {})),
+        reply(("profile", "execute_python", {"code": "profile()", "stage_id": "profile"})),
+        reply(("revise", "set_construction_plan", {"stages": [STAGES[0], extra, STAGES[1]]})),
+        reply(("edges", "execute_python", {"code": "edges()", "stage_id": "edges"})),
+        reply(content="Готово")])
+    mcp = staged_mcp([("list_open_documents", ok({"documents": []})),
+                     ("create_part", ok({"created": "Part1"})),
+                     ("list_open_documents", ok({"documents": [{"title": "Part1", "type": "part"}]})),
+                     ("get_feature_tree", ok({"features": [], "truncated": False})),
+                     ("execute_python", ok({})), ("execute_python", ok({}))])
+    agent = trusted_agent(mcp, provider)
+    run = agent.start(session_id="s", provider=provider, message="Построй")
+    await settle(agent, run)
+    assert run.status == "completed"
+    assert [s["id"] for s in run.construction_plan] == ["profile", "edges", "body", "step-1"]
+    automatic = run.construction_plan[-1]
+    assert automatic["application_owned"] is True
+    assert automatic["status"] == "done"
+    assert automatic["tool_call_ids"] == ["new"]
+    saved = agent.conversation_snapshot("s")
+    assert Agent(FakeMcp()).load_conversation(saved)["runs"][0]["construction_plan"][-1] == automatic
+
+
+def test_plan_revision_cannot_rewrite_application_stage_or_exceed_combined_limit():
+    from cadnext.construction import set_plan
+
+    native = {"id": "step-1", "title": "Создание", "expected_result": "create_part",
+              "status": "done", "application_owned": True, "checks": [], "tool_call_ids": ["new"]}
+    declaration = {k: native[k] for k in ("id", "title", "expected_result")}
+    assert set_plan([native], [declaration]) == [native]
+    with pytest.raises(ValueError, match="Служебный"):
+        set_plan([native], [{**declaration, "title": "Изменено"}])
+    with pytest.raises(ValueError, match="лимит"):
+        set_plan([native], [{"id": f"planned-{i}", "title": "Этап", "expected_result": "Тело"}
+                            for i in range(32)])
 
 
 async def test_plan_stages_and_declared_checks_survive_snapshot_and_sidecar():

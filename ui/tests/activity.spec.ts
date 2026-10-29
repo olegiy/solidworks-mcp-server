@@ -48,6 +48,7 @@ async function prepare(page: Page, changes: Partial<Run> = {}) {
   });
   await page.goto('/');
   return {
+    profileId: profile.id as string,
     indicator: page.getByRole('region', { name: 'Ход выполнения', exact: true }),
     update: async (changes: Partial<Run>) => {
       run = { ...run, ...changes };
@@ -179,10 +180,11 @@ test('исправление Python выделено отдельным этап
 });
 
 test('отправка вложения показывает этап и размер исходных файлов до ответа API', async ({ page }) => {
-  const { indicator } = await prepare(page, { status: 'completed' });
-  const profileId = await page.getByLabel('Активное подключение').inputValue();
-  await page.request.put(`/api/profiles/${profileId}`, { data: { vision: true } });
+  const { indicator, profileId } = await prepare(page, { status: 'completed' });
+  const updated = await page.request.put(`/api/profiles/${profileId}`, { data: { vision: true } });
+  expect(updated.ok()).toBeTruthy();
   await page.reload();
+  await expect(page.getByRole('button', { name: 'Прикрепить изображение', exact: true })).toBeEnabled();
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
   await page.route('**/api/runs', async route => {

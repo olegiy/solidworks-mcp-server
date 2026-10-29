@@ -67,3 +67,45 @@ def test_examples_are_searchable_and_only_live_executed_recipes_have_version_lab
         assert item["prerequisites"] and item["expected_features"]
         assert item["verified_versions"] == (["SolidWorks 2025 SP5 (33.5.0)"]
             if name in {"revolution", "chamfer"} else [])
+
+
+def test_revolution_recipe_exposes_its_live_executed_dimensioned_profile_stage():
+    from scripts.staged_acceptance import REVOLVED_PROFILE_CODE
+
+    example = reference.get_example("revolution")
+    assert example["preparation_code"] == REVOLVED_PROFILE_CODE
+    assert "FeatureRevolve2" not in example["preparation_code"]
+    compile(example["preparation_code"], "<revolution-profile>", "exec")
+    assert example["preparation_checks"] == [
+        {"kind": "dimension", "name": f"{name}@BushingProfile", "value": value, "unit": "mm"}
+        for name, value in (("OuterRadius", 15), ("InnerRadius", 8), ("Length", 40))]
+
+
+def test_sheet_recipe_exposes_profile_check_before_base_flange_stage():
+    example = reference.get_example("sheet-open-profile")
+    assert "InsertSheetMetalBaseFlange2" not in example["preparation_code"]
+    assert "InsertSheetMetalBaseFlange2" in example["code"]
+    compile(example["preparation_code"], "<sheet-profile>", "exec")
+    assert {"kind": "body_count", "expected": 0} in example["preparation_checks"]
+    assert {"kind": "dimension", "name": "LegAOuter@BracketProfile", "value": 60,
+            "unit": "mm"} in example["preparation_checks"]
+
+
+def test_hole_recipe_uses_the_live_dimensioned_coordinate_transform_stage():
+    from scripts.staged_acceptance import HOLE_CODE
+
+    example = reference.get_example("holes-transform")
+    assert example["code"] == HOLE_CODE
+    assert "Hole1Diameter@HoleSketch" in [c["name"] for c in example["declared_checks"]
+                                         if c["kind"] == "dimension"]
+    assert example["next_tool"] == "cut_through"
+
+
+def test_assembly_recipes_expose_the_same_geometric_selection_and_shaft_as_direct_acceptance():
+    from scripts.staged_acceptance import MATE_SELECTION_CODE, SHAFT_PROFILE_CODE
+
+    insertion = reference.get_example("assembly-insert")
+    mates = reference.get_example("assembly-mates")
+    assert insertion["shaft_preparation_code"] == SHAFT_PROFILE_CODE
+    assert mates["selection_code"] == MATE_SELECTION_CODE
+    assert mates["selection_parameters"] == {"mate_kind": ["concentric", "coincident"]}
