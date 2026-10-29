@@ -14,20 +14,25 @@ def get_feature_type(feature, get):
 
 def _features(model, get, result):
     visited = set()
+    visits = 0
 
     def walk(feature, sub=False):
+        nonlocal visits
+        siblings = set()
         while feature is not None:
             name = get(feature, "Name")
-            if name in visited:
-                return
-            if len(visited) >= LIMIT:
+            if name in siblings or visits >= LIMIT:
                 result["truncated"] = True
                 return
-            visited.add(name)
-            yield feature
-            # Real COM supports subfeatures; callers requesting trees must provide it.
-            if hasattr(feature, "GetFirstSubFeature"):
-                yield from walk(get(feature, "GetFirstSubFeature"), True)
+            siblings.add(name)
+            visits += 1
+            if name not in visited:
+                visited.add(name)
+                yield feature
+                # A sketch can also occur under its owning feature. Skip that node,
+                # but continue the sibling chain to annotations such as threads.
+                if hasattr(feature, "GetFirstSubFeature"):
+                    yield from walk(get(feature, "GetFirstSubFeature"), True)
             feature = get(feature, "GetNextSubFeature" if sub else "GetNextFeature")
     return walk(get(model, "FirstFeature"))
 

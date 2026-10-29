@@ -11,6 +11,30 @@ def get(obj, name, *args):
     return value(*args) if callable(value) else value
 
 
+def test_repeated_subfeature_does_not_hide_later_siblings():
+    thread = NS(Name="Thread", GetTypeName2="CosmeticThread", GetNextSubFeature=None)
+    sketch_sub = NS(Name="Sketch", GetTypeName2="ProfileFeature", GetNextSubFeature=thread)
+    boss = NS(Name="Boss", GetTypeName2="Revolution", GetFirstSubFeature=sketch_sub,
+              GetNextFeature=None)
+    sketch = NS(Name="Sketch", GetTypeName2="ProfileFeature", GetNextFeature=boss)
+    model = NS(GetTitle="Part", GetType=1, FirstFeature=sketch)
+    data = inspection.inspect_model(model, ["features"], [], get)
+    assert [item["name"] for item in data["features"]] == ["Sketch", "Boss", "Thread"]
+    assert data["truncated"] is False
+
+
+def test_cyclic_sibling_chain_is_bounded_and_cannot_pass_checks():
+    repeated = NS(Name="Sketch", GetTypeName2="ProfileFeature")
+    repeated.GetNextSubFeature = repeated
+    boss = NS(Name="Boss", GetTypeName2="Revolution", GetFirstSubFeature=repeated,
+              GetNextFeature=None)
+    sketch = NS(Name="Sketch", GetTypeName2="ProfileFeature", GetNextFeature=boss)
+    model = NS(GetTitle="Part", GetType=1, FirstFeature=sketch)
+    data = inspection.inspect_model(model, ["features"], [], get)
+    assert data["truncated"] is True
+    assert not construction.evaluate_checks([{"kind": "feature", "name": "Boss"}], data)[0]["passed"]
+
+
 @pytest.mark.parametrize("api_type,legacy_type,expected", [
     ("ICE", "Cut", "Cut"), ("ICE", "Boss", "Boss"),
     ("Revolution", "legacy-value", "Revolution"),
