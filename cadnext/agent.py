@@ -26,7 +26,7 @@ _READ_ONLY = {"connect_solidworks", "list_open_documents", "screenshot", "get_fe
               "search_solidworks_api", "get_solidworks_api", "search_cad_examples",
               "get_cad_example", "inspect_cad", "set_construction_plan"}
 _FEATURE_RESULTS = {"create_sketch": "sketch", "create_base_flange": "feature",
-                    "cut_through": "feature", "add_mate": "mate"}
+                    "cut_through": "feature"}
 _NEW_DOCUMENT = {"create_part", "create_assembly"}
 _TREE_FEEDBACK = {"sketch_rectangle", "sketch_circle", "sketch_line", "close_sketch", "rebuild"}
 _TREE_LIMIT = 1000
@@ -834,6 +834,8 @@ class Agent:
             return [("inspect_cad", construction.inspection_request(arguments["checks"]))]
         if name == "set_dimension":
             return [("get_dimension", {"name": arguments["name"]})]
+        if name == "add_mate":
+            return [("inspect_cad", {"sections": ["mates"]})] * 2
         if name in _FEATURE_RESULTS:
             return [("get_feature_tree", {})] * 2 + (
                 [("get_sheet_metal_info", {})] if name == "create_base_flange" else [])
@@ -870,6 +872,15 @@ class Agent:
                         and readback.get("name") == arguments["name"]
                         and readback.get("unit") in {"mm", "deg"}
                         and readback["unit"] == value.get("unit"))
+        elif name == "add_mate":
+            data = await self._read(run, catalog, "inspect_cad", {"sections": ["mates"]}, call_id, evidence)
+            created = value.get("mate")
+            mate_type = {"coincident": 0, "concentric": 1, "perpendicular": 2,
+                         "parallel": 3, "tangent": 4, "distance": 5}[arguments.get("mate_type", "coincident").lower()]
+            self._check(not data.get("truncated") and created and created not in before and any(
+                item["name"] == created and item["type"] == mate_type
+                and item.get("suppressed") is False and item.get("error_code") == 0
+                for item in data["mates"]))
         elif name in _FEATURE_RESULTS:
             tree = await self._read(run, catalog, "get_feature_tree", {}, call_id, evidence)
             created = value.get(_FEATURE_RESULTS[name])
@@ -944,7 +955,11 @@ class Agent:
                     self.settings.set_python_execution_allowed(True)
                 else:
                     self._python_approved.add(scope)
-        if name in _FEATURE_RESULTS:
+        if name == "add_mate":
+            data = await self._read(run, catalog, "inspect_cad", {"sections": ["mates"]}, call_id, evidence)
+            self._check(not data.get("truncated"))
+            before = {item["name"] for item in data["mates"]}
+        elif name in _FEATURE_RESULTS:
             tree = await self._read(run, catalog, "get_feature_tree", {}, call_id, evidence)
             if len(tree["features"]) >= _TREE_LIMIT:
                 raise _EndRun("failed", t("Дерево может быть усечено; создание не выполнялось.",

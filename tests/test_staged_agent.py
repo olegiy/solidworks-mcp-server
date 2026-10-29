@@ -153,6 +153,28 @@ def staged_mcp(steps, **kwargs):
     return FakeMcp(steps, catalog=catalog, **kwargs)
 
 
+@pytest.mark.parametrize("defect", [None, "suppressed", "wrong_type", "old", "truncated"])
+async def test_native_mate_verification_reads_subfeature_mates_and_rejects_unhealthy_result(defect):
+    mate = {"name": "Concentric1", "type": 1, "suppressed": defect == "suppressed", "error_code": 0}
+    if defect == "wrong_type":
+        mate["type"] = 0
+    provider = ScriptedProvider([reply(("mate", "add_mate", {})), reply(content="Готово")])
+    mcp = staged_mcp([
+        ("inspect_cad", ok({"mates": [mate] if defect == "old" else [], "truncated": False})),
+        ("add_mate", ok({"mate": "Concentric1"})),
+        ("inspect_cad", ok({"mates": [mate], "truncated": defect == "truncated"}))])
+    # Native default is coincident; choose concentric explicitly in the real schema.
+    for entry in mcp.catalog:
+        if entry["function"]["name"] == "add_mate":
+            entry["function"]["parameters"]["properties"] = {"mate_type": {"type": "string"}}
+    provider.responses[0] = reply(("mate", "add_mate", {"mate_type": "concentric"}))
+    agent = Agent(mcp)
+    run = agent.start(session_id="s", provider=provider, message="Добавь сопряжение")
+    await settle(agent, run)
+    assert run.status == ("completed" if defect is None else "failed")
+    assert [name for name, _ in mcp.calls] == ["inspect_cad", "add_mate", "inspect_cad"]
+
+
 STAGES = [{"id": "profile", "title": "Профиль", "expected_result": "Длина 80 мм"},
           {"id": "body", "title": "Тело", "expected_result": "Одно тело"}]
 CHECKS = [{"kind": "dimension", "name": "Length@Profile", "value": 80, "unit": "mm"}]

@@ -182,8 +182,7 @@ async def test_dimension_mutation_is_independently_read_back(readback, status):
     assert run.verification == ("verified" if readback == 62 else "failed")
 
 
-@pytest.mark.parametrize("name,key", [("create_sketch", "sketch"), ("cut_through", "feature"),
-                                     ("add_mate", "mate")])
+@pytest.mark.parametrize("name,key", [("create_sketch", "sketch"), ("cut_through", "feature")])
 @pytest.mark.parametrize("present,status", [(True, "completed"), (False, "failed")])
 async def test_new_feature_is_checked_against_tree(name, key, present, status):
     from cadnext.agent import Agent
