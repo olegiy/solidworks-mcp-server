@@ -1,6 +1,22 @@
 from scripts.staged_provider_acceptance import StopOnCadError, prompts
 
 
+def test_acceptance_paths_remain_separate_from_instructions_after_privacy_filter():
+    from pathlib import Path
+
+    from cadnext.privacy import PrivacyContext
+
+    source = Path(r"C:\acceptance files\previous-bushing.sldprt")
+    text = prompts(Path(r"C:\acceptance files\new-run"), source_bushing=source)["assembly"]
+    privacy = PrivacyContext(local=False, consent=True)
+    filtered = privacy.outgoing(text)
+    assert "Создай НОВУЮ деталь вала" in filtered
+    assert "После проверки измени наружный диаметр" in filtered
+    assert r"C:\acceptance files" not in filtered
+    source_token = next(token for original, token in privacy._tokens.items() if original == str(source))
+    assert privacy.restore(source_token) == str(source)
+
+
 async def test_acceptance_can_resume_saved_research_in_a_new_run(tmp_path):
     import json
 
