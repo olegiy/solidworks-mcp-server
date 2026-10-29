@@ -135,11 +135,12 @@ def test_examples_are_searchable_and_only_live_executed_recipes_have_version_lab
     assert example["verified_versions"] == ["SolidWorks 2025 SP5 (33.5.0)"]
     assert example["parameters"] and example["api_symbols"] and example["checks"]
     compile(example["code"], "<example>", "exec")
-    for name in ("holes-transform", "revolution", "chamfer", "assembly-insert", "assembly-mates"):
+    for name in ("revolution", "chamfer", "assembly-insert", "assembly-mates"):
         item = reference.get_example(name)
         compile(item["code"], name, "exec")
         assert item["prerequisites"] and item["expected_features"]
         assert item["verified_versions"] == ["SolidWorks 2025 SP5 (33.5.0)"]
+    assert reference.get_example("holes-transform")["verified_versions"] == []
 
 
 def test_revolution_recipe_exposes_its_live_executed_dimensioned_profile_stage():

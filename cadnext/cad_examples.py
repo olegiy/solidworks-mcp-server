@@ -20,6 +20,7 @@ HOLE_PROFILE_CODE = dedent('''
             model.SketchManager.InsertSketch(True)
             hole_sketch = GET(model.SketchManager, "ActiveSketch")
             transform = hole_sketch.ModelToSketchTransform
+            sketch_to_model = list(transform.Inverse.ArrayData)
             origin_feature = GET(model, "FirstFeature")
             while origin_feature is not None and GET(origin_feature, "GetTypeName2") != "OriginProfileFeature":
                 origin_feature = GET(origin_feature, "GetNextFeature")
@@ -41,7 +42,8 @@ HOLE_PROFILE_CODE = dedent('''
                 if not circle.Select4(False, NOTHING):
                     raise RuntimeError("Окружность не выбрана")
                 with DIMENSIONS():
-                    dim = model.AddDiameterDimension2(local[0]+MM(10), local[1]+MM(10), 0.)
+                    position = TRANSFORM_POINT([local[0]+MM(10), local[1]+MM(10), 0.], sketch_to_model)
+                    dim = model.AddDiameterDimension2(*position)
                 if dim is None:
                     raise RuntimeError("Диаметр не создан")
                 dim.GetDimension2(0).Name = f"Hole{index}Diameter"
@@ -56,7 +58,7 @@ HOLE_PROFILE_CODE = dedent('''
                     if not datum.Select4(True, NOTHING):
                         raise RuntimeError("Опорная точка не выбрана")
                     with DIMENSIONS():
-                        display = method(*position)
+                        display = method(*TRANSFORM_POINT(list(position), sketch_to_model))
                     if display is None:
                         raise RuntimeError("Позиционный размер не создан")
                     display.GetDimension2(0).Name = f"Hole{index}{axis}"
@@ -178,7 +180,7 @@ REVOLVED_PROFILE_CODE = dedent('''
 ''').strip()
 
 # scripts.staged_acceptance, live-direct-library-clean; see docs/verification.md.
-_LIVE_EXECUTED = {"sheet-open-profile", "holes-transform", "revolution", "chamfer",
+_LIVE_EXECUTED = {"sheet-open-profile", "revolution", "chamfer",
                   "assembly-insert", "assembly-mates"}
 
 

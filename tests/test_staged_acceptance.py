@@ -191,7 +191,8 @@ def test_open_profile_uses_direction_one_and_explicit_bend_allowance():
     assert calls[0][0] == pytest.approx(.002)
 
 
-def test_hole_diameters_use_nonmodal_dimension_context():
+@pytest.mark.parametrize("face_y", [0., .001])
+def test_hole_dimensions_are_nonmodal_and_placed_in_model_coordinates(face_y):
     enabled = True
     diameters = []
 
@@ -210,12 +211,14 @@ def test_hole_diameters_use_nonmodal_dimension_context():
         diameters.append(args)
         return NS(GetDimension2=lambda index: NS(Name="D1"))
 
-    sketch = NS(ModelToSketchTransform=NS(ArrayData=[1,0,0,0,0,-1,0,1,0,0,0,0,1,0,0,0]))
+    sketch = NS(ModelToSketchTransform=NS(
+        ArrayData=[1,0,0,0,0,-1,0,1,0,0,0,face_y,1,0,0,0],
+        Inverse=NS(ArrayData=[1,0,0,0,0,1,0,-1,0,0,face_y,0,1,0,0,0])))
     sm = NS(ActiveSketch=sketch, InsertSketch=lambda flag: None,
             CreateCircleByRadius=lambda *args: NS(Select4=lambda *args: True,
                 GetCenterPoint2=NS(Select4=lambda *args: True)))
-    body = NS(GetFaces=[NS(GetSurface=NS(IsPlane=True, PlaneParams=[0,1,0,0,0,0]))])
-    body.GetVertices = [NS(GetPoint=[.06, 0., .08], Select4=lambda *args: True)]
+    body = NS(GetFaces=[NS(GetSurface=NS(IsPlane=True, PlaneParams=[0,1,0,0,face_y,0]))])
+    body.GetVertices = [NS(GetPoint=[.06, face_y, .08], Select4=lambda *args: True)]
     model = NS(GetBodies2=lambda *args: [body], ClearSelection2=lambda flag: None,
                Extension=NS(SelectByID2=lambda *args: True), SketchManager=sm,
                AddDiameterDimension2=diameter,
@@ -237,6 +240,11 @@ def test_hole_diameters_use_nonmodal_dimension_context():
                      "MM": lambda value: value/1000, "NOTHING": None, "DIMENSIONS": dimensions,
                      "TRANSFORM_POINT": transform_point})
     assert len(diameters) == 6
+    for actual, expected in zip(diameters, [
+        (.04, face_y, .03), (.015, face_y, .01), (.04, face_y, .01),
+        (.04, face_y, .07), (.015, face_y, .05), (.04, face_y, .03),
+    ], strict=True):
+        assert actual == pytest.approx(expected)
     assert enabled is True
     assert profile.Name == "HoleSketch"
 
