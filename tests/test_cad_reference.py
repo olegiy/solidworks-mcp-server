@@ -109,3 +109,25 @@ def test_assembly_recipes_expose_the_same_geometric_selection_and_shaft_as_direc
     assert insertion["shaft_preparation_code"] == SHAFT_PROFILE_CODE
     assert mates["selection_code"] == MATE_SELECTION_CODE
     assert mates["selection_parameters"] == {"mate_kind": ["concentric", "coincident"]}
+
+
+@pytest.mark.parametrize("status,success", [(1, True), (0, False), (4, False)])
+def test_mate_recipe_checks_swaddmateerror_enum_instead_of_feature_error_codes(status, success):
+    from types import SimpleNamespace as NS
+
+    error = NS(value=-1)
+    calls = []
+
+    def add_mate(*args):
+        calls.append(args)
+        args[-1].value = status
+        return object()
+
+    env = {"model": NS(AddMate5=add_mate), "byref_i4": lambda: error}
+    if success:
+        exec(reference.get_example("assembly-mates")["code"], env)
+        assert env["result"]["mate_type"] == 1
+    else:
+        with pytest.raises(RuntimeError):
+            exec(reference.get_example("assembly-mates")["code"], env)
+    assert len(calls) == 1

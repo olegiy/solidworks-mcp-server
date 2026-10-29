@@ -279,15 +279,19 @@ result = "folded state restored"
         self.title = created["created"]
         await self.active()
         self.session = (await self.call("open_python_session"))["session_id"]
-        await self.call("add_component", path=str(self.bushing_path))
-        await self.call("add_component", path=str(shaft_path))
+        for path in (self.bushing_path, shaft_path):
+            await self.python(f"part_path = {str(path)!r}\n" + get_example("assembly-insert")["code"])
         components = (await self.call("inspect_cad", sections=["components"]))["components"]
         self.report["cases"]["inserted_components"] = components
         bushing = next(c for c in components if "bushing" in c["name"].lower())
         shaft = next(c for c in components if "shaft" in c["name"].lower())
         for kind in ("concentric", "coincident"):
             await self.python(f"mate_kind = {kind!r}\n" + MATE_SELECTION_CODE)
-            await self.call("add_mate", mate_type=kind, alignment="aligned")
+            recipe = get_example("assembly-mates")["code"]
+            if kind == "coincident":
+                recipe = recipe.replace('mate_type, mate_name = 1, "Concentric"',
+                                        'mate_type, mate_name = 0, "Coincident"')
+            await self.python(recipe)
         checks = [{"kind": "component", "name": bushing["name"], "fixed": True},
                   {"kind": "component", "name": shaft["name"], "fixed": False}] + [
                   {"kind": "mate", "mate_type": n, "components": [bushing["name"], shaft["name"]]}

@@ -1025,7 +1025,8 @@ def add_mate(mate_type: str = "coincident", alignment: str = "closest",
         err = _byref_i4(-1)
         mate = model.AddMate5(mt, al, bool(flip), d, d, d, 0, 0, 0, 0, 0,
                               False, False, 0, err)
-        if mate is None:
+        # swAddMateError_e uses 1 for success, unlike IFeature.GetErrorCode2.
+        if mate is None or err.value != 1:
             raise RuntimeError(f"AddMate5 не создал сопряжение (код ошибки {err.value}). "
                                f"Частые причины: сущности не выбраны (select_for_mate), "
                                f"тип сопряжения не подходит к геометрии "

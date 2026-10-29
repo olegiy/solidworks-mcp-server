@@ -211,6 +211,10 @@ def _example(example_id, title, keywords, parameters, prerequisites, api_symbols
                 {"kind": "dimension", "name": f"{name}@HoleSketch", "value": value, "unit": "mm"}
                 for name, value in (("Hole1Diameter", 9), ("Hole2Diameter", 9),
                                     ("Hole1X", 30), ("Hole2X", 30), ("Hole1Z", 20), ("Hole2Z", 20))])
+        result["api_symbols"].extend(["IEntity.Select4", "IModelDoc2.AddDiameterDimension2",
+            "IModelDoc2.AddHorizontalDimension2", "IModelDoc2.AddVerticalDimension2"])
+        result["prerequisites"].append(
+            "Выбор вершин/граней: IEntity.Select4; сигнатуры IVertex.Select4 в typelib нет.")
     if example_id == "assembly-insert":
         result.update(shaft_preparation_code=SHAFT_PROFILE_CODE,
             shaft_prerequisites=["НОВАЯ деталь вала с активным эскизом на Спереди.",
@@ -362,10 +366,11 @@ EXAMPLES = [
              ["Concentric", "Coincident"], ["Два сопряжения без ошибок", "Только осевое вращение вала"],
              '''
              mate_type, mate_name = 1, "Concentric"
+             swAddMateError_NoError = 1
              error = byref_i4()
              mate = model.AddMate5(mate_type, 0, False, 0., 0., 0., 0., 0., 0.,
                  0., 0., False, False, 0, error)
-             if mate is None or error.value != 0:
+             if mate is None or error.value != swAddMateError_NoError:
                  raise RuntimeError(f"Ошибка сопряжения: {error.value}")
              result = {"mate_type": mate_type, "name": mate_name}
              '''),

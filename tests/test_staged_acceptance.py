@@ -118,6 +118,43 @@ async def test_bracket_reads_profile_before_separate_sheet_metal_mutation(tmp_pa
     assert {"kind": "feature", "name": "BracketProfile", "type": "ProfileFeature"} in inspections[0]
 
 
+async def test_assembly_directly_executes_component_library_recipe(tmp_path):
+    snippets = []
+
+    class Captured(DirectAcceptance):
+        async def new_part(self):
+            pass
+
+        async def python(self, code):
+            snippets.append(code)
+            if 'component = model.AddComponent5' in code:
+                raise RuntimeError("captured library insertion")
+
+        async def inspect(self, checks):
+            pass
+
+        async def save(self, name):
+            return tmp_path / name
+
+        async def active(self):
+            pass
+
+        async def call(self, tool, **arguments):
+            if tool == "create_assembly":
+                return {"created": "TestAssembly"}
+            if tool == "open_python_session":
+                return {"session_id": "test"}
+            if tool == "add_component":
+                pytest.fail("The original component recipe must be executed directly")
+            return {}
+
+    test = Captured(None, tmp_path)
+    test.bushing_path = tmp_path / "bushing.sldprt"
+    with pytest.raises(RuntimeError, match="captured library insertion"):
+        await test.assembly()
+    assert snippets[-1].endswith(get_example("assembly-insert")["code"])
+
+
 def test_open_profile_uses_direction_one_and_explicit_bend_allowance():
     from contextlib import nullcontext
 
