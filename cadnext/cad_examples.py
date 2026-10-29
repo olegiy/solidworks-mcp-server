@@ -177,8 +177,9 @@ REVOLVED_PROFILE_CODE = dedent('''
     result = "dimensioned profile ready"
 ''').strip()
 
-# scripts.staged_acceptance, live-direct-10; see docs/verification.md.
-_LIVE_EXECUTED = {"sheet-open-profile", "revolution", "chamfer"}
+# scripts.staged_acceptance, live-direct-library-clean; see docs/verification.md.
+_LIVE_EXECUTED = {"sheet-open-profile", "holes-transform", "revolution", "chamfer",
+                  "assembly-insert", "assembly-mates"}
 
 
 def _example(example_id, title, keywords, parameters, prerequisites, api_symbols,

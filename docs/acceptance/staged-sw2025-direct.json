@@ -1,7 +1,7 @@
 {
   "date": "2026-10-29",
   "solidworks": "2025 SP5 (33.5.0)",
-  "execution": "direct Python/MCP; new temporary documents; live-direct-analytic",
+  "execution": "direct Python/MCP; new temporary documents; live-direct-library-clean; literal library recipes",
   "scope": "all",
   "status": "passed",
   "cases": {
@@ -11,7 +11,7 @@
   },
   "exact_vertex_spans_mm": [
     {
-      "document": "Деталь30",
+      "document": "Деталь39",
       "spans": [
         60.0,
         40.0,
@@ -19,7 +19,7 @@
       ]
     },
     {
-      "document": "Деталь30",
+      "document": "Деталь39",
       "spans": [
         60.0,
         40.0,
@@ -29,7 +29,7 @@
   ],
   "checks": [
     {
-      "document": "Деталь30",
+      "document": "Деталь39",
       "checks": [
         {
           "expected": {
@@ -190,7 +190,7 @@
       ]
     },
     {
-      "document": "Деталь30",
+      "document": "Деталь39",
       "checks": [
         {
           "expected": {
@@ -362,7 +362,7 @@
       ]
     },
     {
-      "document": "Деталь30",
+      "document": "Деталь39",
       "checks": [
         {
           "expected": {
@@ -384,7 +384,7 @@
       ]
     },
     {
-      "document": "Деталь30",
+      "document": "Деталь39",
       "checks": [
         {
           "expected": {
@@ -852,7 +852,7 @@
       ]
     },
     {
-      "document": "Деталь30",
+      "document": "Деталь39",
       "checks": [
         {
           "expected": {
@@ -1139,7 +1139,7 @@
       ]
     },
     {
-      "document": "Деталь30",
+      "document": "Деталь39",
       "checks": [
         {
           "expected": {
@@ -1161,7 +1161,7 @@
       ]
     },
     {
-      "document": "Деталь30",
+      "document": "Деталь39",
       "checks": [
         {
           "expected": {
@@ -1454,7 +1454,7 @@
       ]
     },
     {
-      "document": "Деталь31",
+      "document": "Деталь40",
       "checks": [
         {
           "expected": {
@@ -1587,7 +1587,7 @@
       ]
     },
     {
-      "document": "Деталь31",
+      "document": "Деталь40",
       "checks": [
         {
           "expected": {
@@ -2072,7 +2072,7 @@
       ]
     },
     {
-      "document": "Деталь32",
+      "document": "Деталь41",
       "checks": [
         {
           "expected": {
@@ -2152,20 +2152,20 @@
       ]
     },
     {
-      "document": "Сборка6",
+      "document": "Сборка8",
       "checks": [
         {
           "expected": {
             "kind": "component",
-            "name": "live-direct-analytic-bushing-1",
+            "name": "live-direct-library-clean-bushing-1",
             "fixed": true
           },
           "passed": true,
           "observed": [
             {
-              "name": "live-direct-analytic-shaft-1",
-              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-shaft.SLDPRT",
-              "fixed": false,
+              "name": "live-direct-library-clean-bushing-1",
+              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-bushing.SLDPRT",
+              "fixed": true,
               "suppressed": false,
               "rotation": [
                 1.0,
@@ -2186,9 +2186,9 @@
               "scale": 1.0
             },
             {
-              "name": "live-direct-analytic-bushing-1",
-              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-bushing.SLDPRT",
-              "fixed": true,
+              "name": "live-direct-library-clean-shaft-1",
+              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-shaft.SLDPRT",
+              "fixed": false,
               "suppressed": false,
               "rotation": [
                 1.0,
@@ -2213,15 +2213,15 @@
         {
           "expected": {
             "kind": "component",
-            "name": "live-direct-analytic-shaft-1",
+            "name": "live-direct-library-clean-shaft-1",
             "fixed": false
           },
           "passed": true,
           "observed": [
             {
-              "name": "live-direct-analytic-shaft-1",
-              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-shaft.SLDPRT",
-              "fixed": false,
+              "name": "live-direct-library-clean-bushing-1",
+              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-bushing.SLDPRT",
+              "fixed": true,
               "suppressed": false,
               "rotation": [
                 1.0,
@@ -2242,9 +2242,9 @@
               "scale": 1.0
             },
             {
-              "name": "live-direct-analytic-bushing-1",
-              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-bushing.SLDPRT",
-              "fixed": true,
+              "name": "live-direct-library-clean-shaft-1",
+              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-shaft.SLDPRT",
+              "fixed": false,
               "suppressed": false,
               "rotation": [
                 1.0,
@@ -2271,8 +2271,8 @@
             "kind": "mate",
             "mate_type": 0,
             "components": [
-              "live-direct-analytic-bushing-1",
-              "live-direct-analytic-shaft-1"
+              "live-direct-library-clean-bushing-1",
+              "live-direct-library-clean-shaft-1"
             ]
           },
           "passed": true,
@@ -2321,8 +2321,8 @@
               "alignment": 0,
               "error_code": 0,
               "components": [
-                "live-direct-analytic-bushing-1",
-                "live-direct-analytic-shaft-1"
+                "live-direct-library-clean-bushing-1",
+                "live-direct-library-clean-shaft-1"
               ]
             },
             {
@@ -2369,8 +2369,8 @@
               "alignment": 0,
               "error_code": 0,
               "components": [
-                "live-direct-analytic-bushing-1",
-                "live-direct-analytic-shaft-1"
+                "live-direct-library-clean-bushing-1",
+                "live-direct-library-clean-shaft-1"
               ]
             }
           ]
@@ -2380,8 +2380,8 @@
             "kind": "mate",
             "mate_type": 1,
             "components": [
-              "live-direct-analytic-bushing-1",
-              "live-direct-analytic-shaft-1"
+              "live-direct-library-clean-bushing-1",
+              "live-direct-library-clean-shaft-1"
             ]
           },
           "passed": true,
@@ -2430,8 +2430,8 @@
               "alignment": 0,
               "error_code": 0,
               "components": [
-                "live-direct-analytic-bushing-1",
-                "live-direct-analytic-shaft-1"
+                "live-direct-library-clean-bushing-1",
+                "live-direct-library-clean-shaft-1"
               ]
             },
             {
@@ -2478,8 +2478,8 @@
               "alignment": 0,
               "error_code": 0,
               "components": [
-                "live-direct-analytic-bushing-1",
-                "live-direct-analytic-shaft-1"
+                "live-direct-library-clean-bushing-1",
+                "live-direct-library-clean-shaft-1"
               ]
             }
           ]
@@ -2487,20 +2487,20 @@
       ]
     },
     {
-      "document": "live-direct-analytic-bushing-shaft.SLDASM",
+      "document": "live-direct-library-clean-bushing-shaft.SLDASM",
       "checks": [
         {
           "expected": {
             "kind": "component",
-            "name": "live-direct-analytic-bushing-1",
+            "name": "live-direct-library-clean-bushing-1",
             "fixed": true
           },
           "passed": true,
           "observed": [
             {
-              "name": "live-direct-analytic-shaft-1",
-              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-shaft.SLDPRT",
-              "fixed": false,
+              "name": "live-direct-library-clean-bushing-1",
+              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-bushing.SLDPRT",
+              "fixed": true,
               "suppressed": false,
               "rotation": [
                 1.0,
@@ -2521,9 +2521,9 @@
               "scale": 1.0
             },
             {
-              "name": "live-direct-analytic-bushing-1",
-              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-bushing.SLDPRT",
-              "fixed": true,
+              "name": "live-direct-library-clean-shaft-1",
+              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-shaft.SLDPRT",
+              "fixed": false,
               "suppressed": false,
               "rotation": [
                 1.0,
@@ -2548,15 +2548,15 @@
         {
           "expected": {
             "kind": "component",
-            "name": "live-direct-analytic-shaft-1",
+            "name": "live-direct-library-clean-shaft-1",
             "fixed": false
           },
           "passed": true,
           "observed": [
             {
-              "name": "live-direct-analytic-shaft-1",
-              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-shaft.SLDPRT",
-              "fixed": false,
+              "name": "live-direct-library-clean-bushing-1",
+              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-bushing.SLDPRT",
+              "fixed": true,
               "suppressed": false,
               "rotation": [
                 1.0,
@@ -2577,9 +2577,9 @@
               "scale": 1.0
             },
             {
-              "name": "live-direct-analytic-bushing-1",
-              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-bushing.SLDPRT",
-              "fixed": true,
+              "name": "live-direct-library-clean-shaft-1",
+              "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-shaft.SLDPRT",
+              "fixed": false,
               "suppressed": false,
               "rotation": [
                 1.0,
@@ -2606,8 +2606,8 @@
             "kind": "mate",
             "mate_type": 0,
             "components": [
-              "live-direct-analytic-bushing-1",
-              "live-direct-analytic-shaft-1"
+              "live-direct-library-clean-bushing-1",
+              "live-direct-library-clean-shaft-1"
             ]
           },
           "passed": true,
@@ -2656,8 +2656,8 @@
               "alignment": 0,
               "error_code": 0,
               "components": [
-                "live-direct-analytic-bushing-1",
-                "live-direct-analytic-shaft-1"
+                "live-direct-library-clean-bushing-1",
+                "live-direct-library-clean-shaft-1"
               ]
             },
             {
@@ -2704,8 +2704,8 @@
               "alignment": 0,
               "error_code": 0,
               "components": [
-                "live-direct-analytic-bushing-1",
-                "live-direct-analytic-shaft-1"
+                "live-direct-library-clean-bushing-1",
+                "live-direct-library-clean-shaft-1"
               ]
             }
           ]
@@ -2715,8 +2715,8 @@
             "kind": "mate",
             "mate_type": 1,
             "components": [
-              "live-direct-analytic-bushing-1",
-              "live-direct-analytic-shaft-1"
+              "live-direct-library-clean-bushing-1",
+              "live-direct-library-clean-shaft-1"
             ]
           },
           "passed": true,
@@ -2765,8 +2765,8 @@
               "alignment": 0,
               "error_code": 0,
               "components": [
-                "live-direct-analytic-bushing-1",
-                "live-direct-analytic-shaft-1"
+                "live-direct-library-clean-bushing-1",
+                "live-direct-library-clean-shaft-1"
               ]
             },
             {
@@ -2813,8 +2813,8 @@
               "alignment": 0,
               "error_code": 0,
               "components": [
-                "live-direct-analytic-bushing-1",
-                "live-direct-analytic-shaft-1"
+                "live-direct-library-clean-bushing-1",
+                "live-direct-library-clean-shaft-1"
               ]
             }
           ]
@@ -2833,14 +2833,14 @@
         -0.0
       ],
       "observations": {
-        "document": "live-direct-analytic-bushing-shaft.SLDASM",
+        "document": "live-direct-library-clean-bushing-shaft.SLDASM",
         "document_type": 2,
         "truncated": false,
         "components": [
           {
-            "name": "live-direct-analytic-shaft-1",
-            "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-shaft.SLDPRT",
-            "fixed": false,
+            "name": "live-direct-library-clean-bushing-1",
+            "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-bushing.SLDPRT",
+            "fixed": true,
             "suppressed": false,
             "rotation": [
               1.0,
@@ -2861,9 +2861,9 @@
             "scale": 1.0
           },
           {
-            "name": "live-direct-analytic-bushing-1",
-            "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-bushing.SLDPRT",
-            "fixed": true,
+            "name": "live-direct-library-clean-shaft-1",
+            "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-shaft.SLDPRT",
+            "fixed": false,
             "suppressed": false,
             "rotation": [
               1.0,
@@ -2929,8 +2929,8 @@
             "alignment": 0,
             "error_code": 0,
             "components": [
-              "live-direct-analytic-bushing-1",
-              "live-direct-analytic-shaft-1"
+              "live-direct-library-clean-bushing-1",
+              "live-direct-library-clean-shaft-1"
             ]
           },
           {
@@ -2977,8 +2977,8 @@
             "alignment": 0,
             "error_code": 0,
             "components": [
-              "live-direct-analytic-bushing-1",
-              "live-direct-analytic-shaft-1"
+              "live-direct-library-clean-bushing-1",
+              "live-direct-library-clean-shaft-1"
             ]
           }
         ],
@@ -2995,14 +2995,14 @@
         -0.0
       ],
       "observations": {
-        "document": "live-direct-analytic-bushing-shaft.SLDASM",
+        "document": "live-direct-library-clean-bushing-shaft.SLDASM",
         "document_type": 2,
         "truncated": false,
         "components": [
           {
-            "name": "live-direct-analytic-shaft-1",
-            "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-shaft.SLDPRT",
-            "fixed": false,
+            "name": "live-direct-library-clean-bushing-1",
+            "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-bushing.SLDPRT",
+            "fixed": true,
             "suppressed": false,
             "rotation": [
               1.0,
@@ -3023,9 +3023,9 @@
             "scale": 1.0
           },
           {
-            "name": "live-direct-analytic-bushing-1",
-            "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-analytic\\live-direct-analytic-bushing.SLDPRT",
-            "fixed": true,
+            "name": "live-direct-library-clean-shaft-1",
+            "path": "C:\\Users\\olegiy\\CAD-Agent-Next-staged-cad-agent\\.superpowers\\sdd\\staged-cad-agent\\live-direct-library-clean\\live-direct-library-clean-shaft.SLDPRT",
+            "fixed": false,
             "suppressed": false,
             "rotation": [
               1.0,
@@ -3091,8 +3091,8 @@
             "alignment": 0,
             "error_code": 0,
             "components": [
-              "live-direct-analytic-bushing-1",
-              "live-direct-analytic-shaft-1"
+              "live-direct-library-clean-bushing-1",
+              "live-direct-library-clean-shaft-1"
             ]
           },
           {
@@ -3139,8 +3139,8 @@
             "alignment": 0,
             "error_code": 0,
             "components": [
-              "live-direct-analytic-bushing-1",
-              "live-direct-analytic-shaft-1"
+              "live-direct-library-clean-bushing-1",
+              "live-direct-library-clean-shaft-1"
             ]
           }
         ],
