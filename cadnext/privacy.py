@@ -12,7 +12,7 @@ _WINDOWS_CHARS = r'[^<>"\'\r\n|?*]'
 _PATH = (
     rf'(?P<quote>["\'])(?P<path>{_START}[^<>"\'\r\n|?*]+)(?P=quote)'
     # File extensions give a useful boundary; ambiguous directory prose is hidden conservatively.
-    rf'|{_WINDOWS_START}{_WINDOWS_CHARS}*\.[A-Za-z0-9]{{1,12}}(?=$|[\s,;:)"\'])'
+    rf'|{_WINDOWS_START}{_WINDOWS_CHARS}*\.[A-Za-z0-9]{{1,12}}(?=$|[\s,;:)"\']|\.(?=\s|$))'
     rf'|{_WINDOWS_START}{_WINDOWS_CHARS}+'
     r'|(?<![\w:/])/(?!/)[\w.~-]+(?:/[\w.~-]+)*'
 )

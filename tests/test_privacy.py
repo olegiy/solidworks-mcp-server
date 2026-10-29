@@ -117,6 +117,23 @@ def test_path_token_from_prose_restores_only_the_path():
     assert ctx.restore({"path": token}) == {"path": r"C:\Company\part.sldprt"}
 
 
+@pytest.mark.parametrize("path", [
+    "C:/Users/test/Documents/Фланец.SLDPRT",
+    r"C:\Client Projects\part.sldprt",
+    r"\\server\Client Projects\part.sldprt",
+])
+def test_sentence_period_after_cad_path_does_not_enter_tool_argument(path):
+    from cadnext.privacy import PrivacyContext
+
+    ctx = PrivacyContext(local=False, consent=True)
+    prose = f"Открой {path}. Затем покажи деталь и проверь размеры."
+    filtered = ctx.outgoing(prose)
+    token = filtered.split()[1].removesuffix(".")
+    assert ctx.restore({"path": token}) == {"path": path}
+    assert "Затем покажи" in filtered
+    assert ctx.restore(filtered) == prose
+
+
 @pytest.mark.parametrize('path', [
     r'C:\Client Projects\SecretCustomer\prototype.sldprt',
     r'\\server\Client Projects\SecretCustomer\prototype.sldprt',
