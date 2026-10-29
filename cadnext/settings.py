@@ -1,5 +1,6 @@
 """Immutable connection snapshots and atomic, secret-free settings."""
 
+import hashlib
 import ipaddress
 import json
 import os
@@ -72,6 +73,9 @@ class SettingsStore:
         self._lock = RLock()
         self._profiles: dict[str, Profile] = {}
         self._python_execution_allowed = False
+        self._vision_profile_id: str | None = None
+        self._vision_routing_approved = False
+        self._vision_routing_fingerprint: str | None = None
         if self.path.exists():
             try:
                 data = json.loads(self.path.read_text(encoding="utf-8"))
@@ -85,6 +89,21 @@ class SettingsStore:
                 self._profiles = {p.id: p for p in profiles}
                 if len(self._profiles) != len(profiles):
                     raise ValueError
+                routing_id = data.get("vision_profile_id")
+                routing_approved = data.get("vision_routing_approved", False)
+                routing_fingerprint = data.get("vision_routing_fingerprint")
+                if routing_id is not None and not isinstance(routing_id, str):
+                    raise ValueError
+                if type(routing_approved) is not bool:
+                    raise ValueError
+                if routing_fingerprint is not None and not isinstance(routing_fingerprint, str):
+                    raise ValueError
+                profile = self._profiles.get(routing_id) if routing_id else None
+                if (routing_approved and profile is not None and profile.vision
+                        and routing_fingerprint == self._routing_fingerprint(profile)):
+                    self._vision_profile_id = profile.id
+                    self._vision_routing_approved = True
+                    self._vision_routing_fingerprint = routing_fingerprint
             except (ValueError, TypeError, KeyError):
                 raise ValueError(t("Файл настроек повреждён; исходный файл сохранён.",
                                "The settings file is corrupted; the original file was preserved.")) from None
@@ -120,6 +139,51 @@ class SettingsStore:
             raise RuntimeError(t("Не удалось изменить ключ в Windows Credential Manager.",
                                  "Could not change the key in Windows Credential Manager.")) from None
 
+    @staticmethod
+    def _routing_fingerprint(profile: Profile) -> str:
+        payload = json.dumps([profile.id, profile.base_url, profile.model,
+                              profile.vision, profile.local],
+                             ensure_ascii=False, separators=(",", ":"))
+        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+    @property
+    def vision_routing(self) -> dict | None:
+        with self._lock:
+            if (not self._vision_routing_approved or self._vision_profile_id is None
+                    or self._vision_routing_fingerprint is None):
+                return None
+            profile = self._profiles.get(self._vision_profile_id)
+            if (profile is None or not profile.vision
+                    or self._routing_fingerprint(profile) != self._vision_routing_fingerprint):
+                return None
+            return {"profile_id": profile.id, "approved": True,
+                    "fingerprint": self._vision_routing_fingerprint}
+
+    def set_vision_routing(self, profile_id: str | None, *, approved: bool):
+        if type(approved) is not bool:
+            raise ValueError(t("Согласие на Vision-маршрутизацию должно быть логическим значением.",
+                               "Vision routing approval must be a boolean value."))
+        with self._lock:
+            if approved:
+                if not isinstance(profile_id, str) or not profile_id:
+                    raise ValueError(t("Выберите сохранённый профиль с поддержкой изображений.",
+                                       "Choose a saved profile with image support."))
+                profile = self.get(profile_id)
+                if not profile.vision:
+                    raise ValueError(t("Автоматическая Vision-маршрутизация возможна только "
+                                       "для профиля с поддержкой изображений.",
+                                       "Automatic Vision routing requires a profile with image support."))
+                routing = (profile.id, True, self._routing_fingerprint(profile))
+            else:
+                routing = (None, False, None)
+            try:
+                self._write(self._profiles, routing=routing)
+            except OSError:
+                raise OSError(t("Не удалось сохранить Vision-маршрутизацию; настройка не изменена.",
+                                "Could not save Vision routing; the setting was not changed.")) from None
+            self._vision_profile_id, self._vision_routing_approved, \
+                self._vision_routing_fingerprint = routing
+
     @property
     def python_execution_allowed(self) -> bool:
         with self._lock:
@@ -137,8 +201,17 @@ class SettingsStore:
                             "Could not save the Python permission; the setting was not changed.")) from None
             self._python_execution_allowed = allowed
 
-    def _write(self, profiles: dict[str, Profile], *, python_execution_allowed=None):
+    _UNSET = object()
+
+    def _routing_state(self):
+        return (self._vision_profile_id, self._vision_routing_approved,
+                self._vision_routing_fingerprint)
+
+    def _write(self, profiles: dict[str, Profile], *, python_execution_allowed=None,
+               routing=_UNSET):
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if routing is self._UNSET:
+            routing = self._routing_state()
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=self.path.parent,
@@ -147,7 +220,10 @@ class SettingsStore:
                 permission = (self._python_execution_allowed if python_execution_allowed is None
                               else python_execution_allowed)
                 json.dump({"version": 1, "profiles": [asdict(p) for p in profiles.values()],
-                           "python_execution_allowed": permission},
+                           "python_execution_allowed": permission,
+                           "vision_profile_id": routing[0],
+                           "vision_routing_approved": routing[1],
+                           "vision_routing_fingerprint": routing[2]},
                           f, ensure_ascii=False, indent=2)
                 f.flush()
                 os.fsync(f.fileno())
@@ -157,18 +233,21 @@ class SettingsStore:
                 temporary.unlink(missing_ok=True)
 
     def _commit(self, profiles: dict[str, Profile], profile_id: str,
-                change_key: bool, key: str | None):
+                change_key: bool, key: str | None, *, routing=_UNSET):
         old_key = self.secret(profile_id) if change_key else None
         if change_key:
             self._set_secret(profile_id, key)
         try:
-            self._write(profiles)
+            self._write(profiles, routing=routing)
         except OSError:
             if change_key:
                 self._set_secret(profile_id, old_key)
             raise OSError(t("Не удалось записать настройки; предыдущий файл сохранён.",
                             "Could not write the settings; the previous file was preserved.")) from None
         self._profiles = profiles
+        if routing is not self._UNSET:
+            self._vision_profile_id, self._vision_routing_approved, \
+                self._vision_routing_fingerprint = routing
 
     def save(self, values: dict, profile_id: str | None = None) -> Profile:
         with self._lock:
@@ -190,11 +269,21 @@ class SettingsStore:
             if address_changed and "local" not in values:
                 profile = replace(profile, local=None)
             profiles = {**self._profiles, profile.id: profile}
-            self._commit(profiles, profile.id, "api_key" in values or address_changed, key)
+            routing = self._routing_state()
+            if (previous is not None and routing[0] == profile.id and (
+                    profile.base_url != previous.base_url or profile.model != previous.model
+                    or profile.vision != previous.vision or profile.local != previous.local
+                    or not profile.vision)):
+                routing = (None, False, None)
+            self._commit(profiles, profile.id, "api_key" in values or address_changed,
+                         key, routing=routing)
             return profile
 
     def delete(self, profile_id: str):
         with self._lock:
             self.get(profile_id)
             profiles = {key: value for key, value in self._profiles.items() if key != profile_id}
-            self._commit(profiles, profile_id, True, None)
+            routing = self._routing_state()
+            if routing[0] == profile_id:
+                routing = (None, False, None)
+            self._commit(profiles, profile_id, True, None, routing=routing)

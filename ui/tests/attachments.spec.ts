@@ -12,6 +12,8 @@ async function prepare(page: Page, vision = true) {
     if (sessionStorage.getItem('attachments.initialized')) return;
     localStorage.setItem('cadnext.v1.profile', id);
     localStorage.setItem('cadnext.v1.session', crypto.randomUUID());
+    localStorage.setItem('cadnext.v1.goalOptions', JSON.stringify({ enabled: false,
+      target_similarity: 100, max_evaluations: 10, max_no_progress: 3 }));
     sessionStorage.setItem('attachments.initialized', '1');
   }, profile.id);
   await page.goto('/');
@@ -75,6 +77,7 @@ test('можно отправить несколько изображений б
 
 test('текстовая модель не позволяет прикреплять или отправлять оставшиеся картинки', async ({ page }) => {
   await prepare(page);
+  await page.request.put('/api/settings', { data: { vision_routing_approved: false } });
   await page.getByLabel('Файлы изображений').setInputFiles(picture);
   const textProfile = await (await page.request.post('/api/profiles', { data: {
     name: 'Текстовая', base_url: 'http://localhost/v1', model: 'text-only', vision: false,

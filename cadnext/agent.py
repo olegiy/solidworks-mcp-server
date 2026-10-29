@@ -7,7 +7,7 @@ import math
 import re
 import time
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from uuid import uuid4
 
@@ -15,6 +15,20 @@ from jsonschema import Draft202012Validator
 from referencing import Registry
 
 from cadnext.attachments import AttachmentError, normalize_attachments
+from cadnext.evaluation import (
+    EvaluationOptions,
+    EvidenceRecord,
+    GoalContract,
+    Requirement,
+    components_evidence,
+    dimension_evidence,
+    evaluate_goal,
+    mass_properties_evidence,
+    requested_file_evidence,
+    sheet_metal_evidence,
+    tree_evidence,
+    update_progress,
+)
 from cadnext.i18n import get_language, set_language, t
 from cadnext.provider import ProviderError
 
@@ -101,6 +115,94 @@ _SYSTEM_EN = (
 )
 
 
+_DEFINE_GOAL = "cadnext_define_goal"
+_BIND_REQUIREMENTS = "cadnext_bind_requirements"
+_REPORT_VISUAL = "cadnext_report_visual_evaluation"
+_LOCAL_TOOLS = {_DEFINE_GOAL, _BIND_REQUIREMENTS, _REPORT_VISUAL}
+_REQUIREMENT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 100},
+        "description": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "source": {"enum": ["request", "attachment"]},
+        "required": {"type": "boolean"},
+        "weight": {"type": "integer", "minimum": 1, "maximum": 100},
+        "method": {"enum": ["cad", "vision"]},
+        "expected": {"anyOf": [{"type": "number"}, {"type": "null"}]},
+        "tolerance": {"anyOf": [{"type": "number", "minimum": 0}, {"type": "null"}]},
+        "unit": {"anyOf": [{"enum": ["mm", "deg"]}, {"type": "null"}]},
+    },
+    "required": ["id", "description", "method"],
+    "additionalProperties": False,
+}
+_GOAL_TOOL_SCHEMAS = [
+    {"type": "function", "function": {
+        "name": _DEFINE_GOAL,
+        "description": ("Freeze the user's CAD requirements before any document change. "
+                        "The application computes success; never report a percentage yourself."),
+        "parameters": {"type": "object", "properties": {
+            "kind": {"enum": ["cad", "informational"]},
+            "requirements": {"type": "array", "maxItems": 64, "items": _REQUIREMENT_SCHEMA},
+            "reference_ids": {"type": "array", "maxItems": 64,
+                              "items": {"type": "string", "maxLength": 200}},
+            "ambiguities": {"type": "array", "maxItems": 64,
+                            "items": {"type": "string", "maxLength": 2000}},
+        }, "required": ["kind", "requirements"], "additionalProperties": False}}},
+    {"type": "function", "function": {
+        "name": _BIND_REQUIREMENTS,
+        "description": ("Bind frozen requirements to objects that already exist. "
+                        "Bindings cannot change expected values, weights, units, or methods."),
+        "parameters": {"type": "object", "properties": {
+            "bindings": {"type": "array", "maxItems": 64, "items": {
+                "type": "object", "properties": {
+                    "requirement_id": {"type": "string", "minLength": 1, "maxLength": 100},
+                    "tool": {"enum": ["get_dimension", "get_sheet_metal_info",
+                                      "get_feature_tree", "get_components",
+                                      "get_mass_properties", "file"]},
+                    "name": {"type": "string", "maxLength": 200},
+                    "field": {"type": "string", "maxLength": 100},
+                    "path": {"type": "string", "maxLength": 2000},
+                }, "required": ["requirement_id", "tool"], "additionalProperties": False}},
+        }, "required": ["bindings"], "additionalProperties": False}}},
+    {"type": "function", "function": {
+        "name": _REPORT_VISUAL,
+        "description": ("Report only visual requirement statuses for the current screenshots. "
+                        "This tool is used only by the application's evaluation request."),
+        "parameters": {"type": "object", "properties": {
+            "evaluations": {"type": "array", "maxItems": 64, "items": {
+                "type": "object", "properties": {
+                    "requirement_id": {"type": "string", "minLength": 1, "maxLength": 100},
+                    "status": {"enum": ["pass", "fail", "unknown"]},
+                    "explanation": {"type": "string", "minLength": 1, "maxLength": 2000},
+                    "image_ids": {"type": "array", "maxItems": 16,
+                                  "items": {"type": "string", "maxLength": 200}},
+                }, "required": ["requirement_id", "status", "explanation", "image_ids"],
+                "additionalProperties": False}},
+        }, "required": ["evaluations"], "additionalProperties": False}}},
+]
+
+_GOAL_GUIDANCE_RU = (
+    " Режим цели включён. Пока контракт не зафиксирован, не изменяй документ: разрешены чтения, "
+    "снимок и вызов cadnext_define_goal. Сначала одним вызовом cadnext_define_goal зафиксируй "
+    "измеримые требования из запроса: обязательность, вес, метод cad или vision, ожидаемое "
+    "значение и единицу. Не угадывай отсутствующие размеры: перечисли их в ambiguities. "
+    "После создания объектов свяжи требования с фактическими именами через "
+    "cadnext_bind_requirements; привязки не меняют эталон. Не заявляй процент или успех: "
+    "итог вычисляет приложение по свежим CAD-чтениям и, для визуальных признаков, по отдельной "
+    "оценке модели. Если результат не достигнут, исправляй расхождения и не повторяй прежние действия."
+)
+_GOAL_GUIDANCE_EN = (
+    " Goal mode is enabled. Until the contract is frozen, do not modify the document: reads, "
+    "a screenshot, and cadnext_define_goal are allowed. First freeze measurable requirements "
+    "from the request in one cadnext_define_goal call: required flag, weight, cad or vision "
+    "method, expected value, and unit. Never guess missing dimensions: list them in ambiguities. "
+    "After creating objects, bind requirements to actual names with cadnext_bind_requirements; "
+    "bindings cannot change the reference. Do not claim a percentage or success: the application "
+    "computes it from fresh CAD reads and, for visual features, a separate model evaluation. "
+    "If the result is not achieved, correct the discrepancies without repeating earlier actions."
+)
+
+
 def _system_prompt(language: str) -> str:
     return _SYSTEM_EN if language == "en" else _SYSTEM_RU
 
@@ -126,8 +228,11 @@ class Run:
     session_id: str
     profile_id: str
     messages: list[dict]
+    requested_profile_id: str | None = None
     max_calls: int = 80
     language: str = "ru"
+    evaluation: dict | None = None
+    goal: dict | None = None
     id: str = field(default_factory=lambda: uuid4().hex)
     status: str = "queued"
     events: list[dict] = field(default_factory=list)
@@ -147,6 +252,9 @@ class Run:
     _pending: dict = field(default_factory=dict, repr=False)
     _inflight: bool = field(default=False, repr=False)
     _images: list[dict] = field(default_factory=list, repr=False)
+    _reference_images: list[dict] = field(default_factory=list, repr=False)
+    _goal_request: str = field(default="", repr=False)
+    _last_evaluation: object | None = field(default=None, repr=False)
     repair_attempts: int = 0
     repairing: bool = False
     _repair_call_id: str | None = field(default=None, repr=False)
@@ -166,11 +274,13 @@ class Run:
 
     def snapshot(self) -> dict:
         return deepcopy({"id": self.id, "session_id": self.session_id,
-                         "profile_id": self.profile_id, "language": self.language,
-                         "status": self.status,
+                         "profile_id": self.profile_id,
+                         "requested_profile_id": self.requested_profile_id,
+                         "language": self.language, "status": self.status,
                          "events": self.events, "stop_requested": self.stop_requested,
                          "confirmation": self.confirmation, "call_count": self.call_count,
                          "max_calls": self.max_calls, "verification": self.verification,
+                         "evaluation": self.evaluation, "goal": self.goal,
                          "checks": self.checks, "messages": self.messages, "metrics": self.metrics,
                          "repair_attempts": self.repair_attempts, "repairing": self.repairing})
 
@@ -181,11 +291,28 @@ class Run:
 
     def state(self):
         """Small event-time state; never includes history, images, or tool evidence."""
-        return deepcopy({"status": self.status, "call_count": self.call_count,
+        data = {"status": self.status, "call_count": self.call_count,
             "max_calls": self.max_calls, "verification": self.verification,
             "stop_requested": self.stop_requested, "confirmation": self.confirmation,
             "repair_attempts": self.repair_attempts, "repairing": self.repairing,
-            "metrics": self.metrics})
+            "metrics": self.metrics, "requested_profile_id": self.requested_profile_id,
+            "profile_id": self.profile_id, "evaluation": self.evaluation}
+        if self.goal is not None:
+            options = self.goal.get("options") or {}
+            data["goal"] = {
+                "version": 1, "phase": self.goal.get("phase"),
+                "outcome": self.goal.get("outcome"),
+                "completion_reason": self.goal.get("completion_reason"),
+                "last_score": self.goal.get("last_score"),
+                "authority": self.goal.get("authority"),
+                "best_passed_weight": self.goal.get("best_passed_weight"),
+                "no_progress": self.goal.get("no_progress"),
+                "evaluation_count": len(self.goal.get("evaluations") or []),
+                "max_evaluations": options.get("max_evaluations"),
+                "max_no_progress": options.get("max_no_progress"),
+                "target_similarity": options.get("target_similarity"),
+            }
+        return deepcopy(data)
 
     def _status(self, status, message):
         self.status = status
@@ -253,11 +380,7 @@ class Agent:
         self.max_history_bytes = max_history_bytes
         self.max_catalog_bytes = max_catalog_bytes
 
-    def start(self, *, session_id: str, provider, message: str, attachments=None, max_calls=80,
-              language: str | None = None) -> Run:
-        if language is not None:
-            set_language(language)
-        language = get_language()
+    def assert_startable(self):
         if self._closed:
             raise RuntimeError(t("Агент завершает работу.", "The agent is shutting down."))
         if self.uncertain:
@@ -269,6 +392,14 @@ class Agent:
                               "Wait for the save to complete."))
         if self._active is not None and not self._active.done:
             raise AgentBusy(t("Уже выполняется CAD-запрос.", "A CAD request is already running."))
+
+    def start(self, *, session_id: str, provider, message: str, attachments=None, max_calls=80,
+              language: str | None = None, requested_profile_id: str | None = None,
+              evaluation=None) -> Run:
+        if language is not None:
+            set_language(language)
+        language = get_language()
+        self.assert_startable()
         if (not isinstance(session_id, str) or not session_id.strip()
                 or not isinstance(message, str) or (not message.strip() and not attachments)
                 or type(max_calls) is not int or not 1 <= max_calls <= 1000):
@@ -293,11 +424,31 @@ class Agent:
         if len(_json(messages).encode("utf-8")) > self.max_history_bytes:
             raise AttachmentError(t("История превысила лимит контекста. Начните новый диалог.",
                                     "The history exceeded the context limit. Start a new dialogue."))
-        run = Run(session_id=session_id, profile_id=profile.id, messages=messages,
-                  max_calls=max_calls, language=language)
+        run = Run(session_id=session_id, profile_id=profile.id,
+                  requested_profile_id=requested_profile_id or profile.id,
+                  messages=messages, max_calls=max_calls, language=language,
+                  evaluation=(evaluation.as_dict() if hasattr(evaluation, "as_dict")
+                              else deepcopy(evaluation)))
+        if run.evaluation and run.evaluation.get("enabled"):
+            run.goal = {
+                "version": 1,
+                "options": deepcopy(run.evaluation), "phase": "preparing",
+                "kind": None, "contract": None, "bindings": {}, "revision": 0,
+                "document_identity": None, "evaluations": [], "best_passed_weight": 0,
+                "no_progress": 0, "outcome": None, "completion_reason": None,
+                "last_score": None, "authority": None, "model_turns": 0,
+                "contract_errors": 0, "summary": None, "written_files": {},
+                "bindings_revision": 0, "last_evaluated_bindings": 0,
+            }
+            run._goal_request = message
+            run._reference_images = deepcopy(attachments)
         self.runs[run.id] = run
         self._active = run
-        run._emit("message", role="user", content=message, **({"attachments": attachments} if attachments else {}))
+        run._emit("message", role="user", content=message,
+                  **({"attachments": attachments} if attachments else {}))
+        run._emit("profile_selected", requested_profile_id=run.requested_profile_id,
+                  profile_id=profile.id, vision=bool(profile.vision),
+                  routed=run.requested_profile_id != profile.id)
         run._task = asyncio.create_task(self._run(run, provider))
         return run
 
@@ -383,6 +534,209 @@ class Agent:
             "runs": runs,
         }
 
+    @staticmethod
+    def _validated_goal(raw):
+        if raw is None:
+            return None
+        if not isinstance(raw, dict) or type(raw.get("version")) is not int \
+                or raw.get("version") != 1:
+            raise ValueError(t("Неподдерживаемая версия цели в файле переписки.",
+                               "Unsupported goal version in the conversation file."))
+        options_raw = raw.get("options")
+        if not isinstance(options_raw, dict) or set(options_raw) != {
+                "enabled", "target_similarity", "max_evaluations", "max_no_progress"}:
+            raise ValueError(t("Некорректные параметры цели в файле переписки.",
+                               "Invalid goal options in the conversation file."))
+        options = EvaluationOptions(**options_raw)
+        if not options.enabled:
+            raise ValueError(t("Сохранённая цель должна быть включена.",
+                               "A saved goal must be enabled."))
+        phase = raw.get("phase")
+        if phase not in {"preparing", "executing", "evaluating", "correcting", "finished"}:
+            raise ValueError(t("Некорректная фаза цели в файле переписки.",
+                               "Invalid goal phase in the conversation file."))
+        contract_raw = raw.get("contract")
+        contract = None
+        requirement_ids = set()
+        if contract_raw is not None:
+            if not isinstance(contract_raw, dict):
+                raise ValueError(t("Некорректный контракт цели в файле переписки.",
+                                   "Invalid goal contract in the conversation file."))
+            try:
+                requirements = [Requirement(**item) for item in contract_raw["requirements"]]
+                contract = GoalContract(kind=contract_raw["kind"], requirements=requirements,
+                                        reference_ids=list(contract_raw.get("reference_ids", [])),
+                                        ambiguities=list(contract_raw.get("ambiguities", [])))
+                if contract.contract_digest != contract_raw.get("contract_digest"):
+                    raise ValueError
+            except (KeyError, TypeError, ValueError):
+                raise ValueError(t("Контракт цели не прошёл проверку.",
+                                   "The goal contract failed validation.")) from None
+            requirement_ids = {item.id for item in contract.requirements}
+        if raw.get("kind") not in {None, "cad", "informational"}:
+            raise ValueError(t("Некорректный тип цели в файле переписки.",
+                               "Invalid goal kind in the conversation file."))
+        bindings = raw.get("bindings") or {}
+        if not isinstance(bindings, dict) or any(
+                key not in requirement_ids or not isinstance(value, dict)
+                for key, value in bindings.items()):
+            raise ValueError(t("Некорректные привязки цели в файле переписки.",
+                               "Invalid goal bindings in the conversation file."))
+        revision = raw.get("revision")
+        if type(revision) is not int or not 0 <= revision <= 10**9:
+            raise ValueError(t("Некорректная ревизия цели в файле переписки.",
+                               "Invalid goal revision in the conversation file."))
+        document_identity = raw.get("document_identity")
+        if document_identity is not None and (not isinstance(document_identity, str)
+                                              or len(document_identity) > 500):
+            raise ValueError(t("Некорректный документ цели в файле переписки.",
+                               "Invalid goal document in the conversation file."))
+        evaluations = raw.get("evaluations")
+        if not isinstance(evaluations, list) or len(evaluations) > options.max_evaluations:
+            raise ValueError(t("Некорректная история оценок в файле переписки.",
+                               "Invalid goal evaluations in the conversation file."))
+        for index, evaluation in enumerate(evaluations, 1):
+            if (not isinstance(evaluation, dict)
+                    or type(evaluation.get("number")) is not int
+                    or evaluation["number"] != index):
+                raise ValueError(t("Некорректная оценка цели в файле переписки.",
+                                   "Invalid goal evaluation in the conversation file."))
+            if (type(evaluation.get("revision")) is not int
+                    or not 0 <= evaluation["revision"] <= 10**9
+                    or evaluation.get("outcome") not in {"achieved", "not_achieved", "unknown"}
+                    or evaluation.get("authority") not in {"cad", "mixed", "vision"}):
+                raise ValueError(t("Некорректная оценка цели в файле переписки.",
+                                   "Invalid goal evaluation in the conversation file."))
+            score = evaluation.get("score")
+            if score is not None and (type(score) not in {int, float}
+                                      or not math.isfinite(score) or not 0 <= score <= 100):
+                raise ValueError(t("Некорректный балл цели в файле переписки.",
+                                   "Invalid goal score in the conversation file."))
+            at = evaluation.get("at")
+            if type(at) not in {int, float} or not math.isfinite(at):
+                raise ValueError(t("Некорректное время оценки в файле переписки.",
+                                   "Invalid goal evaluation time in the conversation file."))
+            if index > 1 and evaluation["revision"] < evaluations[index - 2]["revision"]:
+                raise ValueError(t("Ревизии оценок убывают в файле переписки.",
+                                   "Goal evaluation revisions decrease in the conversation file."))
+            if contract is not None and evaluation.get("contract_digest") != contract.contract_digest:
+                raise ValueError(t("Оценка относится к другому контракту цели.",
+                                   "An evaluation belongs to another goal contract."))
+            items = evaluation.get("per_requirement")
+            if not isinstance(items, list) or len(items) > 64:
+                raise ValueError(t("Некорректный состав оценки в файле переписки.",
+                                   "Invalid evaluation details in the conversation file."))
+            passed_weight = total_weight = 0
+            required_states = []
+            seen_requirements = set()
+            for item in items:
+                if (not isinstance(item, dict) or item.get("requirement_id") not in requirement_ids
+                        or item.get("requirement_id") in seen_requirements
+                        or item.get("status") not in {"pass", "fail", "unknown"}
+                        or type(item.get("weight")) is not int
+                        or not 1 <= item["weight"] <= 100):
+                    raise ValueError(t("Некорректное требование оценки в файле переписки.",
+                                       "Invalid evaluated requirement in the conversation file."))
+                seen_requirements.add(item["requirement_id"])
+                total_weight += item["weight"]
+                if item["status"] == "pass":
+                    passed_weight += item["weight"]
+                if item.get("required"):
+                    required_states.append(item["status"])
+            if (type(evaluation.get("passed_weight")) is not int
+                    or type(evaluation.get("total_weight")) is not int
+                    or evaluation["passed_weight"] != passed_weight
+                    or evaluation["total_weight"] != total_weight):
+                raise ValueError(t("Несогласованные веса оценки в файле переписки.",
+                                   "Inconsistent evaluation weights in the conversation file."))
+            expected_score = (round(100.0 * passed_weight / total_weight, 6)
+                              if total_weight else None)
+            if score != expected_score:
+                raise ValueError(t("Балл не согласуется с весами оценки.",
+                                   "The score contradicts the evaluation weights."))
+            if evaluation["outcome"] == "achieved":
+                if contract is None or contract.kind != "cad":
+                    raise ValueError(t("Достигнутая CAD-цель требует контракта требований.",
+                                       "An achieved CAD goal requires a requirement contract."))
+                if raw.get("phase") != "finished":
+                    raise ValueError(t("Достигнутая цель должна быть завершена.",
+                                       "An achieved goal must be finished."))
+                if seen_requirements != requirement_ids:
+                    raise ValueError(t("Оценка не покрывает все требования контракта.",
+                                       "The evaluation does not cover every contract requirement."))
+                if "unknown" in required_states or "fail" in required_states:
+                    raise ValueError(t("Достигнутая цель не согласуется с обязательными требованиями.",
+                                       "An achieved goal contradicts its required requirements."))
+                if score is None or score < float(options.target_similarity):
+                    raise ValueError(t("Достигнутая цель ниже зафиксированного порога.",
+                                       "An achieved goal is below the frozen target."))
+                if evaluation["revision"] != raw.get("revision"):
+                    raise ValueError(t("Достигнутая оценка относится к другой ревизии.",
+                                       "An achieved evaluation belongs to another revision."))
+                for item in items:
+                    requirement = next(
+                        (value for value in contract.requirements
+                         if value.id == item["requirement_id"]), None)
+                    if (requirement is None or item["weight"] != requirement.weight
+                            or bool(item.get("required")) != requirement.required):
+                        raise ValueError(t("Требования оценки изменены относительно контракта.",
+                                           "Evaluated requirements differ from the contract."))
+                    if item["status"] == "pass":
+                        if requirement.method == "cad" and item.get("source") != "cad":
+                            raise ValueError(t("CAD-требование подтверждено не CAD-источником.",
+                                               "A CAD requirement passed without CAD evidence."))
+                        if requirement.method == "vision" and item.get("source") != "vision":
+                            raise ValueError(t("Визуальное требование подтверждено не vision-источником.",
+                                               "A vision requirement passed without vision evidence."))
+                        if (requirement.method == "cad" and requirement.expected is not None):
+                            actual = item.get("actual")
+                            tolerance = (requirement.tolerance
+                                         if requirement.tolerance is not None else 1e-6)
+                            if (type(actual) not in {int, float}
+                                    or not math.isfinite(actual)
+                                    or abs(actual - requirement.expected) > tolerance):
+                                raise ValueError(t("CAD-значение достигнутой цели не совпало с эталоном.",
+                                                   "An achieved CAD value does not match its reference."))
+        outcome = raw.get("outcome")
+        if outcome not in {None, "achieved", "not_achieved", "unknown"}:
+            raise ValueError(t("Некорректный итог цели в файле переписки.",
+                               "Invalid goal outcome in the conversation file."))
+        if outcome == "achieved" and (
+                not evaluations or evaluations[-1].get("outcome") != "achieved"):
+            raise ValueError(t("Достигнутая цель не имеет подтверждающей оценки.",
+                               "An achieved goal has no confirming evaluation."))
+        for name, minimum in (("best_passed_weight", 0), ("no_progress", 0),
+                              ("contract_errors", 0), ("model_turns", 0),
+                              ("bindings_revision", 0), ("last_evaluated_bindings", 0)):
+            value = raw.get(name, 0)
+            if type(value) is not int or value < minimum:
+                raise ValueError(t("Некорректные счётчики цели в файле переписки.",
+                                   "Invalid goal counters in the conversation file."))
+        if raw["no_progress"] > options.max_no_progress:
+            raise ValueError(t("Некорректный счётчик отсутствия прогресса.",
+                               "Invalid no-progress counter."))
+        last_score = raw.get("last_score")
+        if last_score is not None and (type(last_score) not in {int, float}
+                                       or not math.isfinite(last_score)):
+            raise ValueError(t("Некорректный последний балл цели.",
+                               "Invalid last goal score."))
+        if raw.get("completion_reason") is not None and (
+                not isinstance(raw["completion_reason"], str)
+                or len(raw["completion_reason"]) > 200):
+            raise ValueError(t("Некорректная причина завершения цели.",
+                               "Invalid goal completion reason."))
+        if raw.get("summary") is not None and (
+                not isinstance(raw["summary"], str) or len(raw["summary"]) > 6000):
+            raise ValueError(t("Некорректное резюме цели.",
+                               "Invalid goal summary."))
+        result = deepcopy(raw)
+        result.setdefault("bindings_revision", 0)
+        result.setdefault("last_evaluated_bindings", 0)
+        result["bindings"] = deepcopy(bindings)
+        result["evaluations"] = deepcopy(evaluations)
+        result["options"] = options.as_dict()
+        return result
+
     def load_conversation(self, data: dict) -> dict:
         if self._closed:
             raise RuntimeError(t("Агент завершает работу.", "The agent is shutting down."))
@@ -467,9 +821,16 @@ class Agent:
                     or run_id in used_ids:
                 run_id = uuid4().hex
             used_ids.add(run_id)
+            goal = self._validated_goal(raw.get("goal"))
+            requested_profile_id = raw.get("requested_profile_id")
+            if not isinstance(requested_profile_id, str) or len(requested_profile_id) > 100:
+                requested_profile_id = None
             run = Run(session_id=session_id, profile_id=profile_id,
+                      requested_profile_id=requested_profile_id,
                       messages=deepcopy(messages) if index == len(raw_runs) - 1 else [],
                       max_calls=max_calls, language=language, status=status,
+                      evaluation=deepcopy(goal["options"]) if goal else None,
+                      goal=goal,
                       events=deepcopy(events), stop_requested=bool(raw.get("stop_requested")),
                       call_count=call_count, checks=deepcopy(checks))
             run.id = run_id
@@ -586,6 +947,8 @@ class Agent:
         self._guard(run)
         # Refresh the application-owned instruction even for existing dialogue history.
         prompt = _system_prompt(run.language)
+        if run.goal is not None:
+            prompt += _GOAL_GUIDANCE_EN if run.language == "en" else _GOAL_GUIDANCE_RU
         if self.settings is not None:
             prompt += (t(
                 " Постоянное разрешение Python уже включено. Пользователь выбрал всегда доверять "
@@ -809,6 +1172,8 @@ class Agent:
             self._guard(run)
             self._check(signature and signature[0] > 0 and signature != file_before)
             evidence.append({"name": "file", "path": target, "size": signature[0]})
+            if run.goal is not None:
+                run.goal.setdefault("written_files", {})[str(target)] = file_before
         else:
             if name in _TREE_FEEDBACK:
                 await self._read(run, catalog, "get_feature_tree", {}, call_id, evidence)
@@ -867,6 +1232,11 @@ class Agent:
         self._guard(run)
         mutating = name not in _READ_ONLY
         if mutating:
+            if run.goal is not None and run.goal.get("contract") is not None:
+                run.goal["revision"] = int(run.goal["revision"]) + 1
+                run.goal["phase"] = "executing"
+                run._emit("goal_revision", revision=run.goal["revision"],
+                          tool_call_id=call_id)
             run.checks[call_id] = {"status": "pending", "message": t(
                 "Изменение ещё не проверено.", "The change has not been verified yet.")}
         message = content = None
@@ -977,63 +1347,639 @@ class Agent:
         self._flush_images(run)
         run.messages.append({"role": "user", "content": message})
 
+    @staticmethod
+    def _contract(run):
+        data = run.goal.get("contract")
+        if not isinstance(data, dict):
+            return None
+        requirements = [Requirement(**item) for item in data["requirements"]]
+        return GoalContract(kind=data["kind"], requirements=requirements,
+                            reference_ids=list(data.get("reference_ids", [])),
+                            ambiguities=list(data.get("ambiguities", [])))
+
+    @staticmethod
+    def _goal_tolerance_note():
+        return t("Итог вычислен приложением; визуальные подтверждения не доказывают "
+                 "скрытую геометрию.", "The application computed the result; visual confirmations "
+                 "do not prove hidden geometry.")
+
+    def _finish_goal(self, run, status, outcome, reason, summary):
+        run.goal["phase"] = "finished"
+        run.goal["outcome"] = outcome
+        run.goal["completion_reason"] = reason
+        run.goal["summary"] = summary
+        summary = f"{summary} {self._goal_tolerance_note()}".strip()
+        run._emit("goal_finished", outcome=outcome, completion_reason=reason,
+                  summary=summary, evaluation_count=len(run.goal["evaluations"]),
+                  last_score=run.goal["last_score"], authority=run.goal["authority"])
+        raise _EndRun(status, summary)
+
+    async def _execute_local(self, run, catalog, call_id, name, arguments):
+        run._emit("tool_start", tool_call_id=call_id, name=name, arguments=arguments,
+                  verification=False)
+        result = {"ok": False, "value": None, "error": None, "uncertain": False}
+        try:
+            self._guard(run)
+            if name == _DEFINE_GOAL:
+                if run.goal.get("contract") is not None:
+                    raise ValueError(t("Контракт цели уже зафиксирован и неизменяем.",
+                                       "The goal contract is already frozen and immutable."))
+                requirements = [Requirement(**item) for item in arguments.get("requirements", [])]
+                contract = GoalContract(kind=arguments["kind"], requirements=requirements,
+                                        reference_ids=list(arguments.get("reference_ids", [])),
+                                        ambiguities=list(arguments.get("ambiguities", [])))
+                run.goal["contract"] = contract.as_snapshot()
+                run.goal["kind"] = contract.kind
+                run.goal["phase"] = "executing"
+                run._emit("goal_defined", contract=contract.as_snapshot(),
+                          requirements_count=len(contract.requirements))
+                result = {"ok": True, "value": {"contract_digest": contract.contract_digest,
+                                                "requirements": len(contract.requirements),
+                                                "kind": contract.kind}}
+            elif name == _BIND_REQUIREMENTS:
+                contract = self._contract(run)
+                if contract is None:
+                    raise ValueError(t("Сначала зафиксируйте контракт цели.",
+                                       "Freeze the goal contract first."))
+                known = {item.id for item in contract.requirements}
+                bindings = dict(run.goal.get("bindings") or {})
+                for item in arguments.get("bindings", []):
+                    requirement_id = item["requirement_id"]
+                    if requirement_id not in known:
+                        raise ValueError(t("Привязка ссылается на неизвестное требование.",
+                                           "A binding references an unknown requirement."))
+                    binding = {key: value for key, value in item.items()
+                               if key in {"tool", "name", "field", "path"} and value is not None}
+                    bindings[requirement_id] = binding
+                run.goal["bindings"] = bindings
+                run.goal["bindings_revision"] = int(run.goal.get("bindings_revision", 0)) + 1
+                run._emit("goal_bindings", bindings=deepcopy(bindings),
+                          bindings_revision=run.goal["bindings_revision"])
+                result = {"ok": True, "value": {"bindings": len(bindings)}}
+            else:
+                raise ValueError(t("Этот инструмент доступен только в оценочном запросе.",
+                                   "This tool is only available in the evaluation request."))
+        except (ValueError, KeyError, TypeError) as error:
+            run.goal["contract_errors"] = int(run.goal.get("contract_errors", 0)) + 1
+            result = {"ok": False, "value": None, "error": str(error), "uncertain": False}
+            if run.goal["contract_errors"] > 2:
+                result["error"] = t("Контракт цели отклонён слишком много раз; изменение запрещено.",
+                                    "The goal contract was rejected too many times; changes are blocked.")
+        finally:
+            content = _json(result)
+            run.messages.append({"role": "tool", "tool_call_id": call_id, "content": content})
+            run._pending.pop(call_id, None)
+            run._emit("tool_result", tool_call_id=call_id, name=name, result=result,
+                      verification=False)
+        if result.get("error") and run.goal["contract_errors"] > 2:
+            raise _EndRun("failed", result["error"])
+
+    async def _run_goal(self, run, provider, tools, catalog):
+        goal = run.goal
+        while True:
+            self._guard(run)
+            options = goal["options"]
+            turn_limit = 4 * int(options["max_evaluations"]) + 8
+            if goal["model_turns"] >= turn_limit:
+                self._finish_goal(run, "limit_reached", "unknown", "model_turn_limit",
+                                  t("Лимит ходов модели исчерпан; цель не проверена полностью.",
+                                    "The model turn limit was reached; the goal is not fully checked."))
+            response = await self._model(run, provider, tools)
+            goal["model_turns"] += 1
+            if len(_json(response).encode("utf-8")) > self.max_history_bytes:
+                raise _EndRun("failed", t("Ответ модели превысил допустимый размер контекста.",
+                                          "The model response exceeded the allowed context size."))
+            used_ids = {call["id"] for previous in run.messages
+                        for call in previous.get("tool_calls", [])}
+            message, calls = self._prepare(response, provider, catalog, used_ids)
+            if len(_json([*run.messages, message]).encode("utf-8")) > self.max_history_bytes:
+                raise _EndRun("failed", t("История превысила лимит контекста. Начните новый диалог.",
+                                          "The history exceeded the context limit. Start a new dialogue."))
+            local_calls = [call for call in calls if call[1] in _LOCAL_TOOLS]
+            if local_calls and len(calls) != 1:
+                raise _EndRun("failed", t("Служебный вызов цели должен быть единственным в ответе.",
+                                          "A goal service call must be the only call in a response."))
+            run.messages.append(message)
+            if message["content"]:
+                run._emit("message", role="assistant", content=message["content"])
+            if not calls:
+                if run.repairing:
+                    raise _EndRun("failed", t(
+                        "Модель не предложила исправление Python-кода; запрос остановлен.",
+                        "The model did not propose a Python repair; the request was stopped."))
+                await self._decide_goal(run, provider, catalog)
+                continue
+            if local_calls:
+                call_id, name, arguments = calls[0]
+                await self._execute_local(run, catalog, call_id, name, arguments)
+                if (goal.get("contract") and self._contract(run).ambiguities):
+                    self._finish_goal(run, "completed", "unknown", "clarification_required",
+                                      t("Нужно уточнение: обязательные данные противоречивы или отсутствуют.",
+                                        "Clarification is required: required data is missing or contradictory."))
+                continue
+            contract = self._contract(run)
+            if contract is None and any(name not in _READ_ONLY for _, name, _ in calls):
+                raise _EndRun("failed", t("Изменение документа запрещено до фиксации контракта цели.",
+                                          "Document changes are blocked until the goal contract is frozen."))
+            if contract is not None and contract.kind == "informational" and any(
+                    name not in _READ_ONLY for _, name, _ in calls):
+                raise _EndRun("failed", t("Справочный запрос не может изменять CAD-документ.",
+                                          "An informational request cannot modify the CAD document."))
+            if contract is not None and run.goal["phase"] == "evaluating":
+                run.goal["phase"] = "executing"
+            run._pending = {call_id: name for call_id, name, arguments in calls}
+            repair_requested = False
+            for call_id, name, arguments in calls:
+                self._guard(run)
+                try:
+                    await self._execute(run, provider, catalog, call_id, name, arguments)
+                except _PythonRepair as error:
+                    self._guard(run)
+                    await self._prepare_python_repair(run, error)
+                    repair_requested = True
+                    break
+            if repair_requested:
+                continue
+            self._flush_images(run)
+
+    async def _decide_goal(self, run, provider, catalog):
+        goal = run.goal
+        contract = self._contract(run)
+        if contract is None:
+            self._finish_goal(run, "completed", "unknown", "contract_missing",
+                              t("Контракт цели не зафиксирован; результат не проверялся.",
+                                "The goal contract was not frozen; the result was not evaluated."))
+        if contract.ambiguities:
+            self._finish_goal(run, "completed", "unknown", "clarification_required",
+                              t("Нужно уточнение: обязательные данные противоречивы или отсутствуют.",
+                                "Clarification is required: required data is missing or contradictory."))
+        if contract.kind == "informational":
+            self._finish_goal(run, "completed", "unknown", "informational",
+                              t("Справочный ответ: процент сходства не вычисляется.",
+                                "Informational answer: no similarity percentage is computed."))
+        evaluations = goal["evaluations"]
+        if (evaluations and evaluations[-1]["revision"] == goal["revision"]
+                and int(goal.get("last_evaluated_bindings", 0))
+                == int(goal.get("bindings_revision", 0))):
+            goal["no_progress"] = int(goal["no_progress"]) + 1
+            self._finish_goal(run, "limit_reached", evaluations[-1]["outcome"], "no_progress",
+                              t("Повторная проверка без нового действия не улучшила результат.",
+                                "A repeated check without a new action did not improve the result."))
+        evaluation = await self._evaluate_goal(run, provider, catalog)
+        number = len(evaluations) + 1
+        evaluation = replace(evaluation, number=number)
+        goal["evaluations"].append(evaluation.as_snapshot())
+        goal["last_score"] = evaluation.score
+        goal["authority"] = evaluation.authority
+        goal["last_evaluated_bindings"] = int(goal.get("bindings_revision", 0))
+        goal["outcome"] = evaluation.outcome
+        goal["no_progress"] = update_progress(
+            run._last_evaluation, evaluation, int(goal["no_progress"]),
+            best_weight=int(goal["best_passed_weight"]))
+        goal["best_passed_weight"] = max(int(goal["best_passed_weight"]),
+                                         evaluation.passed_weight)
+        run._last_evaluation = evaluation
+        goal["phase"] = "evaluating"
+        run._emit("goal_evaluation", score=evaluation.score, outcome=evaluation.outcome,
+                  authority=evaluation.authority, number=number,
+                  revision=evaluation.revision,
+                  passed_weight=evaluation.passed_weight,
+                  total_weight=evaluation.total_weight,
+                  requirements=[{"id": item["requirement_id"], "status": item["status"],
+                                 "source": item["source"], "actual": item["actual"],
+                                 "expected": item["expected"], "unit": item["unit"]}
+                                for item in evaluation.per_requirement])
+        if evaluation.outcome == "achieved":
+            self._finish_goal(run, "completed", "achieved", "criteria_met",
+                              t(f"Критерии выполнены: {evaluation.score:g}% веса требований.",
+                                f"Criteria met: {evaluation.score:g}% of requirement weight."))
+        options = goal["options"]
+        if number >= int(options["max_evaluations"]):
+            self._finish_goal(run, "limit_reached", evaluation.outcome, "evaluation_limit",
+                              t("Цель не достигнута: лимит оценок исчерпан.",
+                                "Goal not achieved: the evaluation limit was reached."))
+        if int(goal["no_progress"]) >= int(options["max_no_progress"]):
+            self._finish_goal(run, "limit_reached", evaluation.outcome, "no_progress",
+                              t("Цель не достигнута: нет прогресса после исправлений.",
+                                "Goal not achieved: no progress after corrections."))
+        if evaluation.outcome == "unknown":
+            fixable = any(item["status"] == "unknown" and item["method"] == "cad"
+                          for item in evaluation.per_requirement)
+            if not fixable:
+                self._finish_goal(run, "completed", "unknown", "evaluation_unavailable",
+                                  t("Результат не удалось проверить безопасным CAD-чтением.",
+                                    "The result could not be checked with a safe CAD read."))
+        self._emit_correction(run, evaluation, options)
+
+    def _emit_correction(self, run, evaluation, options):
+        differences = [{"id": item["requirement_id"], "description": item["description"],
+                        "status": item["status"], "actual": item["actual"],
+                        "expected": item["expected"], "unit": item["unit"],
+                        "reason": item["reason"]}
+                       for item in evaluation.per_requirement if item["status"] != "pass"]
+        run.goal["phase"] = "correcting"
+        remaining_calls = max(0, run.max_calls - run.call_count)
+        remaining_evaluations = max(0, int(options["max_evaluations"])
+                                    - len(run.goal["evaluations"]))
+        run._emit("goal_correction", number=evaluation.number, differences=differences,
+                  remaining_calls=remaining_calls,
+                  remaining_evaluations=remaining_evaluations)
+        instruction = t(
+            "Серверная оценка не достигла цели. Исправь только перечисленные расхождения; "
+            "не повторяй уже выполненные действия, не создавай дубликаты и не заявляй процент. "
+            f"Осталось CAD-вызовов: {remaining_calls}; оценок: {remaining_evaluations}. "
+            f"Расхождения: {_json(differences)}",
+            "The server evaluation did not reach the goal. Correct only the listed differences; "
+            "do not repeat completed actions, create duplicates, or claim a percentage. "
+            f"Remaining CAD calls: {remaining_calls}; evaluations: {remaining_evaluations}. "
+            f"Differences: {_json(differences)}")
+        self._flush_images(run)
+        run.messages.append({"role": "user", "content": instruction})
+
+    async def _eval_read(self, run, catalog, name, arguments, call_id):
+        result = await self._call(run, catalog, name, arguments, call_id, verification=True)
+        self._guard(run)
+        if result.get("uncertain"):
+            raise _EndRun("uncertain", t(
+                "Результат оценочного CAD-чтения неизвестен; проверка остановлена.",
+                "The evaluation CAD read outcome is unknown; the check was stopped."))
+        return result
+
+    async def _evaluate_goal(self, run, provider, catalog):
+        goal = run.goal
+        contract = self._contract(run)
+        if contract is None:
+            raise _EndRun("failed", t("Контракт цели отсутствует.", "The goal contract is missing."))
+        needed = 2
+        sheet_needed = mass_needed = False
+        bindings = goal.get("bindings") or {}
+        for requirement in contract.requirements:
+            if requirement.method != "cad":
+                continue
+            binding = bindings.get(requirement.id) or {}
+            tool_name = binding.get("tool")
+            if tool_name == "get_dimension":
+                needed += 1
+            elif tool_name == "get_sheet_metal_info" and not sheet_needed:
+                needed += 1
+                sheet_needed = True
+            elif tool_name == "get_mass_properties" and not mass_needed:
+                needed += 1
+                mass_needed = True
+            elif tool_name in {"get_feature_tree", "get_components"}:
+                needed += 1
+        if any(requirement.method == "vision" for requirement in contract.requirements):
+            if run._reference_images:
+                needed += 1
+        if run.call_count + needed > run.max_calls:
+            raise _EndRun("limit_reached", t(
+                "Недостаточно бюджета CAD-вызовов для полной оценки; проверка не начата.",
+                "The CAD call budget is insufficient for a complete evaluation; the check did not start."))
+        call_id = f"goal:{goal['revision']}:doc"
+        connection = await self._eval_read(run, catalog, "connect_solidworks", {}, call_id)
+        active = (connection.get("value") or {}).get("active_document") if connection.get("ok") else None
+        listing = await self._eval_read(run, catalog, "list_open_documents", {}, call_id + ":list")
+        documents = (listing.get("value") or {}).get("documents") if listing.get("ok") else []
+        document = next((item for item in documents or [] if item.get("title") == active), None)
+        identity = (f"{active}|{document.get('path') or ''}" if document is not None
+                    else (str(active) if active else ""))
+        if goal.get("document_identity") not in {None, identity}:
+            goal["revision"] = int(goal["revision"]) + 1
+            goal["best_passed_weight"] = 0
+            goal["no_progress"] = 0
+            goal["bindings"] = {}
+            goal["bindings_revision"] = int(goal.get("bindings_revision", 0)) + 1
+            goal["last_evaluated_bindings"] = 0
+        goal["document_identity"] = identity
+        revision = int(goal["revision"])
+        evidence = []
+        sheet_metal = None
+        mass_properties = None
+        for index, requirement in enumerate(contract.requirements):
+            if requirement.method != "cad":
+                continue
+            binding = (goal.get("bindings") or {}).get(requirement.id) or {}
+            record_id = f"{requirement.id}:cad:{revision}:{index}"[:100]
+            if not binding:
+                evidence.append(EvidenceRecord(
+                    id=record_id, requirement_id=requirement.id,
+                    contract_digest=contract.contract_digest, revision=revision,
+                    document_identity=identity, source="cad", status="unknown",
+                    reason=t("Нет привязки к созданному объекту.", "No binding to a created object.")))
+                continue
+            tool_name = binding.get("tool")
+            try:
+                if tool_name == "get_dimension":
+                    name = binding.get("name")
+                    if not name:
+                        raise ValueError("get_dimension binding needs a name")
+                    result = await self._eval_read(run, catalog, "get_dimension", {"name": name},
+                                                   f"{call_id}:dim:{index}")
+                    if not result.get("ok"):
+                        evidence.append(EvidenceRecord(
+                            id=record_id, requirement_id=requirement.id,
+                            contract_digest=contract.contract_digest, revision=revision,
+                            document_identity=identity, source="cad", status="unknown",
+                            reason=t("CAD-чтение размера не удалось.", "The dimension read failed.")))
+                    else:
+                        evidence.append(dimension_evidence(
+                            requirement, result.get("value") or {}, bound_name=name,
+                            revision=revision, document_identity=identity,
+                            tool_call_id=f"{call_id}:dim:{index}",
+                            contract_digest=contract.contract_digest))
+                elif tool_name in {"get_sheet_metal_info", "get_mass_properties"}:
+                    cache = sheet_metal if tool_name == "get_sheet_metal_info" else mass_properties
+                    if cache is None:
+                        result = await self._eval_read(run, catalog, tool_name, {},
+                                                       f"{call_id}:{tool_name}")
+                        cache = result.get("value") or {} if result.get("ok") else {}
+                        if tool_name == "get_sheet_metal_info":
+                            sheet_metal = cache
+                        else:
+                            mass_properties = cache
+                    field = binding.get("field") or (
+                        "thickness_mm" if tool_name == "get_sheet_metal_info" else "")
+                    adapter = (sheet_metal_evidence if tool_name == "get_sheet_metal_info"
+                               else mass_properties_evidence)
+                    evidence.append(adapter(
+                        requirement, cache, field=field, revision=revision,
+                        document_identity=identity, tool_call_id=f"{call_id}:{tool_name}",
+                        contract_digest=contract.contract_digest))
+                elif tool_name == "get_feature_tree":
+                    result = await self._eval_read(run, catalog, tool_name, {"limit": _TREE_LIMIT},
+                                                   f"{call_id}:{tool_name}:{index}")
+                    value = result.get("value") or {} if result.get("ok") else {}
+                    evidence.append(tree_evidence(
+                        requirement, value, expected=binding.get("name") or "",
+                        limit=_TREE_LIMIT, revision=revision, document_identity=identity,
+                        tool_call_id=f"{call_id}:{tool_name}:{index}",
+                        contract_digest=contract.contract_digest))
+                elif tool_name == "get_components":
+                    result = await self._eval_read(run, catalog, tool_name, {},
+                                                   f"{call_id}:{tool_name}:{index}")
+                    value = result.get("value") or {} if result.get("ok") else {}
+                    evidence.append(components_evidence(
+                        requirement, value, name=binding.get("name") or "",
+                        path=binding.get("path"), revision=revision,
+                        document_identity=identity,
+                        tool_call_id=f"{call_id}:{tool_name}:{index}",
+                        contract_digest=contract.contract_digest))
+                elif tool_name == "file":
+                    target = binding.get("name") or binding.get("path") or ""
+                    written = (run.goal.get("written_files") or {}).get(target)
+                    if written is None:
+                        evidence.append(EvidenceRecord(
+                            id=record_id, requirement_id=requirement.id,
+                            contract_digest=contract.contract_digest, revision=revision,
+                            document_identity=identity, source="cad", status="unknown",
+                            reason=t("В этом прогоне файл не записывался; прежний файл не "
+                                     "доказывает результат.",
+                                     "The file was not written in this run; an existing "
+                                     "file does not prove the result.")))
+                        continue
+                    signature = await asyncio.to_thread(_file_signature, target)
+                    self._guard(run)
+                    evidence.append(requested_file_evidence(
+                        requirement, {"saved": target}, requested_path=target,
+                        signature_before=written, signature_after=signature,
+                        revision=revision, document_identity=identity,
+                        tool_call_id=f"{call_id}:file",
+                        contract_digest=contract.contract_digest))
+                else:
+                    raise ValueError("unsupported binding")
+            except _EndRun:
+                raise
+            except (ValueError, TypeError, KeyError) as error:
+                evidence.append(EvidenceRecord(
+                    id=record_id, requirement_id=requirement.id,
+                    contract_digest=contract.contract_digest, revision=revision,
+                    document_identity=identity, source="cad", status="unknown",
+                    reason=str(error)[:2000]))
+        if any(requirement.method == "vision" for requirement in contract.requirements):
+            evidence.extend(await self._vision_evidence(run, provider, catalog, contract,
+                                                         revision, identity, evidence))
+        self._guard(run)
+        return evaluate_goal(contract, evidence, revision=revision,
+                             target_similarity=float(goal["options"]["target_similarity"]),
+                             document_identity=identity)
+
+    async def _vision_evidence(self, run, provider, catalog, contract, revision, identity,
+                               cad_evidence):
+        visual = [item for item in contract.requirements if item.method == "vision"]
+        unknown = [EvidenceRecord(
+            id=f"{item.id}:vision:{revision}"[:100], requirement_id=item.id,
+            contract_digest=contract.contract_digest, revision=revision,
+            document_identity=identity, source="vision", status="unknown",
+            reason=t("Визуальная проверка недоступна без эталона и текущего снимка.",
+                     "Visual checking needs a reference and a current screenshot."))
+            for item in visual]
+        if not run._reference_images:
+            return unknown
+        try:
+            screenshot = await self._eval_read(run, catalog, "screenshot", {},
+                                               f"goal:{revision}:screenshot")
+        except _EndRun:
+            raise
+        except Exception:
+            return unknown
+        images = screenshot.get("images") or []
+        if not screenshot.get("ok") or not images:
+            return unknown
+        current_ids = {f"current-{index}" for index in range(len(images))}
+        reference_ids = [f"reference-{index}" for index in range(len(run._reference_images))]
+        request = (run._goal_request or "")[:8000]
+        content = [{
+            "type": "text",
+            "text": t(
+                "Сравни текущий результат с эталоном только по перечисленным визуальным требованиям. "
+                "Верни один вызов cadnext_report_visual_evaluation. PASS допустим только при явном "
+                "совпадении; при недостатке вида или эталона верни UNKNOWN. В поле image_ids для "
+                "PASS обязательны идентификаторы текущих видов из списка. Не оценивай размеры, "
+                "которые проверяются CAD, и не заявляй процент. Требования: "
+                f"{_json([{'id': item.id, 'description': item.description} for item in visual])}. "
+                f"Идентификаторы текущих видов: {_json(sorted(current_ids))}. "
+                f"Идентификаторы эталонов: {_json(reference_ids)}. "
+                f"Исходный запрос пользователя: {request}. "
+                f"CAD-факты: {_json([item.as_snapshot() for item in cad_evidence])}.",
+                "Compare the current result with the reference only for the listed visual "
+                "requirements. Return one cadnext_report_visual_evaluation call. PASS only on an "
+                "explicit match and only with current-view image_ids from the list; return UNKNOWN "
+                "when a view or reference is insufficient. Do not judge CAD-measured dimensions "
+                "and do not claim a percentage. Requirements: "
+                f"{_json([{'id': item.id, 'description': item.description} for item in visual])}. "
+                f"Current view ids: {_json(sorted(current_ids))}. "
+                f"Reference ids: {_json(reference_ids)}. "
+                f"Original user request: {request}. "
+                f"CAD facts: {_json([item.as_snapshot() for item in cad_evidence])}."),
+        }]
+        for index, image in enumerate(run._reference_images):
+            content.append({"type": "image_url", "image_url": {
+                "url": f'data:{image["mimeType"]};base64,{image["data"]}'}})
+        for index, image in enumerate(images):
+            content.append({"type": "image_url", "image_url": {
+                "url": f'data:{image["mimeType"]};base64,{image["data"]}'}})
+        tools = [deepcopy(_GOAL_TOOL_SCHEMAS[2])]
+        try:
+            catalog = self._catalog(tools)
+            response = await self._vision_complete(run, provider, [
+                {"role": "system", "content": t(
+                    "Ты оцениваешь только визуальные признаки CAD-результата. "
+                    "Не заявляй геометрическое тождество. Используй единственный инструмент.",
+                    "You evaluate only visual CAD features. Do not claim geometric identity. "
+                    "Use the single available tool.")},
+                {"role": "user", "content": content}], tools)
+            _message, calls = self._prepare(response, provider, catalog, set())
+            if len(calls) != 1 or calls[0][1] != _REPORT_VISUAL:
+                raise ValueError("invalid visual report")
+            report = calls[0][2].get("evaluations")
+        except _EndRun:
+            raise
+        except Exception:
+            return unknown
+        records = {}
+        known = {item.id for item in visual}
+        for item in report:
+            if item.get("requirement_id") not in known or item["requirement_id"] in records:
+                continue
+            ids = item.get("image_ids") or []
+            if any(image_id not in (current_ids | set(reference_ids)) for image_id in ids):
+                continue
+            if item.get("status") == "pass" and not any(
+                    image_id.startswith("current-") for image_id in ids):
+                continue
+            records[item["requirement_id"]] = EvidenceRecord(
+                id=f"{item['requirement_id']}:vision:{revision}"[:100],
+                requirement_id=item["requirement_id"],
+                contract_digest=contract.contract_digest, revision=revision,
+                document_identity=identity, source="vision", status=item["status"],
+                reason=item["explanation"], image_ids=tuple(item.get("image_ids", [])))
+        return [records.get(item.id, unknown[index]) for index, item in enumerate(visual)]
+
+    async def _vision_complete(self, run, provider, messages, tools):
+        goal = run.goal
+        self._guard(run)
+        limit = 4 * int(goal["options"]["max_evaluations"]) + 8
+        if goal["model_turns"] >= limit:
+            self._finish_goal(run, "limit_reached", "unknown", "model_turn_limit",
+                              t("Лимит ходов модели исчерпан.",
+                                "The model turn limit was reached."))
+        goal["model_turns"] += 1
+        number = 1 + sum(event["type"] == "model_start" for event in run.events)
+        run.metrics["model_calls"] += 1
+        run._emit("model_start", number=number, vision=True)
+        started = time.perf_counter()
+        outcome = "error"
+        try:
+            result = await provider.complete(deepcopy(messages), deepcopy(tools))
+            self._guard(run)
+            outcome = "received"
+            return result
+        finally:
+            run.metrics["model_seconds"] += time.perf_counter() - started
+            safe = {}
+            metrics = getattr(provider, "last_metrics", None)
+            if isinstance(metrics, dict):
+                safe = {key: value for key, value in metrics.items()
+                        if value is None or (type(value) in {int, float}
+                                             and math.isfinite(value) and value >= 0)}
+                for key in ("request_bytes", "image_count"):
+                    value = safe.get(key)
+                    if value is not None:
+                        run.metrics[key] = (run.metrics[key] or 0) + value
+            if safe:
+                run._emit("model_metrics", number=number, **safe)
+            run._emit("model_end", number=number, outcome=outcome, vision=True)
+
+    async def _legacy_loop(self, run, provider, tools, catalog):
+        while True:
+            response = await self._model(run, provider, tools)
+            if len(_json(response).encode("utf-8")) > self.max_history_bytes:
+                raise _EndRun("failed", t("Ответ модели превысил допустимый размер контекста.",
+                                          "The model response exceeded the allowed context size."))
+            used_ids = {call["id"] for previous in run.messages
+                        for call in previous.get("tool_calls", [])}
+            message, calls = self._prepare(response, provider, catalog, used_ids)
+            if len(_json([*run.messages, message]).encode("utf-8")) > self.max_history_bytes:
+                raise _EndRun("failed", t("История превысила лимит контекста. Начните новый диалог.",
+                                          "The history exceeded the context limit. Start a new dialogue."))
+            run.messages.append(message)
+            if message["content"]:
+                run._emit("message", role="assistant", content=message["content"])
+            if not calls:
+                if run.repairing:
+                    raise _EndRun("failed", t(
+                        "Модель не предложила исправление Python-кода; запрос остановлен.",
+                        "The model did not propose a Python repair; the request was stopped."))
+                run._status("completed", t("Запрос завершён. Результат требует проверки.",
+                                           "The request completed. The result requires verification.")
+                            if run.verification == "unverified" else t("Запрос завершён.",
+                                                                        "The request completed."))
+                break
+            run._pending = {call_id: name for call_id, name, arguments in calls}
+            repair_requested = False
+            for call_id, name, arguments in calls:
+                self._guard(run)
+                try:
+                    await self._execute(run, provider, catalog, call_id, name, arguments)
+                except _PythonRepair as error:
+                    self._guard(run)
+                    await self._prepare_python_repair(run, error)
+                    repair_requested = True
+                    break
+            if repair_requested:
+                continue
+            self._flush_images(run)
+
     async def _run(self, run, provider):
         set_language(run.language)
         try:
             self._guard(run)
             run._status("running", t("Запрос выполняется.", "The request is running."))
             tools = await self.mcp.tools()
+            if run.goal is not None:
+                names = {tool.get("function", {}).get("name") for tool in tools}
+                if names & _LOCAL_TOOLS:
+                    raise _EndRun("failed", t(
+                        "Служебные инструменты цели конфликтуют с каталогом MCP.",
+                        "Goal service tools collide with the MCP catalog."))
+                tools = [*deepcopy(tools), *deepcopy(_GOAL_TOOL_SCHEMAS)]
             if len(_json(tools).encode("utf-8")) > self.max_catalog_bytes:
                 raise _EndRun("failed", t("Каталог инструментов превысил допустимый размер.",
                                           "The tool catalog exceeded the allowed size."))
             catalog = self._catalog(tools)
-            while True:
-                response = await self._model(run, provider, tools)
-                if len(_json(response).encode("utf-8")) > self.max_history_bytes:
-                    raise _EndRun("failed", t("Ответ модели превысил допустимый размер контекста.",
-                                              "The model response exceeded the allowed context size."))
-                used_ids = {call["id"] for previous in run.messages
-                            for call in previous.get("tool_calls", [])}
-                message, calls = self._prepare(response, provider, catalog, used_ids)
-                if len(_json([*run.messages, message]).encode("utf-8")) > self.max_history_bytes:
-                    raise _EndRun("failed", t("История превысила лимит контекста. Начните новый диалог.",
-                                              "The history exceeded the context limit. Start a new dialogue."))
-                run.messages.append(message)
-                if message["content"]:
-                    run._emit("message", role="assistant", content=message["content"])
-                if not calls:
-                    if run.repairing:
-                        raise _EndRun("failed", t(
-                            "Модель не предложила исправление Python-кода; запрос остановлен.",
-                            "The model did not propose a Python repair; the request was stopped."))
-                    run._status("completed", t("Запрос завершён. Результат требует проверки.",
-                                               "The request completed. The result requires verification.")
-                                if run.verification == "unverified" else t("Запрос завершён.",
-                                                                            "The request completed."))
-                    break
-                run._pending = {call_id: name for call_id, name, arguments in calls}
-                repair_requested = False
-                for call_id, name, arguments in calls:
-                    self._guard(run)
-                    try:
-                        await self._execute(run, provider, catalog, call_id, name, arguments)
-                    except _PythonRepair as error:
-                        self._guard(run)
-                        await self._prepare_python_repair(run, error)
-                        repair_requested = True
-                        break
-                if repair_requested:
-                    continue
-                self._flush_images(run)
+            if run.goal is not None:
+                await self._run_goal(run, provider, tools, catalog)
+            else:
+                await self._legacy_loop(run, provider, tools, catalog)
         except _EndRun as error:
+            if run.goal is not None and run.goal.get("completion_reason") is None:
+                if error.status == "limit_reached":
+                    run.goal["completion_reason"] = "call_limit"
+                elif error.status == "uncertain":
+                    run.goal["outcome"] = "unknown"
+                    run.goal["completion_reason"] = "uncertain"
+                elif error.status in {"stopped", "rejected", "failed"}:
+                    run.goal["completion_reason"] = error.status
+                run.goal["phase"] = "finished"
+                run.goal["summary"] = error.message
+                run._emit("goal_finished", outcome=run.goal.get("outcome"),
+                          completion_reason=run.goal["completion_reason"],
+                          summary=error.message,
+                          evaluation_count=len(run.goal.get("evaluations") or []),
+                          last_score=run.goal.get("last_score"),
+                          authority=run.goal.get("authority"))
             if error.status in {"failed", "uncertain", "limit_reached"}:
                 run._emit("error", message=error.message, uncertain=error.status == "uncertain")
             run._status(error.status, error.message)
         except ProviderError as error:
+            self._finish_failed_goal(run, str(error))
             run._emit("error", message=str(error), uncertain=False)
             run._status("failed", t("Ошибка API модели; CAD-вызовы не повторялись.",
                                     "Model API error; CAD calls were not repeated."))
         except Exception:
+            self._finish_failed_goal(run, t(
+                "Некорректные данные модели, каталога или проверки; запрос остановлен.",
+                "Invalid model, catalog, or verification data; the request was stopped."))
             run._emit("error", message=t(
                 "Некорректные данные модели, каталога или проверки; запрос остановлен.",
                 "Invalid model, catalog, or verification data; the request was stopped."),
@@ -1047,6 +1993,18 @@ class Agent:
             run._repair_call_id = None
             self._history[run.session_id] = deepcopy(run.messages)
             run._changed.set()
+
+    @staticmethod
+    def _finish_failed_goal(run, message):
+        if run.goal is None or run.goal.get("completion_reason") is not None:
+            return
+        run.goal["phase"] = "finished"
+        run.goal["outcome"] = "unknown"
+        run.goal["completion_reason"] = "failed"
+        run.goal["summary"] = message
+        run._emit("goal_finished", outcome="unknown", completion_reason="failed",
+                  summary=message, evaluation_count=len(run.goal.get("evaluations") or []),
+                  last_score=run.goal.get("last_score"), authority=run.goal.get("authority"))
 
     @staticmethod
     def _flush_images(run):

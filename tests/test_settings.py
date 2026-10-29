@@ -2,6 +2,8 @@ import json
 
 import pytest
 
+from cadnext.settings import SettingsStore
+
 
 class MemorySecrets:
     def __init__(self):
@@ -240,3 +242,99 @@ def test_clearing_key_and_frozen_profile_snapshot(tmp_path):
     assert store.secret(profile.id) is None
     with pytest.raises(FrozenInstanceError):
         profile.model = "changed"
+
+def _vision_store(tmp_path):
+    from cadnext.settings import SettingsStore
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    vision = store.save({"name": "Vision", "base_url": "https://vision.example.test/v1",
+                         "model": "v1", "vision": True, "api_key": "secret-vision"})
+    return store, vision
+
+
+def test_vision_routing_requires_existing_vision_profile(tmp_path):
+    from cadnext.settings import SettingsStore
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    text = store.save({"name": "Text", "base_url": "https://example.test/v1", "model": "m"})
+    with pytest.raises(ValueError):
+        store.set_vision_routing(text.id, approved=True)
+    with pytest.raises(ValueError):
+        store.set_vision_routing(None, approved=True)
+    with pytest.raises(KeyError):
+        store.set_vision_routing("missing", approved=True)
+    assert store.vision_routing is None
+
+
+def test_vision_routing_persists_without_secret_and_survives_rename(tmp_path):
+    store, vision = _vision_store(tmp_path)
+    store.set_vision_routing(vision.id, approved=True)
+    routing = store.vision_routing
+    assert routing["profile_id"] == vision.id and routing["approved"] is True
+    assert "secret-vision" not in (tmp_path / "settings.json").read_text()
+    store.save({"name": "Renamed"}, vision.id)
+    assert store.vision_routing == routing
+    assert SettingsStore(tmp_path, MemorySecrets()).vision_routing == routing
+    store.save({"api_key": "another-secret"}, vision.id)
+    assert SettingsStore(tmp_path, MemorySecrets()).vision_routing == routing
+
+
+@pytest.mark.parametrize("change", [
+    {"base_url": "https://other.example.test/v1"},
+    {"model": "v2"},
+    {"vision": False},
+    {"local": True},
+])
+def test_vision_routing_invalidated_by_connection_change(tmp_path, change):
+    store, vision = _vision_store(tmp_path)
+    store.set_vision_routing(vision.id, approved=True)
+    store.save(change, vision.id)
+    assert store.vision_routing is None
+    assert SettingsStore(tmp_path, MemorySecrets()).vision_routing is None
+
+
+def test_vision_routing_revoked_and_profile_delete_invalidates(tmp_path):
+    store, vision = _vision_store(tmp_path)
+    store.set_vision_routing(vision.id, approved=True)
+    store.set_vision_routing(vision.id, approved=False)
+    assert store.vision_routing is None
+    store.set_vision_routing(vision.id, approved=True)
+    store.delete(vision.id)
+    assert store.vision_routing is None
+
+
+def test_vision_routing_write_failure_keeps_previous_state(tmp_path, monkeypatch):
+    store, vision = _vision_store(tmp_path)
+    store.set_vision_routing(vision.id, approved=True)
+    before = (tmp_path / "settings.json").read_bytes()
+    routing = store.vision_routing
+
+    def fail_replace(*args):
+        raise OSError("simulated write failure")
+
+    monkeypatch.setattr("cadnext.settings.os.replace", fail_replace)
+    with pytest.raises(OSError):
+        store.set_vision_routing(vision.id, approved=False)
+    assert (tmp_path / "settings.json").read_bytes() == before
+    assert store.vision_routing == routing
+
+
+def test_legacy_settings_without_routing_fields_are_compatible(tmp_path):
+    from cadnext.settings import SettingsStore
+
+    (tmp_path / "settings.json").write_text(json.dumps({"version": 1, "profiles": [{
+        "id": "old", "name": "P", "base_url": "http://localhost/v1", "model": "m",
+        "vision": True}]}))
+    store = SettingsStore(tmp_path, MemorySecrets())
+    assert store.vision_routing is None
+    store.set_vision_routing("old", approved=True)
+    assert store.vision_routing["profile_id"] == "old"
+
+
+def test_stale_routing_fingerprint_is_ignored(tmp_path):
+    store, vision = _vision_store(tmp_path)
+    store.set_vision_routing(vision.id, approved=True)
+    data = json.loads((tmp_path / "settings.json").read_text())
+    data["vision_routing_fingerprint"] = "0" * 64
+    (tmp_path / "settings.json").write_text(json.dumps(data))
+    assert SettingsStore(tmp_path, MemorySecrets()).vision_routing is None

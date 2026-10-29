@@ -18,6 +18,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from cadnext.agent import Agent, AgentBusy
 from cadnext.attachments import AttachmentError
 from cadnext.conversations import write_sidecar
+from cadnext.evaluation import EvaluationOptions
 from cadnext.i18n import get_language, language_from_header, set_language, t
 from cadnext.mcp import ROOT, SolidWorksMcp
 from cadnext.privacy import PrivacyContext
@@ -50,6 +51,20 @@ class AttachmentBody(BaseModel):
     data: str
 
 
+class EvaluationOptionsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    enabled: bool = True
+    target_similarity: float = Field(default=100, gt=0, le=100)
+    max_evaluations: int = Field(default=10, ge=1, le=100)
+    max_no_progress: int = Field(default=3, ge=1, le=10)
+
+    def options(self) -> EvaluationOptions:
+        return EvaluationOptions(enabled=self.enabled,
+                                 target_similarity=float(self.target_similarity),
+                                 max_evaluations=self.max_evaluations,
+                                 max_no_progress=self.max_no_progress)
+
+
 class RunBody(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     session_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
@@ -57,6 +72,7 @@ class RunBody(BaseModel):
     message: str = Field(max_length=20000)
     attachments: list[AttachmentBody] = Field(default_factory=list)
     max_calls: int = Field(default=80, ge=1, le=1000)
+    evaluation: EvaluationOptionsBody = Field(default_factory=EvaluationOptionsBody)
     sensitive: list[str] = Field(default_factory=list, max_length=100)
     request_id: str | None = Field(default=None, min_length=1, max_length=100,
                                    pattern=r"^[A-Za-z0-9_-]+$")
@@ -79,7 +95,9 @@ class ConfirmationBody(BaseModel):
 
 class AppSettingsBody(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    python_execution_allowed: bool
+    python_execution_allowed: bool | None = None
+    vision_profile_id: str | None = Field(default=None, max_length=100)
+    vision_routing_approved: bool | None = None
 
 
 class SaveBody(BaseModel):
@@ -233,11 +251,36 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
 
     @app.get("/api/settings")
     def app_settings():
-        return {"python_execution_allowed": store().python_execution_allowed}
+        routing = store().vision_routing
+        return {"python_execution_allowed": store().python_execution_allowed,
+                "vision_profile_id": routing["profile_id"] if routing else None,
+                "vision_routing_approved": bool(routing),
+                "vision_routing_fingerprint": routing["fingerprint"] if routing else None}
 
     @app.put("/api/settings")
     def update_app_settings(body: AppSettingsBody):
-        store().set_python_execution_allowed(body.python_execution_allowed)
+        fields = body.model_fields_set
+        if not fields:
+            raise ValueError(t("Не указаны изменяемые настройки приложения.",
+                               "No application settings were provided."))
+        routing_fields = {"vision_profile_id", "vision_routing_approved"}
+        if fields & routing_fields:
+            approved = body.vision_routing_approved
+            if approved is None:
+                raise ValueError(t("Укажите явное согласие на автоматическую Vision-маршрутизацию.",
+                                   "Provide explicit approval for automatic Vision routing."))
+            if approved:
+                if not body.vision_profile_id:
+                    raise ValueError(t("Выберите Vision-профиль для автоматической маршрутизации.",
+                                       "Choose a Vision profile for automatic routing."))
+                store().set_vision_routing(body.vision_profile_id, approved=True)
+            else:
+                store().set_vision_routing(body.vision_profile_id, approved=False)
+        if "python_execution_allowed" in fields:
+            if body.python_execution_allowed is None:
+                raise ValueError(t("Разрешение Python должно быть логическим значением.",
+                                   "Python permission must be a boolean value."))
+            store().set_python_execution_allowed(body.python_execution_allowed)
         return app_settings()
 
     @app.post("/api/profiles", status_code=201)
@@ -336,7 +379,28 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
                                 or body.request_id in app.state.request_runs):
             raise HTTPException(status_code=409, detail=t("Запрос уже отправлен или остановлен.",
                                                                "The request was already sent or stopped."))
-        profile = store().get(body.profile_id)
+        try:
+            agent().assert_startable()
+        except (AgentBusy, RuntimeError) as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
+        requested = store().get(body.profile_id)
+        options = body.evaluation.options()
+        profile = requested
+        if options.enabled and not requested.vision:
+            routing = store().vision_routing
+            if routing is None:
+                raise HTTPException(status_code=422, detail=t(
+                    "Для цикла оценки нужен назначенный Vision-профиль с явным согласием. "
+                    "Настройте его или отключите оценку.",
+                    "The evaluation loop needs an approved Vision profile. "
+                    "Configure it or disable evaluation."))
+            profile = store().get(routing["profile_id"])
+            if not profile.vision:
+                raise HTTPException(status_code=422, detail=t(
+                    "Назначенный Vision-профиль больше не поддерживает изображения. "
+                    "Обновите назначение или отключите оценку.",
+                    "The assigned Vision profile no longer supports images. "
+                    "Update the assignment or disable evaluation."))
         if body.attachments and not profile.vision:
             raise AttachmentError(t("Для отправки изображений включите Vision в настройках подключения.",
                                        "Enable images in the connection settings to send pictures."))
@@ -352,7 +416,8 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         try:
             run = agent().start(session_id=body.session_id, provider=provider,
                                 message=body.message, attachments=[item.model_dump() for item in body.attachments],
-                                max_calls=body.max_calls, language=body.language or get_language())
+                                max_calls=body.max_calls, language=body.language or get_language(),
+                                requested_profile_id=requested.id, evaluation=options)
         except (AgentBusy, RuntimeError) as error:
             await provider.aclose()
             raise HTTPException(status_code=409, detail=str(error)) from None

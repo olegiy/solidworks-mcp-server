@@ -208,6 +208,8 @@ test('настоящие события API показывают CAD-этап и
   await page.addInitScript(id => {
     localStorage.setItem('cadnext.v1.profile', id);
     localStorage.setItem('cadnext.v1.session', 'real-activity');
+    localStorage.setItem('cadnext.v1.goalOptions', JSON.stringify({
+      enabled: false, target_similarity: 100, max_evaluations: 10, max_no_progress: 3 }));
   }, profile.id);
   await page.goto('/');
   await page.getByLabel('Сообщение', { exact: true }).fill('Читай долго');

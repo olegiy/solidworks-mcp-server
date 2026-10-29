@@ -26,8 +26,9 @@ def profile(client, **changes):
 
 
 def start(client, profile_id, message="Прочитай размер", **changes):
-    return client.post("/api/runs", json={"session_id": "session-1", "profile_id": profile_id,
-                                          "message": message, **changes})
+    payload = {"session_id": "session-1", "profile_id": profile_id, "message": message,
+               "evaluation": {"enabled": False}, **changes}
+    return client.post("/api/runs", json=payload)
 
 
 def wait(client, run_id):
@@ -59,10 +60,12 @@ def test_global_python_permission_is_persisted_and_validated(api):
     from tests.test_settings import MemorySecrets
 
     client, backend = api
-    assert client.get('/api/settings').json() == {'python_execution_allowed': False}
+    settings = client.get('/api/settings').json()
+    assert settings['python_execution_allowed'] is False
+    assert settings['vision_profile_id'] is None
     response = client.put('/api/settings', json={'python_execution_allowed': True})
     assert response.status_code == 200
-    assert response.json() == {'python_execution_allowed': True}
+    assert response.json()['python_execution_allowed'] is True
     restored = SettingsStore(backend.settings.path.parent, MemorySecrets())
     assert restored.python_execution_allowed is True
     saved = profile(client)
@@ -71,7 +74,9 @@ def test_global_python_permission_is_persisted_and_validated(api):
     assert backend.calls[0][0] == 'execute_python'
     assert client.put('/api/settings', json={'python_execution_allowed': 'true'}).status_code == 422
     assert client.put('/api/settings', json={'python_execution_allowed': False}).status_code == 200
-    assert client.get('/api/settings').json() == {'python_execution_allowed': False}
+    settings = client.get('/api/settings').json()
+    assert settings['python_execution_allowed'] is False
+    assert settings['vision_profile_id'] is None
     assert client.put('/api/settings', json={'python_execution_allowed': True, 'extra': 1}).status_code == 422
 
 
@@ -356,8 +361,9 @@ async def test_sse_disconnect_without_beacon_waits_for_cad_and_blocks_next_call(
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app),
                                      base_url="http://127.0.0.1:8876") as client:
             saved = backend.settings.save({"name": "P", "model": "m", "base_url": "http://localhost/v1"})
-            response = await client.post("/api/runs", json={"session_id": "s", "profile_id": saved.id,
-                                                           "message": "Читай долго"})
+            response = await client.post("/api/runs", json={
+                "session_id": "s", "profile_id": saved.id, "message": "Читай долго",
+                "evaluation": {"enabled": False}})
             run_id = response.json()["id"]
             await asyncio.wait_for(backend.entered.wait(), 2)
             disconnect = asyncio.Event()
@@ -421,7 +427,7 @@ def test_run_language_selects_english_prompt_and_messages(api):
     saved = profile(client)
     response = client.post('/api/runs', headers={'Accept-Language': 'en-US'},
                            json={'session_id': 'english-session', 'profile_id': saved['id'],
-                                 'message': 'Read size', 'language': 'en'})
+                                 'message': 'Read size', 'language': 'en', 'evaluation': {'enabled': False}})
     assert response.status_code == 202, response.text
     run = response.json()
     assert run['language'] == 'en'
@@ -519,7 +525,8 @@ def test_saved_conversation_opens_and_continues(api, tmp_path):
                for event in history[0]['events'])
     response = client.post('/api/runs', json={'session_id': loaded['session_id'],
                                               'profile_id': saved['id'],
-                                              'message': 'Прочитай размер'})
+                                              'message': 'Прочитай размер',
+                                              'evaluation': {'enabled': False}})
     assert response.status_code == 202, response.text
     wait(client, response.json()['id'])
     sent = backend.requests[-1]['messages']
@@ -553,3 +560,146 @@ def test_opening_uncertain_conversation_blocks_new_runs(api, tmp_path):
                                  'profile_id': saved['id'], 'message': 'Read size'})
     assert response.status_code == 409
     assert 'outcome is unknown' in response.json()['detail']
+
+def vision_profile(client, **changes):
+    return profile(client, name="Vision", vision=True,
+                   base_url="https://vision.example.test/v1", **changes)
+
+
+def test_settings_vision_routing_round_trip_and_partial_updates(api):
+    client, backend = api
+    text = profile(client)
+    vision = vision_profile(client)
+    initial = client.get("/api/settings").json()
+    assert initial["vision_profile_id"] is None
+    assert initial["vision_routing_approved"] is False
+    response = client.put("/api/settings", json={
+        "vision_profile_id": vision["id"], "vision_routing_approved": True})
+    assert response.status_code == 200, response.text
+    routing = response.json()
+    assert routing["vision_profile_id"] == vision["id"]
+    assert routing["vision_routing_approved"] is True
+    assert len(routing["vision_routing_fingerprint"]) == 64
+    assert client.put("/api/settings", json={"python_execution_allowed": True}).json()[
+        "vision_profile_id"] == vision["id"]
+    assert client.put("/api/settings", json={"vision_routing_approved": False}).json()[
+        "vision_profile_id"] is None
+    assert client.put("/api/settings", json={"vision_profile_id": text["id"],
+                                             "vision_routing_approved": True}).status_code == 422
+    assert client.put("/api/settings", json={"vision_routing_approved": True}).status_code == 422
+
+
+def test_evaluation_requires_approved_vision_routing_before_any_request(api):
+    client, backend = api
+    text = profile(client)
+    response = start(client, text["id"], "Прочитай размер", evaluation={"enabled": True})
+    assert response.status_code == 422
+    assert "Vision" in response.json()["detail"]
+    assert backend.requests == []
+    assert client.get("/api/health").json()["active_run_id"] is None
+
+
+def test_auto_vision_uses_effective_profile_and_reports_both_ids(api):
+    client, backend = api
+    text = profile(client)
+    vision = vision_profile(client)
+    client.put("/api/settings", json={"vision_profile_id": vision["id"],
+                                     "vision_routing_approved": True})
+    run = start(client, text["id"], "Прочитай размер", evaluation={"enabled": True}).json()
+    assert run["profile_id"] == vision["id"]
+    assert run["requested_profile_id"] == text["id"]
+    selected = [event for event in run["events"] if event["type"] == "profile_selected"]
+    assert selected and selected[-1]["data"]["profile_id"] == vision["id"]
+    finished = wait(client, run["id"])
+    assert finished["profile_id"] == vision["id"]
+    assert [item.id for item in backend.profiles] == [vision["id"]]
+
+
+def test_evaluation_disabled_keeps_requested_profile(api):
+    client, backend = api
+    text = profile(client)
+    run = start(client, text["id"], "Прочитай размер",
+                evaluation={"enabled": False}).json()
+    assert run["profile_id"] == text["id"]
+    wait(client, run["id"])
+    assert [item.id for item in backend.profiles] == [text["id"]]
+
+
+def test_revoked_or_stale_routing_never_opens_provider(api):
+    client, backend = api
+    text = profile(client)
+    vision = vision_profile(client)
+    client.put("/api/settings", json={"vision_profile_id": vision["id"],
+                                     "vision_routing_approved": True})
+    client.put(f"/api/profiles/{vision['id']}", json={"model": "changed"})
+    assert start(client, text["id"], "Прочитай размер", evaluation={"enabled": True}).status_code == 422
+    assert backend.profiles == []
+
+
+def test_attachments_follow_effective_vision_profile(api):
+    client, backend = api
+    text = profile(client)
+    vision = vision_profile(client)
+    client.put("/api/settings", json={"vision_profile_id": vision["id"],
+                                     "vision_routing_approved": True})
+    response = start(client, text["id"], "Посмотри", evaluation={"enabled": True}, attachments=[{
+        "name": "a.png", "mimeType": "image/png",
+        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="}])
+    assert response.status_code == 202, response.text
+    wait(client, response.json()["id"])
+    assert backend.profiles[-1].vision is True
+
+def test_goal_run_exposes_evaluation_and_events(api):
+    client, backend = api
+    saved = vision_profile(client)
+    run = start(client, saved["id"], "оценка-100", evaluation={"enabled": True}).json()
+    finished = wait(client, run["id"])
+    assert finished["status"] == "completed"
+    assert finished["goal"]["outcome"] == "achieved"
+    assert finished["goal"]["evaluations"][-1]["score"] == 100
+    types = [event["type"] for event in finished["events"]]
+    assert "goal_defined" in types and "goal_evaluation" in types and "goal_finished" in types
+    state = client.app.state.agent.get(run["id"]).state()
+    assert state["goal"]["evaluation_count"] == 1
+    assert "evaluations" not in state["goal"]
+    assert "contract" not in state["goal"]
+
+
+def test_goal_survives_sidecar_open(api, tmp_path):
+    client, backend = api
+    saved = vision_profile(client)
+    run = start(client, saved["id"], "оценка-100", evaluation={"enabled": True}).json()
+    assert wait(client, run["id"])["goal"]["outcome"] == "achieved"
+    assert client.post("/api/cad/save", json={"session_id": run["session_id"]}).status_code == 200
+    data = json.loads((tmp_path / "Деталь1.cadnext.json").read_text(encoding="utf-8"))
+    opened = client.post("/api/conversations/open", json={"conversation": data})
+    assert opened.status_code == 200, opened.text
+    goal = opened.json()["runs"][-1]["goal"]
+    assert goal["version"] == 1 and goal["outcome"] == "achieved"
+    assert goal["evaluations"][-1]["score"] == 100
+
+
+def test_invalid_goal_options_are_rejected_before_start(api):
+    client, backend = api
+    saved = vision_profile(client)
+    for evaluation in ({"target_similarity": 0}, {"target_similarity": 101},
+                       {"max_evaluations": 0}, {"max_no_progress": 11},
+                       {"unknown": True}):
+        response = start(client, saved["id"], "x", evaluation=evaluation)
+        assert response.status_code == 422
+    assert backend.requests == []
+    assert client.get("/api/health").json()["active_run_id"] is None
+
+
+def test_route_to_vision_keeps_requested_and_effective_ids_with_goal(api):
+    client, backend = api
+    text = profile(client)
+    vision = vision_profile(client)
+    client.put("/api/settings", json={"vision_profile_id": vision["id"],
+                                     "vision_routing_approved": True})
+    run = start(client, text["id"], "оценка-100", evaluation={"enabled": True}).json()
+    finished = wait(client, run["id"])
+    assert finished["requested_profile_id"] == text["id"]
+    assert finished["profile_id"] == vision["id"]
+    assert finished["goal"]["outcome"] == "achieved"
+    assert [item.id for item in backend.profiles] == [vision["id"]]

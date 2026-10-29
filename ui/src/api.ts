@@ -23,10 +23,63 @@ export interface Confirmation {
 export interface Attachment {
   name: string; mimeType: string; data: string;
 }
+export interface GoalOptions {
+  enabled: boolean; target_similarity: number; max_evaluations: number;
+  max_no_progress: number;
+}
+export interface GoalRequirement {
+  id: string; description: string; source: 'request' | 'attachment';
+  required: boolean; weight: number; method: 'cad' | 'vision';
+  expected: number | null; tolerance: number | null; unit: 'mm' | 'deg' | null;
+}
+export interface GoalContract {
+  version: 1; kind: 'cad' | 'informational'; requirements: GoalRequirement[];
+  reference_ids: string[]; ambiguities: string[]; contract_digest: string;
+}
+export interface GoalRequirementResult {
+  requirement_id: string; description: string; required: boolean; weight: number;
+  method: 'cad' | 'vision'; status: 'pass' | 'fail' | 'unknown';
+  actual: number | string | null; expected: number | null;
+  tolerance: number | null; unit: 'mm' | 'deg' | null;
+  source: 'cad' | 'vision' | null; reason: string;
+  evidence_id: string | null; images: string[];
+}
+export interface GoalEvaluation {
+  number: number; revision: number; contract_digest: string;
+  score: number | null; outcome: 'achieved' | 'not_achieved' | 'unknown';
+  authority: 'cad' | 'mixed' | 'vision';
+  per_requirement: GoalRequirementResult[]; evidence_ids: string[];
+  passed_weight: number; total_weight: number; target_similarity: number; at: number;
+}
+export interface GoalState {
+  version: 1; options: GoalOptions; phase: string;
+  kind: 'cad' | 'informational' | null; contract: GoalContract | null;
+  bindings: Record<string, Record<string, string>>; revision: number;
+  document_identity: string | null; evaluations: GoalEvaluation[];
+  best_passed_weight: number; no_progress: number;
+  outcome: 'achieved' | 'not_achieved' | 'unknown' | null;
+  completion_reason: string | null; last_score: number | null;
+  authority: 'cad' | 'mixed' | 'vision' | null;
+  model_turns: number; contract_errors: number; summary: string | null;
+}
+export interface GoalStateCompact {
+  version: 1; phase: string | null;
+  outcome: 'achieved' | 'not_achieved' | 'unknown' | null;
+  completion_reason: string | null; last_score: number | null;
+  authority: 'cad' | 'mixed' | 'vision' | null;
+  best_passed_weight: number; no_progress: number; evaluation_count: number;
+  max_evaluations: number; max_no_progress: number; target_similarity: number;
+  summary: string | null;
+}
 export interface RunEvent {
   seq: number; type: string; at?: number; data: Record<string, unknown>;
-  state?: Partial<Pick<Run, 'status' | 'call_count' | 'max_calls' | 'verification' |
-    'stop_requested' | 'confirmation' | 'repair_attempts' | 'repairing' | 'metrics'>>;
+  state?: Partial<Omit<Run, 'events' | 'messages' | 'goal'>> & {
+    goal?: GoalStateCompact;
+  };
+}
+export interface AppSettings {
+  python_execution_allowed: boolean; vision_profile_id: string | null;
+  vision_routing_approved: boolean; vision_routing_fingerprint: string | null;
 }
 export interface SaveResult {
   ok: boolean; saved?: string; conversation?: string; warning?: string;
@@ -38,10 +91,12 @@ export interface LoadedConversation {
 }
 
 export interface Run {
-  id: string; session_id: string; profile_id: string; language?: string; status: string;
+  id: string; session_id: string; profile_id: string;
+  requested_profile_id?: string | null; language?: string; status: string;
   events: RunEvent[]; confirmation: Confirmation | null; call_count: number;
   max_calls: number; verification: string; stop_requested: boolean;
-  repair_attempts?: number; repairing?: boolean;
+  repair_attempts?: number; repairing?: boolean; evaluation?: GoalOptions | null;
+  goal?: GoalState | null;
   metrics?: Record<string, number | null>;
 }
 export const terminal = (status: string) =>

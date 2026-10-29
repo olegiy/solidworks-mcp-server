@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode, RefObject } from 'react';
 import { api, remember, stored, terminal } from './api';
-import type { Attachment, Confirmation, LoadedConversation, ModelCatalog, Profile, ReasoningMetadata, Run, RunEvent, SaveResult } from './api';
+import type { AppSettings, Attachment, Confirmation, GoalOptions, LoadedConversation, ModelCatalog, Profile, ReasoningMetadata, Run, RunEvent, SaveResult } from './api';
 import { imageTypes, readImages, type DraftAttachment } from './attachments';
 import ModelPicker from './ModelPicker';
 import useReasoning from './useReasoning';
 import MessageContent, { CopyButton } from './MessageContent';
 import Icon from './Icon';
 import ActivityIndicator from './ActivityIndicator';
+import GoalEvaluationCard from './GoalEvaluation';
 import { applyRunEvent } from './runEvents';
 import type { PendingActivity, RunContact } from './ActivityIndicator';
 import { useI18n } from './i18n';
@@ -58,6 +59,25 @@ function selectedReasoning(metadata: ReasoningMetadata | null | undefined, value
   }
   return '';
 }
+const defaultGoalOptions: GoalOptions = { enabled: true, target_similarity: 100,
+  max_evaluations: 10, max_no_progress: 3 };
+function storedGoalOptions(): GoalOptions {
+  try {
+    const value = JSON.parse(localStorage.getItem('cadnext.v1.goalOptions') ?? 'null');
+    if (!value || typeof value !== 'object') return defaultGoalOptions;
+    return {
+      enabled: value.enabled !== false,
+      target_similarity: Number(value.target_similarity) > 0 && Number(value.target_similarity) <= 100
+        ? Number(value.target_similarity) : 100,
+      max_evaluations: Number.isInteger(value.max_evaluations) ? value.max_evaluations : 10,
+      max_no_progress: Number.isInteger(value.max_no_progress) ? value.max_no_progress : 3,
+    };
+  } catch { return defaultGoalOptions; }
+}
+function rememberGoalOptions(value: GoalOptions) {
+  try { localStorage.setItem('cadnext.v1.goalOptions', JSON.stringify(value)); }
+  catch { /* The current tab still works. */ }
+}
 const localAddress = (value: string) => {
   try {
     const host = new URL(value).hostname;
@@ -88,10 +108,13 @@ function SettingsDialog({ children, onClose, returnFocusTo, fallbackFocusTo }: {
     onClick={event => { if (event.target === event.currentTarget) onClose(); }}>{children}</dialog>;
 }
 
-function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, onClose, maxCalls, onMaxCallsChange }: {
+function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, onClose, maxCalls, onMaxCallsChange,
+  goalOptions, onGoalOptionsChange, appSettings, onAppSettingsChange }: {
   profiles: Profile[]; selected: string; onSaved: (id: string) => Promise<void>; onClose: () => void;
   profileCatalog: ModelCatalog | null; onCatalog: (profileId: string, catalog: ModelCatalog | null) => void;
   maxCalls: number; onMaxCallsChange: (value: number) => void;
+  goalOptions: GoalOptions; onGoalOptionsChange: (value: GoalOptions) => void;
+  appSettings: AppSettings | null; onAppSettingsChange: (value: AppSettings) => void;
 }) {
   const { t } = useI18n();
   const blank = { name: '', base_url: 'http://127.0.0.1:8080/v1', model: '', vision: false, local: true,
@@ -108,15 +131,36 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
   const [busy, setBusy] = useState(false);
   const [pythonAllowed, setPythonAllowed] = useState<boolean | null>(null);
   const [savingPermission, setSavingPermission] = useState(false);
+  const [routing, setRouting] = useState<AppSettings | null>(appSettings);
+  const [routingDraft, setRoutingDraft] = useState<string | null>(appSettings?.vision_profile_id ?? null);
+  const [routingBusy, setRoutingBusy] = useState(false);
+  const [routingNotice, setRoutingNotice] = useState('');
   const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => { closeButton.current?.focus(); }, []);
   useEffect(() => {
     const controller = new AbortController();
-    api<{ python_execution_allowed: boolean }>('/settings', { signal: controller.signal })
-      .then(result => setPythonAllowed(result.python_execution_allowed))
+    api<AppSettings>('/settings', { signal: controller.signal })
+      .then(result => { setPythonAllowed(result.python_execution_allowed); setRouting(result);
+        setRoutingDraft(result.vision_routing_approved ? result.vision_profile_id : null);
+        onAppSettingsChange(result); })
       .catch(error => { if (!controller.signal.aborted) setError(errorText(error, t)); });
     return () => controller.abort();
   }, []);
+  async function changeRouting(profileId: string | null, approved: boolean) {
+    const previous = routing;
+    setRoutingBusy(true); setError(''); setRoutingNotice('');
+    try {
+      const result = await api<AppSettings>('/settings', { method: 'PUT',
+        body: JSON.stringify({ vision_profile_id: profileId, vision_routing_approved: approved }) });
+      setRouting(result); onAppSettingsChange(result); setRoutingNotice(t('goalRoutingSaved'));
+      setRoutingDraft(result.vision_routing_approved ? result.vision_profile_id : null);
+    } catch (error) { setRouting(previous); setError(errorText(error, t)); }
+    finally { setRoutingBusy(false); }
+  }
+  function changeGoal(changes: Partial<GoalOptions>) {
+    const next = { ...goalOptions, ...changes };
+    onGoalOptionsChange(next);
+  }
 
   async function changePythonPermission(allowed: boolean) {
     const previous = pythonAllowed;
@@ -237,6 +281,38 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
       <p className="hint">{t('pythonPermissionHint')}</p>
       <label>{t('callLimit')}<input type="number" min={1} max={1000} value={maxCalls}
         onChange={e => onMaxCallsChange(Number(e.target.value))} /></label>
+      <h3>{t('goalOptions')}</h3>
+      <label className="check"><input type="checkbox" checked={goalOptions.enabled}
+        onChange={event => changeGoal({ enabled: event.target.checked })} />{t('goalEnabled')}</label>
+      <p className="hint">{t('goalOptionsHint')}</p>
+      <label>{t('goalTarget')}<input type="number" min={1} max={100} value={goalOptions.target_similarity}
+        disabled={!goalOptions.enabled}
+        onChange={event => changeGoal({ target_similarity: Number(event.target.value) })} /></label>
+      <label>{t('goalMaxEvaluations')}<input type="number" min={1} max={100} value={goalOptions.max_evaluations}
+        disabled={!goalOptions.enabled}
+        onChange={event => changeGoal({ max_evaluations: Number(event.target.value) })} /></label>
+      <label>{t('goalMaxNoProgress')}<input type="number" min={1} max={10} value={goalOptions.max_no_progress}
+        disabled={!goalOptions.enabled}
+        onChange={event => changeGoal({ max_no_progress: Number(event.target.value) })} /></label>
+      <h3>{t('goalRouting')}</h3>
+      <label>{t('goalRoutingProfile')}<select value={routingDraft ?? ''}
+        disabled={routingBusy}
+        onChange={event => setRoutingDraft(event.target.value || null)}>
+        <option value="">—</option>
+        {profiles.filter(profile => profile.vision).map(profile =>
+          <option key={profile.id} value={profile.id}>{profile.model} · {profile.name}</option>)}
+      </select></label>
+      <label className="check"><input type="checkbox"
+        checked={!!routingDraft && routing?.vision_profile_id === routingDraft
+          && routing?.vision_routing_approved === true}
+        disabled={routingBusy || !routingDraft}
+        onChange={event => void changeRouting(routingDraft, event.target.checked)} />
+        {t('goalRoutingApprove')}</label>
+      <p className="hint">{t('goalRoutingHint')}</p>
+      {routingDraft && !(routing?.vision_profile_id === routingDraft
+        && routing?.vision_routing_approved === true)
+        ? <p className="hint">{t('goalRoutingConsentRequired')}</p> : null}
+      {routingNotice ? <p role="status" className="notice">{routingNotice}</p> : null}
     </div>
   </section>;
 }
@@ -323,6 +399,7 @@ function RunView({ run }: { run: Run }) {
         <figcaption>{t('screenshotFromSolidworks')}</figcaption></figure>;
       return <p key={event.seq} className="error">{String(event.data.message)}</p>;
     })}
+    <GoalEvaluationCard run={run} />
     <div className="run-meta"><span className={`badge ${run.status}`} data-testid="run-status">{statusKeys[run.status] ? t(statusKeys[run.status]) : run.status}</span>
       <span>{t('callsCount', { count: run.call_count })}</span>
       {run.verification === 'unverified' ? <strong className="warning">{t('resultNeedsReview')}</strong> : null}
@@ -361,6 +438,8 @@ export default function App() {
   const [catalogs, setCatalogs] = useState<Record<string, ModelCatalog>>({});
   const [error, setError] = useState('');
   const [maxCalls, setMaxCalls] = useState(80);
+  const [goalOptions, setGoalOptions] = useState<GoalOptions>(storedGoalOptions);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const end = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   const settingsOpener = useRef<HTMLElement | null>(null);
@@ -378,8 +457,14 @@ export default function App() {
     ?? lookup.reasoning;
   const currentReasoningOptions = reasoningOptionsFor(currentReasoning, t);
   const currentReasoningValue = selectedReasoning(currentReasoning, currentProfile?.reasoning_effort, t);
-  const imagesAllowed = currentProfile?.vision === true;
+  const routing = appSettings?.vision_routing_approved === true
+    ? profiles.find(profile => profile.id === appSettings.vision_profile_id && profile.vision) : undefined;
+  const effectiveProfile = goalOptions.enabled && currentProfile && !currentProfile.vision
+    ? routing : currentProfile;
+  const routingMissing = goalOptions.enabled && !!currentProfile && !currentProfile.vision && !routing;
+  const imagesAllowed = effectiveProfile?.vision === true;
   const canSend = !loading && !sending && !savingProject && !active && !!currentProfile && !uncertain && !readingImages && !savingProfile
+    && !routingMissing
     && !(lookup.loading && !currentReasoning)
     && (!!message.trim() || attachments.length > 0) && (!attachments.length || imagesAllowed);
   const canSave = !loading && !sending && !savingProject && !active && !uncertain
@@ -396,15 +481,15 @@ export default function App() {
     let disposed = false;
     remember('session', sessionId);
     Promise.all([api<Profile[]>('/profiles'), api<{ active_run_id: string | null }>('/health'),
-      api<Run[]>(`/runs?session_id=${encodeURIComponent(sessionId)}`)])
-      .then(async ([profiles, health, history]) => {
+      api<Run[]>(`/runs?session_id=${encodeURIComponent(sessionId)}`), api<AppSettings>('/settings')])
+      .then(async ([profiles, health, history, loadedSettings]) => {
         if (health.active_run_id && !history.some(run => run.id === health.active_run_id)) {
           const run = await api<Run>(`/runs/${health.active_run_id}`);
           history.push(run);
           if (!disposed) { setSessionId(run.session_id); remember('session', run.session_id); }
         }
         if (disposed) return;
-        setProfiles(profiles); setRuns(history);
+        setProfiles(profiles); setRuns(history); setAppSettings(loadedSettings);
         setSelected(previous => profiles.some(p => p.id === previous) ? previous : profiles[0]?.id ?? '');
         const unfinished = health.active_run_id || history.find(run => !terminal(run.status))?.id;
         if (unfinished) {
@@ -441,6 +526,13 @@ export default function App() {
       lastContact = Date.now();
       setRunContact({ runId: streamId, at: lastContact, failed: false });
     }
+    async function settle() {
+      try {
+        const snapshot = await api<Run>(`/runs/${streamId}`);
+        if (!disposed) { current = snapshot; merge(snapshot); }
+      } catch { /* The last event still carries the terminal status. */ }
+      finally { finished = true; source.close(); }
+    }
     async function refresh() {
       if (disposed || refreshing || finished) return;
       refreshing = true;
@@ -469,7 +561,10 @@ export default function App() {
         current = applyRunEvent(current, update);
         merge(current);
         contacted();
-        if (terminal(current.status)) { finished = true; source.close(); }
+        if (terminal(current.status)) {
+          if (current.goal) void settle();
+          else { finished = true; source.close(); }
+        }
       } catch { void refresh(); }
     });
     source.addEventListener('heartbeat', event => {
@@ -502,7 +597,9 @@ export default function App() {
   }, [message]);
 
   async function reloadProfiles(id: string) {
-    const profiles = await api<Profile[]>('/profiles'); setProfiles(profiles);
+    const [profiles, loadedSettings] = await Promise.all([
+      api<Profile[]>('/profiles'), api<AppSettings>('/settings')]);
+    setProfiles(profiles); setAppSettings(loadedSettings);
     const selected = id || profiles[0]?.id || ''; setSelected(selected); remember('profile', selected);
   }
   function rememberCatalog(profileId: string, catalog: ModelCatalog | null) {
@@ -551,6 +648,7 @@ export default function App() {
       }
       const run = await api<Run>('/runs', { method: 'POST', body: JSON.stringify({
         session_id: sessionId, profile_id: selected, message, max_calls: maxCalls, language,
+        evaluation: goalOptions,
         attachments: attachments.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
         request_id: pendingRequest.current,
       }) });
@@ -616,6 +714,9 @@ export default function App() {
     setStreamId(''); setRuns([]); setError(''); setNotice(''); setSaveNotice(null);
     draftRevision.current++; setAttachments([]); setMessage(''); setPendingActivity(null); setRunContact(null);
     input.current?.focus();
+  }
+  function changeGoalOptions(value: GoalOptions) {
+    setGoalOptions(value); rememberGoalOptions(value);
   }
   function openSettings() {
     if (profileLock.current) return;
@@ -692,6 +793,30 @@ export default function App() {
             }
           }}
           disabled={loading} /></div>
+        <details className="goal-inline">
+          <summary>{t('goalOptions')}: {goalOptions.enabled ? `${goalOptions.target_similarity}%` : '—'}
+            {' · '}{goalOptions.max_evaluations}/{goalOptions.max_no_progress}</summary>
+          <div className="goal-inline-fields">
+            <label className="check"><input id="goal-enabled" type="checkbox" checked={goalOptions.enabled}
+              onChange={event => changeGoalOptions({ ...goalOptions, enabled: event.target.checked })} />
+              {t('goalEnabled')}</label>
+            <label>{t('goalTarget')}<input type="number" min={1} max={100}
+              aria-label={t('goalTarget')} value={goalOptions.target_similarity}
+              disabled={!goalOptions.enabled}
+              onChange={event => changeGoalOptions({ ...goalOptions,
+                target_similarity: Number(event.target.value) })} /></label>
+            <label>{t('goalMaxEvaluations')}<input type="number" min={1} max={100}
+              aria-label={t('goalMaxEvaluations')} value={goalOptions.max_evaluations}
+              disabled={!goalOptions.enabled}
+              onChange={event => changeGoalOptions({ ...goalOptions,
+                max_evaluations: Number(event.target.value) })} /></label>
+            <label>{t('goalMaxNoProgress')}<input type="number" min={1} max={10}
+              aria-label={t('goalMaxNoProgress')} value={goalOptions.max_no_progress}
+              disabled={!goalOptions.enabled}
+              onChange={event => changeGoalOptions({ ...goalOptions,
+                max_no_progress: Number(event.target.value) })} /></label>
+          </div>
+        </details>
         <div className="composer-footer">
           <div className="composer-controls">
             <input ref={fileInput} type="file" hidden multiple accept={imageTypes.join(',')} aria-label={t('imageFiles')}
@@ -722,13 +847,19 @@ export default function App() {
               <Icon name="send" size={22} /></button>}</div></div>
         <p className="composer-hint" title={lookup.hint}><span>{readingImages ? t('readingImages') : savingProfile ? t('savingChoice')
           : attachments.length && !imagesAllowed ? t('imagesUnsupported')
+          : routingMissing ? t('goalRoutingRequired')
           : active ? t('working') : t('composerHint')}</span>
+          {effectiveProfile && effectiveProfile.id !== currentProfile?.id
+            ? ` · ${t('goalRoutedProfile', { name: `${effectiveProfile.model} · ${effectiveProfile.name}` })}` : ''}
           {currentProfile ? ` · ${lookup.hint}` : ''}</p>
       </form>
     </main>
     {settings ? <SettingsDialog onClose={() => setSettings(false)} returnFocusTo={settingsOpener} fallbackFocusTo={settingsButton}>
       <Connections profiles={profiles} selected={selected} profileCatalog={catalogs[selected] ?? null}
       onCatalog={rememberCatalog} onSaved={reloadProfiles}
-      maxCalls={maxCalls} onMaxCallsChange={setMaxCalls} onClose={() => setSettings(false)} /></SettingsDialog> : null}
+      maxCalls={maxCalls} onMaxCallsChange={setMaxCalls}
+      goalOptions={goalOptions} onGoalOptionsChange={changeGoalOptions}
+      appSettings={appSettings} onAppSettingsChange={setAppSettings}
+      onClose={() => setSettings(false)} /></SettingsDialog> : null}
   </div>;
 }

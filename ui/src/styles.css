@@ -232,3 +232,29 @@ figcaption { font-size: 11px; color: var(--muted); margin-top: 6px; }
   .settings .actions { flex-wrap: wrap; }
 }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; scroll-behavior: auto !important; animation: none !important; } }
+
+.goal-card { margin: 0.75rem 0; padding: 0.9rem 1rem; display: flex; flex-direction: column; gap: 0.6rem; }
+.goal-heading { display: flex; justify-content: space-between; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+.goal-score { margin: 0.15rem 0 0; font-size: 1.7rem; font-weight: 700; }
+.goal-state { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; }
+.goal-table-wrap { overflow-x: auto; }
+.goal-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.goal-table th, .goal-table td { text-align: left; vertical-align: top; padding: 0.45rem 0.5rem; border-top: 1px solid var(--border, #d8dbe0); }
+.goal-table thead th { border-top: 0; font-weight: 600; }
+.goal-table th small { display: block; font-weight: 400; color: var(--muted, #5b6472); margin-top: 0.15rem; }
+.goal-status { font-weight: 600; }
+.goal-status.pass { color: #1f7a3a; }
+.goal-status.fail { color: #b3261e; }
+.goal-status.unknown { color: #7a5a00; }
+.goal-footer { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted, #5b6472); }
+.goal-warning { margin: 0; padding: 0.45rem 0.6rem; border-left: 3px solid #b7791f; background: rgba(183, 121, 31, 0.08); }
+.goal-inline { margin: 0.25rem 0 0.4rem; font-size: 0.88rem; }
+.goal-inline summary { cursor: pointer; color: var(--muted, #5b6472); }
+.goal-inline-fields { display: flex; flex-wrap: wrap; gap: 0.6rem 1rem; align-items: flex-end; padding-top: 0.4rem; }
+.goal-inline-fields label { display: flex; flex-direction: column; gap: 0.2rem; font-size: 0.85rem; }
+.goal-inline-fields input[type='number'] { width: 6.5rem; }
+.goal-inline-fields .check { flex-direction: row; align-items: center; }
+@media (max-width: 640px) {
+  .goal-score { font-size: 1.35rem; }
+  .goal-state { align-items: flex-start; }
+}

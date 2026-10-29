@@ -16,6 +16,8 @@ test('отправка ждёт уровней и не передаёт уста
   await page.addInitScript(id => {
     localStorage.setItem('cadnext.v1.profile', id);
     localStorage.setItem('cadnext.v1.session', 'delayed-reasoning-test');
+    localStorage.setItem('cadnext.v1.goalOptions', JSON.stringify({ enabled: false,
+      target_similarity: 100, max_evaluations: 10, max_no_progress: 3 }));
   }, profile.id);
   await page.goto('/');
   await page.getByLabel('Сообщение', { exact: true }).fill('Прочитай размер');
@@ -292,6 +294,8 @@ test('старый обязательный уровень нормализуе�
   await page.addInitScript(id => {
     localStorage.setItem('cadnext.v1.profile', id);
     localStorage.setItem('cadnext.v1.session', 'mandatory-profile-test');
+    localStorage.setItem('cadnext.v1.goalOptions', JSON.stringify({ enabled: false,
+      target_similarity: 100, max_evaluations: 10, max_no_progress: 3 }));
   }, profile.id);
   await page.goto('/');
   const reasoning = page.locator('.composer').getByRole('combobox', { name: 'Сила рассуждения', exact: true });

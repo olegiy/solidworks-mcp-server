@@ -15,6 +15,12 @@ async function connection(page: Page, name: string, remote = false) {
   await expect(page.getByLabel('Активное подключение')).toHaveValue(/.+/);
 }
 
+async function disableGoal(page: Page) {
+  await page.locator('.goal-inline summary').click();
+  await page.getByLabel('Проверять цель до достижения').uncheck();
+  await page.locator('.goal-inline summary').click();
+}
+
 async function send(page: Page, text: string) {
   await page.getByLabel('Сообщение').fill(text);
   await page.getByRole('button', { name: 'Отправить', exact: true }).click();
@@ -185,6 +191,7 @@ test('DNS-имя с префиксом 127 остаётся внешним пр�
   await page.getByRole('button', { name: 'Сохранить подключение' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Подключение сохранено' })).toBeVisible();
   await page.getByRole('button', { name: 'Закрыть настройки' }).click();
+  await disableGoal(page);
   await send(page, 'Прочитай размер');
   await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();

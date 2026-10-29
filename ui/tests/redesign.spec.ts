@@ -11,6 +11,8 @@ async function prepare(page: Page, history = true, extraEvents: { seq: number; t
     if (sessionStorage.getItem('redesign.initialized')) return;
     localStorage.setItem('cadnext.v1.session', 'redesign');
     localStorage.setItem('cadnext.v1.profile', id);
+    localStorage.setItem('cadnext.v1.goalOptions', JSON.stringify({ enabled: false,
+      target_similarity: 100, max_evaluations: 10, max_no_progress: 3 }));
     sessionStorage.setItem('redesign.initialized', '1');
   }, profile.id);
   if (history) await page.route('**/api/runs?session_id=redesign', route => route.fulfill({ json: [{

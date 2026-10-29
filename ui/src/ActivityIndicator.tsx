@@ -68,6 +68,13 @@ function stageOf(run: Run, t: Translate) {
     return { label: `${latest.data.verification ? t('activityChecking') : t('activitySolidworks')}: ${action ? t(action) : name}`,
       at: stamp(latest), kind: 'cad' };
   }
+  if (run.goal && run.status === 'running' && run.goal.phase !== 'finished') {
+    const key = run.goal.phase === 'evaluating' ? 'goalStageEvaluating'
+      : run.goal.phase === 'correcting' ? 'goalStageCorrecting'
+      : run.goal.phase === 'executing' ? 'goalStageExecuting' : 'goalStagePreparing';
+    return { label: run.goal.phase === 'evaluating'
+      ? `${t('activityChecking')} / ${t(key)}` : t(key), at: stamp(status), kind: 'goal' };
+  }
   return { label: latest?.type === 'tool_result' ? t('activityProcessingTool') : t('activityPreparing'),
     at: stamp(latest ?? run.events[0]), kind: 'preparing' };
 }

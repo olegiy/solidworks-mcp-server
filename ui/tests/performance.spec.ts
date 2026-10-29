@@ -7,6 +7,8 @@ test('real SSE updates CAD state and completion without polling snapshots', asyn
   await page.addInitScript(id => {
     localStorage.setItem('cadnext.v1.profile', id);
     localStorage.setItem('cadnext.v1.session', 'sse-performance');
+    localStorage.setItem('cadnext.v1.goalOptions', JSON.stringify({
+      enabled: false, target_similarity: 100, max_evaluations: 10, max_no_progress: 3 }));
   }, profile.id);
   const snapshots: string[] = [];
   page.on('request', request => {
