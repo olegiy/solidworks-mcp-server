@@ -2,6 +2,7 @@
 
 import math
 from copy import deepcopy
+from pathlib import PureWindowsPath
 
 from jsonschema import Draft202012Validator
 
@@ -209,7 +210,9 @@ def evaluate_checks(checks, data):
                 passed = sum(_cylinder_matches(item, check) for item in observed) == check["count"]
             elif kind == "component":
                 passed = any(item["name"] == check["name"] and not item.get("suppressed") and
-                    all((_vector_near(item.get(key), value, .00001 if key == "rotation" else .001)
+                    all(((isinstance(item.get(key), str) and PureWindowsPath(item[key]) == PureWindowsPath(value))
+                         if key == "path" else
+                         _vector_near(item.get(key), value, .00001 if key == "rotation" else .001)
                          if isinstance(value, list) else item.get(key) == value)
                         for key, value in check.items() if key not in {"kind", "name"})
                     for item in observed)
