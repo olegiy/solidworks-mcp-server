@@ -36,7 +36,7 @@ def test_cyclic_sibling_chain_is_bounded_and_cannot_pass_checks():
 
 
 def test_cosmetic_thread_inspection_reads_definition_not_feature_name():
-    definition = NS(Standard=20, StandardType="Machine Threads", Size="M24",
+    definition = NS(Standard=8, StandardType="Machine Threads", Size="M24",
                     Diameter=.024, DiameterType=2, BlindDepth=.044, EndCondition=0,
                     ApplyThread=0, ThreadCallout="custom note")
     thread = NS(Name="Actual thread", GetTypeName2="CosmeticThread", GetNextFeature=None,
@@ -45,7 +45,7 @@ def test_cosmetic_thread_inspection_reads_definition_not_feature_name():
     model = NS(GetTitle="Part", GetType=1, FirstFeature=cylinder)
     data = inspection.inspect_model(model, ["cosmetic_threads"], [], get)
     assert data["cosmetic_threads"] == [{
-        "name": "Actual thread", "type": "CosmeticThread", "standard": 20,
+        "name": "Actual thread", "type": "CosmeticThread", "standard": 8,
         "standard_type": "Machine Threads", "size": "M24", "diameter_mm": 24.,
         "diameter_type": 2, "blind_depth_mm": 44., "end_condition": 0,
         "apply_thread": 0, "callout": "custom note", "suppressed": False,
@@ -55,7 +55,7 @@ def test_cosmetic_thread_inspection_reads_definition_not_feature_name():
 def test_cosmetic_thread_checks_reject_cylinder_named_as_thread():
     check = {"kind": "cosmetic_thread", "name": "M24", "diameter_mm": 24.,
              "diameter_type": 2, "end_condition": 0, "blind_depth_mm": 44.,
-             "size": "M24", "standard": 20}
+             "size": "M24", "standard": 8}
     assert construction.inspection_request([check]) == {
         "sections": ["cosmetic_threads"], "dimension_names": []}
     cylinder = NS(Name="M24", GetTypeName2="Revolution", GetNextFeature=None)
@@ -70,7 +70,7 @@ def test_cosmetic_thread_checks_reject_cylinder_named_as_thread():
 def test_cosmetic_thread_checks_compare_actual_values(changed):
     check = {"kind": "cosmetic_thread", "name": "Thread", "diameter_mm": 24.,
              "diameter_type": 2, "end_condition": 0, "blind_depth_mm": 44.,
-             "size": "M24", "standard": 20}
+             "size": "M24", "standard": 8}
     item = {key: value for key, value in check.items() if key != "kind"}
     item.update(type="CosmeticThread", suppressed=False, error_code=0, warning=False)
     item.update(changed)
@@ -78,6 +78,22 @@ def test_cosmetic_thread_checks_compare_actual_values(changed):
     assert construction.evaluate_checks([check], data)[0]["passed"] is (not changed)
     data["truncated"] = True
     assert construction.evaluate_checks([check], data)[0]["passed"] is False
+
+
+def test_hole_standard_number_is_not_a_cosmetic_thread_standard():
+    check = {"kind": "cosmetic_thread", "name": "Thread", "diameter_mm": 24.,
+             "diameter_type": 2, "end_condition": 0, "standard": 20}
+    # Toolbox's GOST hole standard 20 is absent from swCosmeticStandardType_e.
+    with pytest.raises(ValueError):
+        construction.inspection_request([check])
+
+
+def test_unknown_observed_cosmetic_standard_cannot_pass_without_standard_expectation():
+    check = {"kind": "cosmetic_thread", "name": "Thread", "diameter_mm": 24.,
+             "diameter_type": 2, "end_condition": 0}
+    item = {key: value for key, value in check.items() if key != "kind"}
+    item.update(type="CosmeticThread", standard=20, suppressed=False, error_code=0, warning=False)
+    assert not construction.evaluate_checks([check], {"cosmetic_threads": [item]})[0]["passed"]
 
 
 @pytest.mark.parametrize("api_type,legacy_type,expected", [

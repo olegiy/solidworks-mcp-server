@@ -10,6 +10,8 @@ _TEXT = {"type": "string", "minLength": 1, "maxLength": 200}
 _NUMBER = {"type": "number"}
 _VECTOR = {"type": "array", "items": _NUMBER, "minItems": 3, "maxItems": 3}
 _ID = {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}
+# swCosmeticStandardType_e; Toolbox hole-standard IDs are a different enum.
+_COSMETIC_STANDARDS = [-2, *range(17)]
 STAGE_SCHEMA = {"type": "object", "properties": {
     "id": _ID, "title": _TEXT, "expected_result": _TEXT},
     "required": ["id", "title", "expected_result"], "additionalProperties": False}
@@ -33,7 +35,7 @@ CHECKS_SCHEMA = {"type": "array", "minItems": 0, "maxItems": 32, "items": {"oneO
         "diameter_type": {"enum": [1, 2, 3]},
         "end_condition": {"enum": [0, 1, 2]},
         "blind_depth_mm": {"type": "number", "exclusiveMinimum": 0},
-        "standard": {"type": "integer"}, "standard_type": _TEXT, "size": _TEXT},
+        "standard": {"enum": _COSMETIC_STANDARDS}, "standard_type": _TEXT, "size": _TEXT},
         ["name", "diameter_mm", "diameter_type", "end_condition"]),
     _check_schema("sheet_metal", {"thickness_mm": {"type": "number", "exclusiveMinimum": 0},
                                   "bend_radius_mm": {"type": "number", "minimum": 0}},
@@ -213,6 +215,7 @@ def evaluate_checks(checks, data):
                         .01 if check["unit"] == "deg" else .001) for item in observed)
             elif kind == "cosmetic_thread":
                 passed = any(item.get("type") == "CosmeticThread" and
+                    type(item.get("standard")) is int and item["standard"] in _COSMETIC_STANDARDS and
                     item.get("suppressed") is False and item.get("error_code") == 0 and
                     item.get("warning") is False and
                     all(_near(item.get(key), value) if key in {"diameter_mm", "blind_depth_mm"}
