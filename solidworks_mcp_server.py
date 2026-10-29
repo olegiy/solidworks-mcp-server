@@ -79,6 +79,7 @@ from concurrent.futures import TimeoutError as _FutTimeout
 
 from cadnext.python_preflight import PythonPreflightError, compile_python
 from cadnext.cad_inspection import inspect_model
+from cadnext.cad_geometry import transform_point
 from cadnext import cad_reference
 
 # ---------------------------------------------------------------------------
@@ -717,7 +718,7 @@ def get_dimension(name: str) -> str:
         if dim is None:
             raise RuntimeError(f"Размер '{name}' не найден. Формат: 'D1@Эскиз1'. "
                                f"Имена смотри в get_feature_tree.")
-        angular = int(_get(dim, "GetType")) == 3
+        angular = int(_get(dim, "GetType")) == 1  # swDimensionParamTypeDoubleAngular
         value = math.degrees(dim.SystemValue) if angular else dim.SystemValue * 1000
         return _ok(name=name, value=round(value, 6), unit="deg" if angular else "mm",
                    **({"value_deg": round(value, 6)} if angular else {"value_mm": round(value, 6)}))
@@ -733,7 +734,7 @@ def set_dimension(name: str, value_mm: float, rebuild: bool = True) -> str:
         if dim is None:
             raise RuntimeError(f"Размер '{name}' не найден.")
         old = dim.SystemValue
-        angular = int(_get(dim, "GetType")) == 3
+        angular = int(_get(dim, "GetType")) == 1  # swDimensionParamTypeDoubleAngular
         if not math.isfinite(value_mm):
             raise ValueError("Размер должен быть конечным числом.")
         dim.SystemValue = math.radians(value_mm) if angular else _mm(value_mm)
@@ -1145,6 +1146,8 @@ def execute_python(code: str, session_id: str | None = None) -> str:
     Доступные переменные: swApp (ISldWorks), model (активный документ или None),
     win32com, pythoncom, VARIANT, MM (мм→м: MM(25.4)==0.0254),
     GET(obj, name, *args) для методов/свойств pywin32, byref_i4, NOTHING.
+    TRANSFORM_POINT(point, matrix) преобразует 3 координаты в метрах по 16 числам
+    MathTransform.ArrayData, без дополнительных COM-вызовов MathUtility.
     Для AddDimension2/AddHorizontalDimension2 и других размеров используй
     with DIMENSIONS(): — ввод значения в модальном окне временно отключается,
     прежняя настройка восстанавливается при известном исходе.
@@ -1239,6 +1242,7 @@ def execute_python(code: str, session_id: str | None = None) -> str:
                     "win32com": win32com, "pythoncom": pythoncom, "VARIANT": VARIANT,
                     "MM": _mm, "byref_i4": _byref_i4, "GET": _get, "NOTHING": _nothing()})
         env["DIMENSIONS"] = lambda: _silent_dimensions(app)
+        env["TRANSFORM_POINT"] = transform_point
         env.pop("result", None)
         buf = io.StringIO()
         try:

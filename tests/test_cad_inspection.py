@@ -13,8 +13,8 @@ def get(obj, name, *args):
 
 def test_inspection_reads_driving_dimensions_angles_and_surfaces_without_bbox_proof():
     # Values read from installed SW2025 swconst.tlb, rather than web snippets.
-    dims = {"OD@Profile": NS(SystemValue=.030, GetType=2, DrivenState=2),
-            "A@Chamfer": NS(SystemValue=3.141592653589793/4, GetType=3, DrivenState=1)}
+    dims = {"OD@Profile": NS(SystemValue=.030, GetType=0, DrivenState=2),
+            "A@Chamfer": NS(SystemValue=3.141592653589793/4, GetType=1, DrivenState=1)}
     surface = NS(IsCylinder=True, CylinderParams=[.03, 0, .02, 0, 1, 0, .0045])
     body = NS(IsSheetMetal=True, GetBodyBox=[0, 0, 0, .06, .04, .08],
               GetFaces=[NS(GetSurface=surface)])

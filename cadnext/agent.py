@@ -62,6 +62,8 @@ _SYSTEM_RU = (
     "размер текстом и не заявляй процент сходства без метода сравнения. "
     "Перед построением задай set_construction_plan: короткие этапы с постоянными ID и "
     "ожидаемым результатом. Один execute_python выполняет один этап; укажи stage_id. "
+    "Готовые инструменты изменения, например create_part, получают отдельные служебные этапы "
+    "и не завершают запланированный этап Python; их ID возвращается в construction_stage. "
     "Менять можно только не начатые этапы. При исправлении продолжай ошибочный этап. "
     "Внутри Run execute_python сохраняет переменные, функции и импорты; новый Run "
     "имеет новое окружение. Служебные swApp/model обновляются перед фрагментом. "
@@ -111,6 +113,8 @@ _SYSTEM_EN = (
     "text or claim a similarity percentage without a comparison method. "
     "Before construction use set_construction_plan with stable stage IDs and expected results. "
     "One execute_python completes one stage; supply stage_id. Only pending stages may change. "
+    "Native mutations such as create_part get separate application stages; they do not consume "
+    "a planned Python stage. Their IDs are returned in construction_stage. "
     "A repair continues the failed stage. Python variables, functions and imports persist "
     "inside one Run; a new Run has a fresh environment. swApp/model refresh before each fragment. "
     "Inspect signatures using search_solidworks_api/get_solidworks_api before mutations; "
@@ -1003,6 +1007,8 @@ class Agent:
                 self._emit_plan(run)
             if mutating and message is not None:
                 content["verification"] = deepcopy(run.checks[call_id])
+                if stage is not None and name != "execute_python":
+                    content["construction_stage"] = deepcopy(stage)
                 message["content"] = _json(content)
                 run._emit("tool_result", tool_call_id=call_id, name=name, result=content, verification=False)
 
@@ -1018,7 +1024,7 @@ class Agent:
                 not (stage["status"] == "error" and run.repairing))):
             raise _EndRun("failed", t("Этап отсутствует или уже завершён.",
                                       "The stage is missing or already finished."))
-        if stage is None:
+        if stage is None and name == "execute_python":
             stage = next((stage for stage in run.construction_plan if stage["status"] == "pending"), None)
         if stage is None:
             if len(run.construction_plan) >= 32:

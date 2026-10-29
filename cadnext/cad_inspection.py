@@ -63,7 +63,7 @@ def inspect_model(model, sections, dimension_names, get):
                     display = feature.GetNextDisplayDimension(display)
         result["dimensions"] = []
         for name, dim in dimensions.items():
-            angular = int(get(dim, "GetType")) == 3
+            angular = int(get(dim, "GetType")) == 1  # swDimensionParamTypeDoubleAngular
             result["dimensions"].append({"name": name,
                 "value": math.degrees(dim.SystemValue) if angular else dim.SystemValue*1000,
                 "unit": "deg" if angular else "mm", "driving": dim.DrivenState == 2})

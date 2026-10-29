@@ -54,14 +54,16 @@ def test_help_does_not_follow_external_redirects_or_return_html_as_code():
     assert result["help"]["available"] is False
 
 
-def test_examples_are_searchable_and_not_claimed_live_verified():
+def test_examples_are_searchable_and_only_live_executed_recipes_have_version_labels():
     matches = reference.search_examples("sheet metal open profile")
     assert matches[0]["example_id"] == "sheet-open-profile"
     example = reference.get_example(matches[0]["example_id"])
-    assert example["verified_versions"] == []
+    assert example["verified_versions"] == ["SolidWorks 2025 SP5 (33.5.0)"]
     assert example["parameters"] and example["api_symbols"] and example["checks"]
     compile(example["code"], "<example>", "exec")
     for name in ("holes-transform", "revolution", "chamfer", "assembly-insert", "assembly-mates"):
         item = reference.get_example(name)
         compile(item["code"], name, "exec")
         assert item["prerequisites"] and item["expected_features"]
+        assert item["verified_versions"] == (["SolidWorks 2025 SP5 (33.5.0)"]
+            if name in {"revolution", "chamfer"} else [])

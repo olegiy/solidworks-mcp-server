@@ -203,7 +203,7 @@ def test_timeout_blocks_followup_even_after_call_finishes(monkeypatch):
 
 
 def test_angular_dimension_conversion(monkeypatch):
-    dimension = SimpleNamespace(SystemValue=math.pi / 2, GetType=3)
+    dimension = SimpleNamespace(SystemValue=math.pi / 2, GetType=1)
     model = SimpleNamespace(Parameter=lambda name: dimension, EditRebuild3=True)
     monkeypatch.setattr(server, "_model", lambda *args: model)
     monkeypatch.setattr(server, "com_call", lambda job: job())

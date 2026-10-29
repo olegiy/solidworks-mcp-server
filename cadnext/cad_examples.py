@@ -1,6 +1,9 @@
-"""Original, inspectable Python recipes. No recipe is live-certified by default."""
+"""Original Python recipes; version labels require recorded direct live execution."""
 
 from textwrap import dedent
+
+# scripts.staged_acceptance, live-direct-10; see docs/verification.md.
+_LIVE_EXECUTED = {"sheet-open-profile", "revolution", "chamfer"}
 
 
 def _example(example_id, title, keywords, parameters, prerequisites, api_symbols,
@@ -8,7 +11,8 @@ def _example(example_id, title, keywords, parameters, prerequisites, api_symbols
     return {"example_id": example_id, "title": title, "keywords": keywords,
             "parameters": parameters, "prerequisites": prerequisites,
             "api_symbols": api_symbols, "expected_features": expected_features,
-            "checks": checks, "code": dedent(code).strip(), "verified_versions": []}
+            "checks": checks, "code": dedent(code).strip(),
+            "verified_versions": ["SolidWorks 2025 SP5 (33.5.0)"] if example_id in _LIVE_EXECUTED else []}
 
 
 EXAMPLES = [
@@ -25,9 +29,9 @@ EXAMPLES = [
              thickness_mm, radius_mm, length_mm = 2., 2., 80.
              leg_a_mm, leg_b_mm = 60., 40.
              sm, fm = model.SketchManager, model.FeatureManager
-             # The open contour is on the inside; outward thickness adds T to each leg.
-             line_a = sm.CreateLine(MM(leg_a_mm-thickness_mm), 0., 0., 0., 0., 0.)
-             line_b = sm.CreateLine(0., 0., 0., 0., MM(leg_b_mm-thickness_mm), 0.)
+             # With this contour orientation and ThickenDir=False, thickness grows inward.
+             line_a = sm.CreateLine(MM(leg_a_mm), 0., 0., 0., 0., 0.)
+             line_b = sm.CreateLine(0., 0., 0., 0., MM(leg_b_mm), 0.)
              if line_a is None or line_b is None:
                  raise RuntimeError("Профиль не создан")
              with DIMENSIONS():
@@ -36,13 +40,13 @@ EXAMPLES = [
                  dim_a = model.AddDimension2(MM(30), MM(-10), 0.)
                  if dim_a is None:
                      raise RuntimeError("Не создан управляющий размер полки")
-                 dim_a.GetDimension2(0).Name = "LegAInside"
+                 dim_a.GetDimension2(0).Name = "LegAOuter"
                  if not line_b.Select4(False, NOTHING):
                      raise RuntimeError("Не выбрана вторая линия")
                  dim_b = model.AddDimension2(MM(-10), MM(20), 0.)
                  if dim_b is None:
                      raise RuntimeError("Не создан второй размер полки")
-                 dim_b.GetDimension2(0).Name = "LegBInside"
+                 dim_b.GetDimension2(0).Name = "LegBOuter"
              model.ClearSelection2(True)
              GET(sm, "InsertSketch", True)
              profile = model.FeatureByPositionReverse(0)
@@ -51,9 +55,11 @@ EXAMPLES = [
              profile.Name = "BracketProfile"
              if not profile.Select2(False, 0):
                  raise RuntimeError("Эскиз профиля не выбран")
+             allowance = GET(fm, "CreateCustomBendAllowance")
+             allowance.KFactor = 0.5
              base = fm.InsertSheetMetalBaseFlange2(MM(thickness_mm), False, MM(radius_mm),
-                 MM(length_mm), 0., False, 0, 0, 0, NOTHING, True, 0, 0., 0., 0.,
-                 False, True, True, True)
+                 MM(length_mm), 0., False, 0, 0, 1, allowance, False, 0, MM(.5), MM(.5), .5,
+                 True, False, False, False)
              if base is None:
                  raise RuntimeError("Базовая кромка не создана")
              base.Name = "BracketBase"
@@ -64,7 +70,7 @@ EXAMPLES = [
              "positions_model_mm": [[30, 0, 20], [30, 0, 60]]},
              ["Активен эскиз на выбранной плоской грани; точки заданы в системе модели.",
               "Затем нужны управляющие размеры центра и диаметра, нормальный сквозной вырез."],
-             ["ISketch.ModelToSketchTransform", "IMathPoint.MultiplyTransform",
+             ["ISketch.ModelToSketchTransform", "IMathTransform.ArrayData",
               "ISketchManager.CreateCircleByRadius", "IFeatureManager.FeatureCut4"],
              ["HoleSketch", "HoleCut"], ["Две цилиндрические поверхности Ø9 и положение их осей"],
              '''
@@ -72,13 +78,11 @@ EXAMPLES = [
              if sketch is None:
                  raise RuntimeError("Нет активного эскиза")
              transform = sketch.ModelToSketchTransform
-             utility = GET(swApp, "GetMathUtility")
              diameter_mm = 9.
              centers_model_mm = [(30., 0., 20.), (30., 0., 60.)]
              circles = []
              for center in centers_model_mm:
-                 point = utility.CreatePoint(tuple(MM(v) for v in center))
-                 local = point.MultiplyTransform(transform).ArrayData
+                 local = TRANSFORM_POINT([MM(v) for v in center], list(transform.ArrayData))
                  circle = model.SketchManager.CreateCircleByRadius(*local, MM(diameter_mm/2))
                  if circle is None:
                      raise RuntimeError("Окружность не создана")

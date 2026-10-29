@@ -117,6 +117,31 @@ async def test_plan_stages_and_declared_checks_survive_snapshot_and_sidecar():
     assert restored["construction_plan_history"] == run.snapshot()["construction_plan_history"]
 
 
+async def test_native_document_creation_does_not_complete_planned_python_profile():
+    provider = ScriptedProvider([
+        reply(("plan", "set_construction_plan", {"stages": STAGES[:1]})),
+        reply(("new", "create_part", {})),
+        reply(("profile", "execute_python", {"code": "build_profile()", "stage_id": "profile"})),
+        reply(content="Готово")])
+    mcp = staged_mcp([
+        ("list_open_documents", ok({"documents": []})),
+        ("create_part", ok({"created": "NewPart"})),
+        ("list_open_documents", ok({"documents": [{"title": "NewPart", "type": "part"}]})),
+        ("get_feature_tree", ok({"features": [], "truncated": False})),
+        ("execute_python", ok({}))])
+    agent = trusted_agent(mcp, provider)
+    run = agent.start(session_id="s", provider=provider, message="Построй")
+    await settle(agent, run)
+    assert run.status == "completed"
+    profile = next(s for s in run.construction_plan if s["id"] == "profile")
+    assert profile["tool_call_ids"] == ["profile"]
+    assert profile["status"] == "done"
+    native = next(s for s in run.construction_plan if s["id"] != "profile")
+    assert native["tool_call_ids"] == ["new"]
+    result = next(m for m in run.messages if m.get("tool_call_id") == "new")
+    assert json.loads(result["content"])["construction_stage"]["id"] == native["id"]
+
+
 async def test_plan_cannot_rewrite_started_stage_and_no_followup_is_sent():
     changed = deepcopy(STAGES)
     changed[0]["title"] = "Переписанный профиль"
