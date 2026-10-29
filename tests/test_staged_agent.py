@@ -230,6 +230,56 @@ STAGES = [{"id": "profile", "title": "Профиль", "expected_result": "Дл�
 CHECKS = [{"kind": "dimension", "name": "Length@Profile", "value": 80, "unit": "mm"}]
 
 
+@pytest.mark.parametrize("failures", [1, 2])
+async def test_python_diagnostics_preserve_failed_stage_and_repair_until_explicit_continuation(failures):
+    from tests.test_python_repair import cad_error
+
+    observed = []
+
+    def continue_profile(messages):
+        observed.append((run.repairing, deepcopy(run.construction_plan), deepcopy(run.checks)))
+        return reply(("fixed", "execute_python", {
+            "code": "continue_existing_profile()", "stage_id": "profile", "checks": CHECKS}))
+
+    provider = ScriptedProvider([
+        reply(("plan", "set_construction_plan", {"stages": STAGES})),
+        *(reply((f"broken-{i}", "execute_python", {
+            "code": f"partial_step_{i}()", "stage_id": "profile"})) for i in range(failures)),
+        reply(("diagnostics", "execute_python", {"code": "result = inspect_existing_features()"})),
+        continue_profile,
+        reply(("body", "execute_python", {"code": "create_body()", "stage_id": "body"})),
+        reply(content="Готово")])
+    mcp = staged_mcp([
+        *(("execute_python", cad_error()) for _ in range(failures)),
+        ("execute_python", ok({"result": "existing profile"})),
+        ("execute_python", ok({"result": "continued"})),
+        ("inspect_cad", ok({"dimensions": [
+            {"name": "Length@Profile", "value": 80, "unit": "mm", "driving": True}]})),
+        ("execute_python", ok({}))])
+    agent = trusted_agent(mcp, provider)
+    run = agent.start(session_id="s", provider=provider, message="Построй")
+    await settle(agent, run)
+
+    repairing, stages, checks = observed[0]
+    assert repairing is True
+    assert [(s["id"], s["status"]) for s in stages[:2]] == [("profile", "error"), ("body", "pending")]
+    assert checks[f"broken-{failures - 1}"]["status"] == "failed"
+    assert stages[-1]["application_owned"] is True
+    assert stages[-1]["tool_call_ids"] == ["diagnostics"]
+    assert run.status == "completed"
+    assert run.repairing is False
+    assert run.repair_attempts == failures
+    assert all(run.checks[f"broken-{i}"]["status"] == "repaired" for i in range(failures))
+    assert run.checks["fixed"]["status"] == "unverified"
+    assert run.construction_plan[0]["checks"][0]["passed"] is True
+    assert run.checks["diagnostics"]["status"] == "unverified"
+    assert run.verification == "unverified"
+    assert run.construction_plan[1]["tool_call_ids"] == ["body"]
+    assert [args["code"] for name, args in mcp.calls if name == "execute_python"] == [
+        *(f"partial_step_{i}()" for i in range(failures)),
+        "result = inspect_existing_features()", "continue_existing_profile()", "create_body()"]
+
+
 async def test_pending_plan_revision_retains_application_owned_native_stages():
     extra = {"id": "edges", "title": "Кромки", "expected_result": "Выбраны торцы"}
     provider = ScriptedProvider([

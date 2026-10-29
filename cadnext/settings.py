@@ -73,6 +73,7 @@ class SettingsStore:
         self._lock = RLock()
         self._profiles: dict[str, Profile] = {}
         self._python_execution_allowed = False
+        self._debug_logging_enabled = False
         self._vision_profile_id: str | None = None
         self._vision_routing_approved = False
         self._vision_routing_fingerprint: str | None = None
@@ -85,6 +86,10 @@ class SettingsStore:
                 if type(permission) is not bool:
                     raise ValueError
                 self._python_execution_allowed = permission
+                debug = data.get("debug_logging_enabled", False)
+                if type(debug) is not bool:
+                    raise ValueError
+                self._debug_logging_enabled = debug
                 profiles = [Profile(**item) for item in data["profiles"]]
                 self._profiles = {p.id: p for p in profiles}
                 if len(self._profiles) != len(profiles):
@@ -201,6 +206,19 @@ class SettingsStore:
                             "Could not save the Python permission; the setting was not changed.")) from None
             self._python_execution_allowed = allowed
 
+    @property
+    def debug_logging_enabled(self) -> bool:
+        with self._lock:
+            return self._debug_logging_enabled
+
+    def set_debug_logging_enabled(self, enabled: bool):
+        if type(enabled) is not bool:
+            raise ValueError(t("Режим отладки должен быть логическим значением.",
+                               "Debug logging must be a boolean value."))
+        with self._lock:
+            self._write(self._profiles, debug_logging_enabled=enabled)
+            self._debug_logging_enabled = enabled
+
     _UNSET = object()
 
     def _routing_state(self):
@@ -208,7 +226,7 @@ class SettingsStore:
                 self._vision_routing_fingerprint)
 
     def _write(self, profiles: dict[str, Profile], *, python_execution_allowed=None,
-               routing=_UNSET):
+               routing=_UNSET, debug_logging_enabled=None):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if routing is self._UNSET:
             routing = self._routing_state()
@@ -221,6 +239,8 @@ class SettingsStore:
                               else python_execution_allowed)
                 json.dump({"version": 1, "profiles": [asdict(p) for p in profiles.values()],
                            "python_execution_allowed": permission,
+                           "debug_logging_enabled": (self._debug_logging_enabled
+                               if debug_logging_enabled is None else debug_logging_enabled),
                            "vision_profile_id": routing[0],
                            "vision_routing_approved": routing[1],
                            "vision_routing_fingerprint": routing[2]},

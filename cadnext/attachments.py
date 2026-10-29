@@ -21,6 +21,27 @@ class AttachmentError(ValueError):
     pass
 
 
+def reference_attachments(messages):
+    """Recover the latest user drawing set, excluding application CAD screenshots."""
+    for message in reversed(messages):
+        if (message.get("role") != "user" or not isinstance(message.get("content"), list)
+                or message.get("_cadnext", {}).get("source") == "screenshot"):
+            continue
+        images = []
+        for block in message["content"]:
+            if block.get("type") != "image_url":
+                continue
+            url = block.get("image_url", {}).get("url", "")
+            if not isinstance(url, str) or not url.startswith("data:") or ";base64," not in url:
+                raise AttachmentError(t("Некорректное изображение в истории проекта.",
+                                        "The project history contains an invalid image."))
+            mime_type, data = url[5:].split(";base64,", 1)
+            images.append({"name": f"reference-{len(images)}", "mimeType": mime_type, "data": data})
+        if images:
+            return normalize_attachments(images)
+    return []
+
+
 class _LimitedBuffer(io.BytesIO):
     def write(self, data):
         if self.tell() + len(data) > MAX_FILE_BYTES:

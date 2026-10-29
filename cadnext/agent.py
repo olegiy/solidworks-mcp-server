@@ -15,7 +15,8 @@ from jsonschema import Draft202012Validator
 from referencing import Registry
 
 from cadnext import construction
-from cadnext.attachments import AttachmentError, normalize_attachments
+from cadnext.attachments import AttachmentError, normalize_attachments, reference_attachments
+from cadnext.debug import debug_scope
 from cadnext.evaluation import (
     EvaluationOptions,
     EvidenceRecord,
@@ -186,6 +187,10 @@ _GOAL_TOOL_SCHEMAS = [
             "reference_ids": {"type": "array", "maxItems": 64,
                               "items": {"type": "string", "maxLength": 200}},
             "ambiguities": {"type": "array", "maxItems": 64,
+                            "description": ("Only unresolved required data that prevents construction. "
+                                            "Do not include dimensions derived from given values, "
+                                            "sufficient views, or already agreed interpretations. "
+                                            "Explain such deductions in the assistant text instead."),
                             "items": {"type": "string", "maxLength": 2000}},
         }, "required": ["kind", "requirements"], "additionalProperties": False}}},
     {"type": "function", "function": {
@@ -222,20 +227,34 @@ _GOAL_TOOL_SCHEMAS = [
 ]
 
 _GOAL_GUIDANCE_RU = (
-    " Режим цели включён. Пока контракт не зафиксирован, не изменяй документ: разрешены чтения, "
+    " Режим цели включён. Каждый новый запрос требует собственного контракта: вызовы "
+    "cadnext_define_goal из предыдущих запросов в истории не фиксируют текущую цель. "
+    "Пока контракт не зафиксирован, не изменяй документ: разрешены чтения, "
     "снимок и вызов cadnext_define_goal. Сначала одним вызовом cadnext_define_goal зафиксируй "
     "измеримые требования из запроса: обязательность, вес, метод cad или vision, ожидаемое "
     "значение и единицу. Не угадывай отсутствующие размеры: перечисли их в ambiguities. "
+    "В ambiguities включай только нерешённые обязательные вопросы, мешающие построению. "
+    "Размеры, однозначно вычисляемые из заданных, отсутствие дополнительных видов при "
+    "достаточном изображении и уже согласованные интерпретации не являются такими вопросами. "
+    "Обоснованные выводы кратко опиши текстом и продолжай построение; если симметрия или "
+    "координаты действительно неоднозначны, задай конкретный вопрос в ambiguities. "
     "После создания объектов свяжи требования с фактическими именами через "
     "cadnext_bind_requirements; привязки не меняют эталон. Не заявляй процент или успех: "
     "итог вычисляет приложение по свежим CAD-чтениям и, для визуальных признаков, по отдельной "
     "оценке модели. Если результат не достигнут, исправляй расхождения и не повторяй прежние действия."
 )
 _GOAL_GUIDANCE_EN = (
-    " Goal mode is enabled. Until the contract is frozen, do not modify the document: reads, "
+    " Goal mode is enabled. Each new run needs its own contract: cadnext_define_goal calls "
+    "from previous runs in the history do not freeze the current goal. "
+    "Until the contract is frozen, do not modify the document: reads, "
     "a screenshot, and cadnext_define_goal are allowed. First freeze measurable requirements "
     "from the request in one cadnext_define_goal call: required flag, weight, cad or vision "
     "method, expected value, and unit. Never guess missing dimensions: list them in ambiguities. "
+    "Use ambiguities only for unresolved required questions that prevent construction. "
+    "Dimensions unambiguously derived from given values, missing extra views when the image "
+    "is sufficient, and already agreed interpretations are not blocking questions. "
+    "Briefly explain justified deductions in text and continue construction; if symmetry or "
+    "coordinates are truly ambiguous, ask a specific question in ambiguities. "
     "After creating objects, bind requirements to actual names with cadnext_bind_requirements; "
     "bindings cannot change the reference. Do not claim a percentage or success: the application "
     "computes it from fresh CAD reads and, for visual features, a separate model evaluation. "
@@ -287,6 +306,7 @@ class Run:
         "input_tokens": None, "output_tokens": None, "cached_tokens": None, "cost": None})
     _missing_usage: set = field(default_factory=set, repr=False)
     _task: asyncio.Task | None = field(default=None, repr=False)
+    _debug: object = field(default=None, repr=False)
     _changed: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
     _answer: asyncio.Future | None = field(default=None, repr=False)
     _pending: dict = field(default_factory=dict, repr=False)
@@ -333,6 +353,9 @@ class Run:
     def _emit(self, event_type: str, **data):
         self.events.append({"seq": len(self.events) + 1, "type": event_type,
                             "at": time.time(), "data": deepcopy(data), "state": self.state()})
+        if self._debug is not None:
+            self._debug.write("run_event", run_id=self.id, session_id=self.session_id,
+                              seq=len(self.events), event_type=event_type, data=data, state=self.state())
         self._changed.set()
 
     def state(self):
@@ -413,11 +436,15 @@ def _file_signature(path: str):
 
 class Agent:
     def __init__(self, mcp, *, settings=None, max_history_bytes=8 * 1024 * 1024,
-                 max_catalog_bytes=256 * 1024):
+                 max_catalog_bytes=256 * 1024, debug=None):
         self.mcp = mcp
         self.settings = settings
+        self.debug = debug
         self.runs: dict[str, Run] = {}
         self._history: dict[str, list[dict]] = {}
+        self._closed_conversations: set[str] = set()
+        self._documents: dict[str, dict] = {}
+        self._restored_documents: set[str] = set()
         self._python_approved: set[tuple] = set()
         self._active: Run | None = None
         self._uncertain = False
@@ -447,6 +474,9 @@ class Agent:
             set_language(language)
         language = get_language()
         self.assert_startable()
+        if session_id in self._closed_conversations:
+            raise RuntimeError(t("Проект закрыт. Начните новый проект.",
+                                 "The project is closed. Start a new project."))
         if (not isinstance(session_id, str) or not session_id.strip()
                 or not isinstance(message, str) or (not message.strip() and not attachments)
                 or type(max_calls) is not int or not 1 <= max_calls <= 1000):
@@ -488,8 +518,9 @@ class Agent:
                 "bindings_revision": 0, "last_evaluated_bindings": 0,
             }
             run._goal_request = message
-            run._reference_images = deepcopy(attachments)
+            run._reference_images = deepcopy(attachments) if attachments else reference_attachments(messages[:-1])
         self.runs[run.id] = run
+        run._debug = self.debug
         self._active = run
         run._emit("message", role="user", content=message,
                   **({"attachments": attachments} if attachments else {}))
@@ -503,10 +534,118 @@ class Agent:
     def uncertain(self) -> bool:
         return self._uncertain or bool(getattr(self.mcp, "uncertain", False))
 
+    async def close_conversation(self, session_id: str):
+        if not _SESSION_ID.fullmatch(session_id):
+            raise ValueError("Invalid project ID")
+        self._closed_conversations.add(session_id)
+        owned = [run for run in self.runs.values() if run.session_id == session_id]
+        if self.debug is not None:
+            self.debug.write("project_close_requested", session_id=session_id,
+                              run_ids=[run.id for run in owned])
+        for run in owned:
+            self.stop(run.id)
+            if run._task is not None:
+                await self.wait(run.id)
+        for run in owned:
+            self.runs.pop(run.id, None)
+        if self._active is not None and self._active.session_id == session_id:
+            self._active = None
+        self._history.pop(session_id, None)
+        self._documents.pop(session_id, None)
+        self._restored_documents.discard(session_id)
+        self._python_approved = {key for key in self._python_approved if key[0] != session_id}
+        if self.debug is not None:
+            self.debug.write("project_closed", session_id=session_id, run_ids=[run.id for run in owned])
+
+    def _observe_document(self, session_id, name, value):
+        if not isinstance(value, dict):
+            return
+        if name == "connect_solidworks" and value.get("active_document"):
+            self._restored_documents.discard(session_id)
+            title = value["active_document"]
+            previous = self._documents.get(session_id, {})
+            self._documents[session_id] = (previous if previous.get("title") == title
+                                           else {"title": title, "path": ""})
+        elif name == "list_open_documents":
+            bound = self._documents.get(session_id)
+            if bound:
+                documents = value.get("documents")
+                for document in documents if isinstance(documents, list) else []:
+                    if isinstance(document, dict) and document.get("title") == bound.get("title"):
+                        self._documents[session_id] = dict(document)
+                        break
+        elif name in {"create_part", "create_assembly", "open_document", "save_document"}:
+            path = value.get("saved") or value.get("opened") or value.get("created")
+            if isinstance(path, str) and path:
+                self._restored_documents.discard(session_id)
+                self._documents[session_id] = {"title": Path(path).name,
+                    "path": path if name == "save_document" else ""}
+
+    async def project_state(self, session_id: str) -> dict:
+        """Inspect only an idle CAD connection; errors never discard conversation history."""
+        if not _SESSION_ID.fullmatch(session_id):
+            raise ValueError("Invalid project ID")
+        if session_id in self._closed_conversations:
+            return {"closed": True}
+        owned = [run for run in self.runs.values() if run.session_id == session_id]
+        if (not owned or self.uncertain or self._saving or self._closed
+                or any(not run.done for run in self.runs.values())):
+            return {"closed": False}
+        if session_id not in self._documents and not any(run.call_count for run in owned):
+            return {"closed": False}
+        self._saving = True
+        try:
+            async def read(name):
+                try:
+                    result = await self.mcp.call(name, {})
+                except Exception:
+                    self._uncertain = True
+                    return None
+                value = result.get("value")
+                self._uncertain |= bool(result.get("uncertain")) or (
+                    isinstance(value, dict) and value.get("error_code") == "CAD_OPERATION_UNCERTAIN")
+                if (self.uncertain or not result.get("ok") or not isinstance(value, dict)
+                        or value.get("status") == "error"):
+                    return None
+                return value
+
+            bound = self._documents.get(session_id)
+            if not bound:
+                connected = await read("connect_solidworks")
+                if connected is None:
+                    return {"closed": False}
+                self._observe_document(session_id, "connect_solidworks", connected)
+                bound = self._documents.get(session_id)
+                if not bound:
+                    return {"closed": False}
+            result = await read("list_open_documents")
+            if result is None or not isinstance(result.get("documents"), list):
+                return {"closed": False}
+            def matches(document):
+                if not isinstance(document, dict):
+                    return False
+                if bound.get("path") and document.get("path"):
+                    return str(bound["path"]).replace("/", "\\").casefold() == str(
+                        document["path"]).replace("/", "\\").casefold()
+                return bound.get("title") == document.get("title")
+            if any(matches(document) for document in result["documents"]):
+                self._restored_documents.discard(session_id)
+                self._observe_document(session_id, "list_open_documents", result)
+                return {"closed": False}
+            if session_id in self._restored_documents:
+                return {"closed": False}
+            await self.close_conversation(session_id)
+            return {"closed": True}
+        finally:
+            self._saving = False
+
     async def save_project(self, session_id: str) -> dict:
         """Save the active SolidWorks document and the whole dialogue without a model turn."""
         if not isinstance(session_id, str) or not _SESSION_ID.fullmatch(session_id):
             raise ValueError(t("Некорректный ID диалога.", "Invalid dialogue ID."))
+        if session_id in self._closed_conversations:
+            raise RuntimeError(t("Проект закрыт. Начните новый проект.",
+                                 "The project is closed. Start a new project."))
         if self._closed:
             raise RuntimeError(t("Агент завершает работу.", "The agent is shutting down."))
         if self.uncertain:
@@ -547,6 +686,7 @@ class Agent:
             if result.get("uncertain"):
                 self._uncertain = True
             if result.get("ok") and not result.get("uncertain"):
+                self._observe_document(session_id, "save_document", result.get("value"))
                 try:
                     conversation = self.conversation_snapshot(session_id)
                     conversation_error = None
@@ -821,7 +961,7 @@ class Agent:
                 or len(raw_runs) > _CONVERSATION_MAX_RUNS):
             raise ValueError(t("В файле переписки нет корректных прогонов.",
                                "The conversation file has no valid runs."))
-        if (session_id in self._history
+        if (session_id in self._history or session_id in self._closed_conversations
                 or any(run.session_id == session_id for run in self.runs.values())):
             session_id = uuid4().hex
         used_ids = set(self.runs)
@@ -895,9 +1035,16 @@ class Agent:
             self._uncertain = True
         for run in loaded:
             self.runs[run.id] = run
+            for event in run.events:
+                event_data = event["data"]
+                result = event_data.get("result")
+                if event["type"] == "tool_result" and isinstance(result, dict) and result.get("ok"):
+                    self._observe_document(session_id, event_data.get("name"), result.get("value"))
         document = data.get("document")
         if not isinstance(document, dict):
             document = {}
+        if session_id in self._documents:
+            self._restored_documents.add(session_id)
         latest = loaded[-1]
         return {"session_id": session_id, "profile_id": latest.profile_id,
                 "language": latest.language, "document": deepcopy(document),
@@ -959,7 +1106,8 @@ class Agent:
                     break
                 await run._changed.wait()
         finally:
-            self.stop(run_id)
+            if not run.done:
+                self.stop(run_id)
 
     @staticmethod
     def _guard(run):
@@ -998,6 +1146,15 @@ class Agent:
         prompt = _system_prompt(run.language)
         if run.goal is not None:
             prompt += _GOAL_GUIDANCE_EN if run.language == "en" else _GOAL_GUIDANCE_RU
+            contract = run.goal.get("contract")
+            prompt += t(" Текущее состояние цели запроса: ", " Current run goal state: ") + _json({
+                "run_id": run.id, "phase": run.goal["phase"],
+                "contract_frozen": contract is not None,
+                "contract_digest": contract.get("contract_digest") if contract else None,
+            })
+            if contract is None:
+                tools = [tool for tool in tools
+                         if tool["function"]["name"] in _READ_ONLY | {_DEFINE_GOAL}]
         if self.settings is not None:
             prompt += (t(
                 " Постоянное разрешение Python уже включено. Пользователь выбрал всегда доверять "
@@ -1152,6 +1309,8 @@ class Agent:
         result["ok"] = result.get("ok") is True and not nested_error and not uncertain
         result["uncertain"] = uncertain
         self._uncertain |= uncertain
+        if result["ok"]:
+            self._observe_document(run.session_id, name, value)
         run._emit("tool_result", tool_call_id=call_id, name=name,
                   result={key: item for key, item in result.items() if key != "images"},
                   verification=verification)
@@ -1347,7 +1506,13 @@ class Agent:
         file_before = await asyncio.to_thread(_file_signature, path) if path else None
         self._guard(run)
         mutating = name not in _READ_ONLY
-        stage = self._begin_stage(run, call_id, name, arguments) if mutating else None
+        repair_stage = next((item for item in run.construction_plan
+                             if run.repairing and run._repair_call_id in item["tool_call_ids"]), None)
+        supplemental_python = (name == "execute_python" and repair_stage is not None
+                               and not repair_stage.get("application_owned")
+                               and arguments.get("stage_id") != repair_stage["id"])
+        stage = self._begin_stage(run, call_id, name, arguments,
+                                  use_pending=not supplemental_python) if mutating else None
         if mutating:
             if run.goal is not None and run.goal.get("contract") is not None:
                 run.goal["revision"] = int(run.goal["revision"]) + 1
@@ -1382,13 +1547,15 @@ class Agent:
                         "Выполнено, результат требует проверки.",
                         "Completed; the result requires verification."),
                     "evidence": evidence}
-                if name == "execute_python" and run.repairing:
-                    previous = run.checks.get(run._repair_call_id)
-                    if previous and previous.get("status") == "failed":
-                        previous["status"] = "repaired"
-                        previous["message"] = t(
-                            "Ошибка исправлена продолжением; исходный вызов не повторялся.",
-                            "The error was repaired with a continuation; the original call was not repeated.")
+                if name == "execute_python" and run.repairing and not supplemental_python:
+                    repaired_ids = repair_stage["tool_call_ids"] if repair_stage else [run._repair_call_id]
+                    for repaired_id in repaired_ids:
+                        previous = run.checks.get(repaired_id)
+                        if previous and previous.get("status") == "failed":
+                            previous["status"] = "repaired"
+                            previous["message"] = t(
+                                "Ошибка исправлена продолжением; исходный вызов не повторялся.",
+                                "The error was repaired with a continuation; the original call was not repeated.")
                     run.repairing = False
                     run._repair_call_id = None
         except _EndRun as error:
@@ -1421,14 +1588,14 @@ class Agent:
         run._emit("construction_plan", stages=run.construction_plan,
                   history=run.construction_plan_history)
 
-    def _begin_stage(self, run, call_id, name, arguments):
+    def _begin_stage(self, run, call_id, name, arguments, *, use_pending=True):
         requested = arguments.get("stage_id")
         stage = next((stage for stage in run.construction_plan if stage["id"] == requested), None)
         if requested and (stage is None or (stage["status"] != "pending" and
                 not (stage["status"] == "error" and run.repairing))):
             raise _EndRun("failed", t("Этап отсутствует или уже завершён.",
                                       "The stage is missing or already finished."))
-        if stage is None and name == "execute_python":
+        if stage is None and name == "execute_python" and use_pending:
             stage = next((stage for stage in run.construction_plan if stage["status"] == "pending"), None)
         if stage is None:
             if len(run.construction_plan) >= 32:
@@ -1491,6 +1658,13 @@ class Agent:
             f"{run.repair_attempts} of {_PYTHON_REPAIR_LIMIT}. {instruction}"
             "If repair is impossible, report that without another change. "
             f"Diagnostics: {_json(details)}")
+        if any(run._repair_call_id in stage["tool_call_ids"] and not stage.get("application_owned")
+               for stage in run.construction_plan):
+            message += t(
+                " Для продолжения ошибочного этапа укажи его stage_id. Дополнительный Python без "
+                "stage_id не завершает запланированные этапы и не подтверждает исправление.",
+                " Supply the failed stage_id for its continuation. Supplemental Python without "
+                "stage_id does not complete planned stages or confirm the repair.")
         run._status("repairing", t(
             f"Анализируем ошибку Python; попытка {run.repair_attempts} из {_PYTHON_REPAIR_LIMIT}.",
             f"Analyzing the Python error; attempt {run.repair_attempts} of {_PYTHON_REPAIR_LIMIT}."))
@@ -1523,11 +1697,20 @@ class Agent:
         run.goal["outcome"] = outcome
         run.goal["completion_reason"] = reason
         run.goal["summary"] = summary
-        summary = f"{summary} {self._goal_tolerance_note()}".strip()
+        if run.goal["evaluations"]:
+            summary = f"{summary} {self._goal_tolerance_note()}".strip()
         run._emit("goal_finished", outcome=outcome, completion_reason=reason,
                   summary=summary, evaluation_count=len(run.goal["evaluations"]),
                   last_score=run.goal["last_score"], authority=run.goal["authority"])
         raise _EndRun(status, summary)
+
+    def _clarify_goal(self, run, contract):
+        message = t("Построение не начато. Уточните обязательные данные:",
+                    "Construction has not started. Please clarify the required data:")
+        message += "\n" + "\n".join(f"- {item}" for item in contract.ambiguities)
+        run.messages.append({"role": "assistant", "content": message})
+        run._emit("message", role="assistant", content=message)
+        self._finish_goal(run, "completed", "unknown", "clarification_required", message)
 
     async def _execute_local(self, run, catalog, call_id, name, arguments):
         run._emit("tool_start", tool_call_id=call_id, name=name, arguments=arguments,
@@ -1615,6 +1798,7 @@ class Agent:
                 raise _EndRun("failed", t("Служебный вызов цели должен быть единственным в ответе.",
                                           "A goal service call must be the only call in a response."))
             run.messages.append(message)
+            run._pending = {call_id: name for call_id, name, arguments in calls}
             if message["content"]:
                 run._emit("message", role="assistant", content=message["content"])
             if not calls:
@@ -1628,9 +1812,7 @@ class Agent:
                 call_id, name, arguments = calls[0]
                 await self._execute_local(run, catalog, call_id, name, arguments)
                 if (goal.get("contract") and self._contract(run).ambiguities):
-                    self._finish_goal(run, "completed", "unknown", "clarification_required",
-                                      t("Нужно уточнение: обязательные данные противоречивы или отсутствуют.",
-                                        "Clarification is required: required data is missing or contradictory."))
+                    self._clarify_goal(run, self._contract(run))
                 continue
             contract = self._contract(run)
             if contract is None and any(name not in _READ_ONLY for _, name, _ in calls):
@@ -1642,7 +1824,6 @@ class Agent:
                                           "An informational request cannot modify the CAD document."))
             if contract is not None and run.goal["phase"] == "evaluating":
                 run.goal["phase"] = "executing"
-            run._pending = {call_id: name for call_id, name, arguments in calls}
             repair_requested = False
             for call_id, name, arguments in calls:
                 self._guard(run)
@@ -1665,9 +1846,7 @@ class Agent:
                               t("Контракт цели не зафиксирован; результат не проверялся.",
                                 "The goal contract was not frozen; the result was not evaluated."))
         if contract.ambiguities:
-            self._finish_goal(run, "completed", "unknown", "clarification_required",
-                              t("Нужно уточнение: обязательные данные противоречивы или отсутствуют.",
-                                "Clarification is required: required data is missing or contradictory."))
+            self._clarify_goal(run, contract)
         if contract.kind == "informational":
             self._finish_goal(run, "completed", "unknown", "informational",
                               t("Справочный ответ: процент сходства не вычисляется.",
@@ -2085,6 +2264,10 @@ class Agent:
             self._flush_images(run)
 
     async def _run(self, run, provider):
+        with debug_scope(run_id=run.id, session_id=run.session_id):
+            await self._execute_run(run, provider)
+
+    async def _execute_run(self, run, provider):
         set_language(run.language)
         outcome = ("failed", t("Запрос остановлен из-за ошибки.", "The request stopped because of an error."))
         try:
@@ -2134,10 +2317,12 @@ class Agent:
             run._emit("error", message=str(error), uncertain=False)
             outcome = ("failed", t("Ошибка API модели; CAD-вызовы не повторялись.",
                                     "Model API error; CAD calls were not repeated."))
-        except Exception:
+        except Exception as error:
             self._finish_failed_goal(run, t(
                 "Некорректные данные модели, каталога или проверки; запрос остановлен.",
                 "Invalid model, catalog, or verification data; the request was stopped."))
+            if self.debug is not None:
+                self.debug.exception("run_exception", error, run_id=run.id, session_id=run.session_id)
             run._emit("error", message=t(
                 "Некорректные данные модели, каталога или проверки; запрос остановлен.",
                 "Invalid model, catalog, or verification data; the request was stopped."),

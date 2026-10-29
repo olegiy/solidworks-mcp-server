@@ -5,25 +5,25 @@ test.use({ locale: 'en-US' });
 test('the interface follows the browser language and switches between English and Russian', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('heading', { name: 'What shall we create today?' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'New dialogue', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New project', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'en');
   await expect(page).toHaveTitle('CAD-Agent-Next — SolidWorks chat');
 
   await page.getByLabel('Interface language').selectOption('ru');
   await expect(page.getByRole('heading', { name: 'Что создадим сегодня?' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Новый диалог', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Новый проект', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Настройки', exact: true })).toBeVisible();
   await expect(page.locator('html')).toHaveAttribute('lang', 'ru');
   await expect(page).toHaveTitle('CAD-Agent-Next — чат SolidWorks');
 
   await page.reload();
-  await expect(page.getByRole('button', { name: 'Новый диалог', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Новый проект', exact: true })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Что создадим сегодня?' })).toBeVisible();
 
   await page.getByLabel('Язык интерфейса').selectOption('en');
   await expect(page.getByRole('heading', { name: 'What shall we create today?' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'New dialogue', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'New project', exact: true })).toBeVisible();
 });
 
 test('English settings and composer labels are translated', async ({ page }) => {

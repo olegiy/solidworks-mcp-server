@@ -40,7 +40,8 @@ export default function GoalEvaluationCard({ run }: { run: Run }) {
   const latest: GoalEvaluation | undefined = evaluations.at(-1);
   const informational = goal.kind === 'informational';
   const clarification = goal.completion_reason === 'clarification_required';
-  const phase = phaseKeys[goal.phase] ? t(phaseKeys[goal.phase]) : goal.phase;
+  const phase = clarification ? t('goalClarification')
+    : phaseKeys[goal.phase] ? t(phaseKeys[goal.phase]) : goal.phase;
   const reason = goal.completion_reason && reasonKeys[goal.completion_reason]
     ? t(reasonKeys[goal.completion_reason]) : goal.completion_reason;
   const stalled = goal.outcome === null && ['stopped', 'rejected', 'uncertain', 'failed']

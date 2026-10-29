@@ -80,6 +80,8 @@ export interface RunEvent {
 export interface AppSettings {
   python_execution_allowed: boolean; vision_profile_id: string | null;
   vision_routing_approved: boolean; vision_routing_fingerprint: string | null;
+  debug_logging_enabled: boolean; debug_log_path: string;
+  debug_log_error: string | null; debug_log_available: boolean;
 }
 export interface SaveResult {
   ok: boolean; saved?: string; conversation?: string; warning?: string;
@@ -126,8 +128,18 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 }
 
 export function stored(key: string, fallback: string) {
-  try { return localStorage.getItem(`cadnext.v1.${key}`) ?? fallback; } catch { return fallback; }
+  try {
+    const name = `cadnext.v1.${key}`;
+    if (key !== 'session') return localStorage.getItem(name) ?? fallback;
+    const value = sessionStorage.getItem(name) ?? localStorage.getItem(name) ?? fallback;
+    sessionStorage.setItem(name, value); localStorage.removeItem(name);
+    return value;
+  } catch { return fallback; }
 }
 export function remember(key: string, value: string) {
-  try { localStorage.setItem(`cadnext.v1.${key}`, value); } catch { /* The current tab still works. */ }
+  try {
+    const name = `cadnext.v1.${key}`;
+    (key === 'session' ? sessionStorage : localStorage).setItem(name, value);
+    if (key === 'session') localStorage.removeItem(name);
+  } catch { /* The current tab still works. */ }
 }

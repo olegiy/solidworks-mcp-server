@@ -2,14 +2,16 @@
 
 import asyncio
 import json
+import time
 from contextlib import asynccontextmanager
 from dataclasses import asdict
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 from sse_starlette.sse import EventSourceResponse, ServerSentEvent
@@ -18,6 +20,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from cadnext.agent import Agent, AgentBusy
 from cadnext.attachments import AttachmentError
 from cadnext.conversations import write_sidecar
+from cadnext.debug import DebugLog, DebugMcp, debug_scope
 from cadnext.evaluation import EvaluationOptions
 from cadnext.i18n import get_language, language_from_header, set_language, t
 from cadnext.mcp import ROOT, SolidWorksMcp
@@ -96,6 +99,7 @@ class ConfirmationBody(BaseModel):
 class AppSettingsBody(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     python_execution_allowed: bool | None = None
+    debug_logging_enabled: bool | None = None
     vision_profile_id: str | None = Field(default=None, max_length=100)
     vision_routing_approved: bool | None = None
 
@@ -117,26 +121,36 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     @asynccontextmanager
     async def lifespan(app):
         app.state.settings = settings if settings is not None else SettingsStore()
+        app.state.debug = DebugLog(app.state.settings)
+        if app.state.settings.debug_logging_enabled:
+            for profile in app.state.settings.list():
+                app.state.debug.register_secret(app.state.settings.secret(profile.id))
+        app.state.debug.write("application_start")
         app.state.contexts = {}
         app.state.providers = {}
         app.state.cleanups = set()
         app.state.request_runs = {}
         app.state.stopped_requests = set()
+        app.state.project_lock = asyncio.Lock()
         app.state.reasoning = ReasoningCatalog(public_model_catalog)
         async with mcp_factory() as mcp:
-            app.state.agent = Agent(mcp, settings=app.state.settings)
+            app.state.agent = Agent(DebugMcp(mcp, app.state.debug), settings=app.state.settings,
+                                    debug=app.state.debug)
             try:
                 yield
             finally:
                 await app.state.agent.aclose()
                 if app.state.cleanups:
                     await asyncio.gather(*app.state.cleanups, return_exceptions=True)
+                app.state.debug.write("application_stop")
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
 
     @app.middleware("http")
     async def boundary(request: Request, call_next):
+        request_id = uuid4().hex
+        started = time.perf_counter()
         set_language(language_from_header(request.headers.get("accept-language")))
         if request.url.path == "/api/conversations/open":
             try:
@@ -152,12 +166,19 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
             return JSONResponse({"detail": t("Запрос с другого сайта запрещён.",
                                              "A request from another site is not allowed.")}, status_code=403)
         try:
-            response = await call_next(request)
-        except Exception:
+            with debug_scope(request_id=request_id):
+                response = await call_next(request)
+        except Exception as error:
+            app.state.debug.exception("http_exception", error, request_id=request_id,
+                                       method=request.method, path=request.url.path)
             return JSONResponse({"detail": t(
                 "Внутренняя ошибка приложения. Данные запроса не раскрываются.",
                 "Internal application error. Request data is not disclosed.")},
                                 status_code=500)
+        if request.url.path.startswith('/api/'):
+            app.state.debug.write("http_response", request_id=request_id, method=request.method,
+                path=request.url.path, status=response.status_code,
+                duration_seconds=time.perf_counter() - started)
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Cache-Control"] = "no-store"
@@ -196,6 +217,15 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     def agent():
         return app.state.agent
 
+    async def project_operation(operation, *args):
+        async def serialized():
+            async with app.state.project_lock:
+                return await operation(*args)
+        task = asyncio.create_task(serialized())
+        app.state.cleanups.add(task)
+        task.add_done_callback(app.state.cleanups.discard)
+        return await asyncio.shield(task)
+
     @app.get("/api/health")
     async def health():
         active = next((run for run in agent().runs.values() if not run.done), None)
@@ -205,6 +235,10 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
 
     @app.post("/api/cad/save")
     async def save_cad(body: SaveBody):
+        with debug_scope(session_id=body.session_id):
+            return await project_operation(save_cad_locked, body)
+
+    async def save_cad_locked(body):
         try:
             result = await agent().save_project(body.session_id)
         except RuntimeError as error:
@@ -238,12 +272,29 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
 
     @app.post("/api/conversations/open")
     async def open_conversation(body: ConversationBody):
+        return await project_operation(open_conversation_locked, body)
+
+    async def open_conversation_locked(body):
         try:
-            return agent().load_conversation(body.conversation)
+            result = agent().load_conversation(body.conversation)
+            app.state.debug.write("project_opened", session_id=result["session_id"],
+                run_ids=[run["id"] for run in result["runs"]], document=result.get("document"))
+            return result
         except RuntimeError as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
+
+    @app.post("/api/projects/{session_id}/close", status_code=204)
+    async def close_project(session_id: str):
+        await project_operation(agent().close_conversation, session_id)
+        app.state.contexts = {key: value for key, value in app.state.contexts.items()
+                              if key[0] != session_id}
+
+    @app.get("/api/projects/{session_id}/state")
+    async def project_state(session_id: str):
+        with debug_scope(session_id=session_id):
+            return await project_operation(agent().project_state, session_id)
 
     @app.get("/api/profiles")
     def profiles():
@@ -253,16 +304,26 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     def app_settings():
         routing = store().vision_routing
         return {"python_execution_allowed": store().python_execution_allowed,
+                "debug_logging_enabled": store().debug_logging_enabled,
+                "debug_log_path": str(app.state.debug.path),
+                "debug_log_error": (t(
+                    f"Не удаётся записать журнал отладки ({app.state.debug.error}).",
+                    f"Could not write the debug log ({app.state.debug.error}).")
+                    if app.state.debug.error else None),
+                "debug_log_available": app.state.debug.path.is_file(),
                 "vision_profile_id": routing["profile_id"] if routing else None,
                 "vision_routing_approved": bool(routing),
                 "vision_routing_fingerprint": routing["fingerprint"] if routing else None}
 
     @app.put("/api/settings")
-    def update_app_settings(body: AppSettingsBody):
+    async def update_app_settings(body: AppSettingsBody):
         fields = body.model_fields_set
         if not fields:
             raise ValueError(t("Не указаны изменяемые настройки приложения.",
                                "No application settings were provided."))
+        if "debug_logging_enabled" in fields and body.debug_logging_enabled is None:
+            raise ValueError(t("Режим отладки должен быть логическим значением.",
+                               "Debug logging must be a boolean value."))
         routing_fields = {"vision_profile_id", "vision_routing_approved"}
         if fields & routing_fields:
             approved = body.vision_routing_approved
@@ -281,10 +342,41 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
                 raise ValueError(t("Разрешение Python должно быть логическим значением.",
                                    "Python permission must be a boolean value."))
             store().set_python_execution_allowed(body.python_execution_allowed)
+        if "debug_logging_enabled" in fields:
+            try:
+                if body.debug_logging_enabled:
+                    for profile in store().list():
+                        app.state.debug.register_secret(store().secret(profile.id))
+                    app.state.debug.prepare()
+                else:
+                    app.state.debug.write("debug_disable_requested")
+                store().set_debug_logging_enabled(body.debug_logging_enabled)
+            except OSError as error:
+                app.state.debug.exception("debug_configuration_error", error)
+                raise HTTPException(status_code=500, detail=t(
+                    "Не удалось сохранить режим отладки или открыть журнал. Проверьте доступ к каталогу.",
+                    "Could not save debug mode or open its log. Check directory access.")) from None
+            if body.debug_logging_enabled:
+                app.state.debug.write("debug_enabled", existing_runs=len(agent().runs))
+                for run in agent().runs.values():
+                    app.state.debug.write("run_snapshot", run_id=run.id, session_id=run.session_id,
+                        status=run.status, goal=run.goal, events=run.events[-50:], messages=run.messages[-10:])
         return app_settings()
+
+    @app.get("/api/debug/logs")
+    def debug_logs():
+        try:
+            content = app.state.debug.archive()
+        except FileNotFoundError:
+            raise HTTPException(status_code=404, detail=t("Журнал отладки ещё не создан.",
+                                                         "No debug log has been created yet.")) from None
+        return Response(content, media_type="application/zip", headers={
+            "Content-Disposition": 'attachment; filename="cadnext-debug.zip"'})
 
     @app.post("/api/profiles", status_code=201)
     def add_profile(body: ProfileBody):
+        if body.api_key:
+            app.state.debug.register_secret(body.api_key.get_secret_value())
         return store().public(store().save(body.values()))
 
     @app.get("/api/profiles/{profile_id}")
@@ -293,6 +385,8 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
 
     @app.put("/api/profiles/{profile_id}")
     def update_profile(profile_id: str, body: ProfileBody):
+        if body.api_key:
+            app.state.debug.register_secret(body.api_key.get_secret_value())
         return store().public(store().save(body.values(), profile_id))
 
     @app.delete("/api/profiles/{profile_id}", status_code=204)
@@ -304,7 +398,11 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
             # Connection probes contain a fixed application message, never CAD history.
             privacy = PrivacyContext(local=profile.local, consent=True, vision=profile.vision,
                                      profile_id=profile.id)
-        return provider_factory(profile, store().secret(profile.id), privacy=privacy)
+        secret = store().secret(profile.id)
+        app.state.debug.register_secret(secret)
+        provider = provider_factory(profile, secret, privacy=privacy)
+        provider.debug = app.state.debug
+        return provider
 
     async def public_model_catalog():
         profile = Profile(name="Публичный каталог OpenRouter", base_url="https://openrouter.ai/api/v1",
@@ -338,7 +436,9 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         if body.api_key is None and saved and saved.base_url == draft.base_url:
             secret = store().secret(saved.id)
         privacy = PrivacyContext(local=draft.local, consent=True, profile_id=draft.id)
+        app.state.debug.register_secret(secret)
         provider = provider_factory(draft, secret, privacy=privacy)
+        provider.debug = app.state.debug
         try:
             return await provider.list_model_catalog()
         finally:
@@ -375,6 +475,9 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
 
     @app.post("/api/runs", status_code=202)
     async def start_run(body: RunBody):
+        return await project_operation(start_run_locked, body)
+
+    async def start_run_locked(body):
         if body.request_id and (body.request_id in app.state.stopped_requests
                                 or body.request_id in app.state.request_runs):
             raise HTTPException(status_code=409, detail=t("Запрос уже отправлен или остановлен.",
@@ -404,6 +507,7 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         if body.attachments and not profile.vision:
             raise AttachmentError(t("Для отправки изображений включите Vision в настройках подключения.",
                                        "Enable images in the connection settings to send pictures."))
+        await agent().project_state(body.session_id)
         key = (body.session_id, *asdict(profile).values(), tuple(body.sensitive))
         privacy = app.state.contexts.get(key)
         if privacy is None:
@@ -425,6 +529,10 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
             await provider.aclose()
             raise
         app.state.providers[run.id] = provider
+        app.state.debug.write("run_request", run_id=run.id, session_id=run.session_id,
+            client_request_id=body.request_id, requested_profile_id=requested.id,
+            profile_id=profile.id, language=run.language, max_calls=body.max_calls,
+            evaluation=body.evaluation.model_dump())
         if body.request_id:
             app.state.request_runs[body.request_id] = run.id
         task = asyncio.create_task(release_provider(run, provider))
@@ -484,10 +592,12 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
                            "data": json.dumps(event, ensure_ascii=False)}
             finally:
                 await iterator.aclose()
-                agent().stop(run_id)
+                if not run.done:
+                    agent().stop(run_id)
 
         async def disconnected(message):
-            agent().stop(run_id)
+            if not run.done:
+                agent().stop(run_id)
 
         return EventSourceResponse(stream(), ping=2, send_timeout=15,
                                    ping_message_factory=lambda: ServerSentEvent(event="heartbeat",

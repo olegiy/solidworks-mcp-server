@@ -10,9 +10,9 @@ test('этапы из настоящего API сохраняются после
     localStorage.setItem('cadnext.v1.session', 'construction-demo');
   }, profile.id);
   await page.goto('/');
-  await page.locator('.goal-inline summary').click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByLabel('Проверять цель до достижения').uncheck();
-  await page.locator('.goal-inline summary').click();
+  await page.getByRole('button', { name: 'Закрыть настройки', exact: true }).click();
   await page.getByRole('textbox', { name: 'Сообщение', exact: true }).fill('stage-demo');
   await page.getByRole('button', { name: 'Отправить', exact: true }).click();
   const plan = page.getByRole('region', { name: 'Этапы построения' });

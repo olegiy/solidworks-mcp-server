@@ -75,6 +75,52 @@ test('можно отправить несколько изображений б
   await expect(page.getByText('Получено изображений: 2. Размер: 32 × 24.', { exact: true })).toBeVisible();
 });
 
+test('перетаскивание JPEG и WebP дополняет вложение PNG и отправляет все изображения', async ({ page }) => {
+  await prepare(page);
+  await page.getByLabel('Файлы изображений').setInputFiles(picture);
+  const transfer = await page.evaluateHandle(() => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 32; canvas.height = 24;
+    canvas.getContext('2d')!.fillRect(0, 0, 32, 24);
+    const data = new DataTransfer();
+    for (const [type, name] of [['image/jpeg', 'side.jpg'], ['image/webp', 'top.webp']]) {
+      const bytes = Uint8Array.from(atob(canvas.toDataURL(type).split(',')[1]), char => char.charCodeAt(0));
+      data.items.add(new File([bytes], name, { type }));
+    }
+    return data;
+  });
+  const chat = page.getByRole('region', { name: 'Чат', exact: true });
+  await chat.dispatchEvent('dragenter', { dataTransfer: transfer });
+  await expect(page.getByTestId('file-drop-hint')).toBeVisible();
+  await chat.dispatchEvent('drop', { dataTransfer: transfer });
+  await transfer.dispose();
+  const preview = page.getByRole('region', { name: 'Вложения к сообщению' });
+  await expect(preview.getByRole('img')).toHaveCount(3);
+  await expect(preview.getByRole('img', { name: 'side.jpg', exact: true })).toBeVisible();
+  await expect(preview.getByRole('img', { name: 'top.webp', exact: true })).toBeVisible();
+  await expect(page.getByTestId('file-drop-hint')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Отправить', exact: true }).click();
+  await expect(page.getByText('Получено изображений: 3. Размер: 32 × 24.', { exact: true })).toBeVisible();
+});
+
+test('неподдерживаемый файл при перетаскивании сохраняет черновик и текущую страницу', async ({ page }) => {
+  await prepare(page);
+  await page.getByLabel('Файлы изображений').setInputFiles(picture);
+  await page.getByLabel('Сообщение', { exact: true }).fill('Мой черновик');
+  const url = page.url();
+  const transfer = await page.evaluateHandle(() => {
+    const data = new DataTransfer();
+    data.items.add(new File(['unsupported'], 'model.step', { type: 'application/step' }));
+    return data;
+  });
+  await page.getByLabel('Сообщение', { exact: true }).dispatchEvent('drop', { dataTransfer: transfer });
+  await transfer.dispose();
+  await expect(page.getByRole('alert')).toContainText('PNG, JPEG или WebP');
+  await expect(page.getByLabel('Сообщение', { exact: true })).toHaveValue('Мой черновик');
+  await expect(page.getByRole('region', { name: 'Вложения к сообщению' }).getByRole('img')).toHaveCount(1);
+  expect(page.url()).toBe(url);
+});
+
 test('текстовая модель не позволяет прикреплять или отправлять оставшиеся картинки', async ({ page }) => {
   await prepare(page);
   await page.request.put('/api/settings', { data: { vision_routing_approved: false } });
@@ -117,7 +163,7 @@ test('ошибка отправки сохраняет вложение, нов�
   await page.getByRole('button', { name: 'Отправить', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('отклонено');
   await expect(page.getByRole('region', { name: 'Вложения к сообщению' }).getByRole('img')).toHaveCount(1);
-  await page.getByRole('button', { name: 'Новый диалог', exact: true }).click();
+  await page.getByRole('button', { name: 'Новый проект', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Вложения к сообщению' })).toHaveCount(0);
 });
 

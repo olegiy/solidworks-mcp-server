@@ -66,13 +66,13 @@ def dimension(name, value, unit="mm"):
     return ok({"name": name, "value": value, "value_mm": value, "unit": unit})
 
 
-async def run_agent(steps, answers, *, options=None, catalog=None, max_calls=80):
+async def run_agent(steps, answers, *, options=None, catalog=None, max_calls=80, language="ru"):
     mcp = FakeMcp(steps, catalog=catalog)
     agent = Agent(mcp)
     provider = ScriptedProvider(list(answers))
     run = agent.start(session_id="s", provider=provider, message="Сделай деталь",
                       evaluation=options or EvaluationOptions(), requested_profile_id="text",
-                      max_calls=max_calls)
+                      max_calls=max_calls, language=language)
     await asyncio.wait_for(agent.wait(run.id), 3)
     return run, mcp, provider
 
@@ -91,6 +91,51 @@ def doc_steps(*extra):
     return [("connect_solidworks", ok({"active_document": "Part1"})),
             ("list_open_documents", ok({"documents": [
                 {"title": "Part1", "path": "C:/Part1.sldprt", "type": "part"}]})), *extra]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("continuation", [False, True])
+async def test_goal_tools_follow_current_run_contract(continuation):
+    mcp = FakeMcp([
+        ("get_dimension", dimension("D1", 50.0)),
+        ("set_dimension", ok({"name": "D1", "unit": "mm"})),
+        ("get_dimension", dimension("D1", 62.0)),
+        *doc_steps(("get_dimension", dimension("D1", 62.0))),
+    ], catalog=CAD_CATALOG)
+    agent = Agent(mcp)
+    if continuation:
+        previous = agent.start(session_id="s", provider=ScriptedProvider([
+            response(define(requirement("d1", 50.0), ambiguities=["Confirm the size"]))]),
+            message="Set the size", evaluation=EvaluationOptions())
+        await asyncio.wait_for(agent.wait(previous.id), 3)
+        assert previous.goal["completion_reason"] == "clarification_required"
+
+    provider = ScriptedProvider([
+        response(call("read-current", "get_dimension", {"name": "D1"})),
+        response(call("define-current", "cadnext_define_goal", {
+            "kind": "cad", "requirements": [requirement("d1", 62.0)]})),
+        response(call("bind-current", "cadnext_bind_requirements", {"bindings": [
+            {"requirement_id": "d1", "tool": "get_dimension", "name": "D1"}]})),
+        response(call("set-current", "set_dimension", {"name": "D1", "value_mm": 62.0})),
+        response(content="Ready for verification."),
+    ])
+    run = agent.start(session_id="s", provider=provider, message="Set the size to 62 mm",
+                      evaluation=EvaluationOptions())
+    await asyncio.wait_for(agent.wait(run.id), 3)
+
+    available = [{item["function"]["name"] for item in tools} for _, tools in provider.sent]
+    preparation_tools = {"get_dimension", "get_feature_tree", "list_open_documents",
+                         "connect_solidworks", "screenshot", "set_construction_plan",
+                         "cadnext_define_goal"}
+    assert available[:2] == [preparation_tools, preparation_tools]
+    assert {"set_dimension", "create_part", "execute_python", "cadnext_bind_requirements"} <= available[2]
+    assert run.status == "completed"
+    assert run.goal["outcome"] == "achieved"
+    assert run.goal["contract"]["requirements"][0]["expected"] == 62.0
+    assert not mcp.steps
+    if continuation:
+        assert previous.goal["contract"]["requirements"][0]["expected"] == 50.0
+        assert any(item.get("tool_call_id") == "define-1" for item in provider.sent[0][0])
 
 
 @pytest.mark.asyncio
@@ -186,13 +231,56 @@ async def test_informational_goal_blocks_cad_mutation():
 
 
 @pytest.mark.asyncio
-async def test_clarification_finishes_without_mutation():
+@pytest.mark.parametrize("informational", [False, True])
+async def test_blocked_goal_batch_closes_tool_calls_before_followup(informational):
+    mcp = FakeMcp([])
+    agent = Agent(mcp)
+    answers = [response(define(kind="informational"))] if informational else []
+    answers.append(response(call("blocked-create", "create_part"),
+                            call("blocked-read", "get_dimension", {"name": "D1"})))
+    first = agent.start(session_id="s", provider=ScriptedProvider(answers), message="Create a part",
+                        evaluation=EvaluationOptions())
+    await asyncio.wait_for(agent.wait(first.id), 3)
+    assert first.status == "failed"
+    assert mcp.calls == []
+
+    provider = ScriptedProvider([
+        response(call("define-followup", "cadnext_define_goal", {
+            "kind": "informational", "requirements": []})),
+        response(content="No CAD actions were performed."),
+    ])
+    followup = agent.start(session_id="s", provider=provider, message="What happened?",
+                           evaluation=EvaluationOptions())
+    await asyncio.wait_for(agent.wait(followup.id), 3)
+    history = provider.sent[0][0]
+    replies = {item["tool_call_id"]: json.loads(item["content"])
+               for item in history if item["role"] == "tool"}
+    assert {"blocked-create", "blocked-read"} <= replies.keys()
+    for call_id in ("blocked-create", "blocked-read"):
+        assert replies[call_id]["ok"] is False
+        assert replies[call_id]["uncertain"] is False
+    assert followup.status == "completed"
+    assert mcp.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language,ambiguity", [
+    ("ru", "Укажите радиус скругления"), ("en", "Specify the fillet radius"),
+])
+async def test_clarification_finishes_without_mutation(language, ambiguity):
     run, mcp, _ = await run_agent(
-        [], [response(define(requirement("d1", 50.0), ambiguities=["Не указан радиус"]))])
+        [], [response(define(requirement("d1", 50.0), ambiguities=[ambiguity]))],
+        language=language)
     assert run.status == "completed"
     assert run.goal["outcome"] == "unknown"
     assert run.goal["completion_reason"] == "clarification_required"
     assert mcp.calls == []
+    clarification = [event["data"]["content"] for event in run.events
+                     if event["type"] == "message" and event["data"]["role"] == "assistant"]
+    assert len(clarification) == 1
+    assert ambiguity in clarification[0]
+    assert ambiguity in run.goal["summary"]
+    assert run.messages[-1] == {"role": "assistant", "content": clarification[0]}
 
 
 @pytest.mark.asyncio
@@ -224,6 +312,42 @@ async def test_evaluation_budget_is_reserved_before_mutation():
     assert run.call_count <= run.max_calls
 
 PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reopen", [False, True])
+async def test_followup_evaluation_retains_drawing_from_conversation(reopen):
+    mcp = FakeMcp([
+        ("screenshot", ok(None, [{"data": PNG, "mimeType": "image/png"}])),
+        *doc_steps(("screenshot", ok(None, [{"data": PNG, "mimeType": "image/png"}]))),
+    ])
+    agent = Agent(mcp)
+    first = agent.start(session_id="drawing", provider=ScriptedProvider([
+        response(call("previous-view", "screenshot")), response(content="Drawing read.")]),
+        message="Use this drawing", attachments=[{"name": "drawing.png", "mimeType": "image/png", "data": PNG}])
+    await asyncio.wait_for(agent.wait(first.id), 3)
+    original = first.events[0]["data"]["attachments"][0]
+    if reopen:
+        saved = agent.conversation_snapshot("drawing")
+        agent = Agent(mcp)
+        agent.load_conversation(saved)
+    provider = ScriptedProvider([
+        response(define(requirement("v1", method="vision"))), response(content="Check the result."),
+        response(call("vision-report", "cadnext_report_visual_evaluation", {"evaluations": [
+            {"requirement_id": "v1", "status": "pass", "explanation": "Matches the drawing",
+             "image_ids": ["current-0"]}]})),
+    ])
+    followup = agent.start(session_id="drawing", provider=provider, message="Continue from the drawing",
+                           evaluation=EvaluationOptions())
+    await asyncio.wait_for(agent.wait(followup.id), 3)
+    assert followup.status == "completed"
+    assert followup.goal["outcome"] == "achieved"
+    visual_messages, _ = provider.sent[-1]
+    images = [block["image_url"]["url"] for block in visual_messages[-1]["content"]
+              if block["type"] == "image_url"]
+    assert images[0] == f'data:{original["mimeType"]};base64,{original["data"]}'
+    assert len(images) == 2
+    assert not mcp.steps
 
 
 @pytest.mark.asyncio

@@ -16,9 +16,9 @@ async function connection(page: Page, name: string, remote = false) {
 }
 
 async function disableGoal(page: Page) {
-  await page.locator('.goal-inline summary').click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByLabel('Проверять цель до достижения').uncheck();
-  await page.locator('.goal-inline summary').click();
+  await page.getByRole('button', { name: 'Закрыть настройки', exact: true }).click();
 }
 
 async function send(page: Page, text: string) {
@@ -63,7 +63,7 @@ test('кнопка сохранения пишет переписку, а Open �
   expect(saved.messages.length).toBeGreaterThan(0);
   expect(saved.runs.length).toBeGreaterThan(0);
 
-  await page.getByRole('button', { name: 'Новый диалог', exact: true }).click();
+  await page.getByRole('button', { name: 'Новый проект', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Что создадим сегодня?' })).toBeVisible();
   await page.getByTestId('open-conversation-input').setInputFiles(conversationPath);
   await expect(page.getByText('Прочитай размер', { exact: true })).toBeVisible();
@@ -79,18 +79,20 @@ test('разрешение Python постоянно для новых диал�
   const dialog = page.getByRole('dialog', { name: 'Подтверждение Python-кода' });
   await expect(dialog.getByText('result = 62\nprint(result)', { exact: true })).toBeVisible();
   await dialog.getByRole('button', { name: 'Разрешить постоянно' }).click();
-  await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  await expect(page.getByTestId('run-status').last()).toHaveText('Результат не удалось проверить');
+  await expect(page.getByRole('region', { name: 'Ход выполнения', exact: true })
+    .getByRole('status')).toHaveText('Результат не удалось проверить');
   await expect(page.getByText('Результат требует проверки', { exact: true }).last()).toBeVisible();
   await send(page, 'Ещё код');
-  await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  await expect(page.getByTestId('run-status').last()).toHaveText('Результат не удалось проверить');
   await expect(dialog).toHaveCount(0);
   await page.reload();
   await send(page, 'Продолжи код');
-  await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  await expect(page.getByTestId('run-status').last()).toHaveText('Результат не удалось проверить');
   await expect(dialog).toHaveCount(0);
-  await page.getByRole('button', { name: 'Новый диалог', exact: true }).click();
+  await page.getByRole('button', { name: 'Новый проект', exact: true }).click();
   await send(page, 'Другой код');
-  await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  await expect(page.getByTestId('run-status').last()).toHaveText('Результат не удалось проверить');
   await expect(dialog).toHaveCount(0);
   await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   const permission = page.getByRole('checkbox', { name: 'Всегда разрешать выполнение Python' });
@@ -131,16 +133,44 @@ test('облачные данные отправляются без подтве
   await expect(page.getByLabel('Сообщение')).toBeInViewport();
 });
 
-test('закрытие вкладки запрещает следующий шаг, новая вкладка показывает существующий запрос', async ({ page, context }) => {
+test('закрытие вкладки останавливает запрос, новая вкладка начинает чистый проект', async ({ page, context }) => {
   await page.goto('/');
   await connection(page, 'Закрытие');
   await send(page, 'Читай долго');
   await expect(page.getByText('Вызовов: 1', { exact: true }).last()).toBeVisible();
+  const session = await page.evaluate(() => sessionStorage.getItem('cadnext.v1.session'));
+  expect(session).toBeTruthy();
   await page.close();
   const next = await context.newPage();
   await next.goto('/');
-  await expect(next.getByTestId('run-status').last()).toHaveText('Остановлен');
-  await expect(next.getByText('Вызовов: 1', { exact: true }).last()).toBeVisible();
+  await expect(next.getByTestId('run-status')).toHaveCount(0);
+  await expect.poll(async () => (await context.request.get(`/api/runs?session_id=${session}`)).json()
+    .then(runs => runs[0]?.status)).toBe('stopped');
+  expect(await next.evaluate(() => sessionStorage.getItem('cadnext.v1.session'))).not.toBe(session);
+});
+
+test('обновление сохраняет весь проект, явное закрытие начинает чистую историю', async ({ page }) => {
+  await page.goto('/');
+  await connection(page, 'История проекта');
+  await send(page, 'Прочитай размер');
+  await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  const session = await page.evaluate(() => sessionStorage.getItem('cadnext.v1.session'));
+  expect(session).toBeTruthy();
+  await send(page, 'Продолжи по прежним данным');
+  await expect(page.getByTestId('run-status')).toHaveCount(2);
+  await page.reload();
+  await expect(page.getByTestId('run-status')).toHaveCount(2);
+  await expect(page.getByText('Прочитай размер', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => sessionStorage.getItem('cadnext.v1.session'))).toBe(session);
+  const history = await (await page.request.get(`/api/runs?session_id=${session}`)).json();
+  const messages = history.at(-1).messages;
+  expect(messages.filter((item: { role: string }) => item.role === 'user').length).toBeGreaterThanOrEqual(2);
+  for (const message of messages) for (const call of message.tool_calls ?? []) {
+    expect(messages.filter((item: { tool_call_id?: string }) => item.tool_call_id === call.id)).toHaveLength(1);
+  }
+  await page.getByRole('button', { name: 'Закрыть проект', exact: true }).click();
+  await expect(page.getByTestId('run-status')).toHaveCount(0);
+  expect(await (await page.request.get(`/api/runs?session_id=${session}`)).json()).toEqual([]);
 });
 
 test('закрытие вкладки до ответа о запуске также останавливает CAD', async ({ page, context }) => {
@@ -168,7 +198,7 @@ test('восстановление обновляет незавершённый
   await page.goto('/');
   await connection(page, 'Восстановление');
   const profileId = await page.getByLabel('Активное подключение').inputValue();
-  await page.evaluate(() => localStorage.setItem('cadnext.v1.session', 'restore-race'));
+  await page.evaluate(() => sessionStorage.setItem('cadnext.v1.session', 'restore-race'));
   await context.request.post('/api/runs', { data: {
     session_id: 'restore-race', profile_id: profileId, message: 'Читай долго',
   } });

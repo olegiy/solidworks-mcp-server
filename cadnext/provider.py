@@ -36,6 +36,7 @@ class Provider:
                                "The privacy context does not match the connection."))
         self.privacy.bind_profile(profile.id, base_url=profile.base_url, model=profile.model)
         self.last_metrics = None
+        self.debug = None
         self._image_cache = {}
         self._completion_slots = asyncio.Semaphore(2)
         self._client = httpx.AsyncClient(
@@ -50,10 +51,16 @@ class Provider:
     async def _request(self, method: str, path: str, **kwargs):
         try:
             response = await self._client.request(method, path, **kwargs)
-        except httpx.HTTPError:
+        except httpx.HTTPError as error:
+            if self.debug is not None:
+                self.debug.exception("provider_transport_error", error, profile_id=self.profile.id,
+                                     method=method, path=path)
             raise ProviderError(t("Не удалось связаться с API модели. Проверьте адрес и соединение.",
                                   "Could not reach the model API. Check the address and connection.")) from None
         if not response.is_success:
+            if self.debug is not None:
+                self.debug.write("provider_http_error", profile_id=self.profile.id,
+                                 method=method, path=path, status=response.status_code, body=response.text)
             if response.status_code in {400, 422}:
                 body = response.text.lower()
                 if any(word in body for word in ("tool", "function_call")):
@@ -64,6 +71,9 @@ class Provider:
         try:
             return response.json()
         except ValueError:
+            if self.debug is not None:
+                self.debug.write("provider_invalid_json", profile_id=self.profile.id,
+                                 method=method, path=path, status=response.status_code, body=response.text)
             raise ProviderError(t("API модели вернул некорректный JSON.",
                                   "The model API returned invalid JSON.")) from None
 
@@ -145,16 +155,27 @@ class Provider:
                     block.get("type") == "image_url" for message in payload["messages"]
                     if isinstance(message.get("content"), list) for block in message["content"])
                 metrics["preparation_seconds"] = time.perf_counter() - started
+                if self.debug is not None:
+                    self.debug.write("model_request", profile_id=self.profile.id,
+                                     base_url=self.profile.base_url, payload=payload)
                 if stream:
                     data = await self._stream_request(body, metrics, started)
                 else:
                     data = await self._request("POST", "chat/completions", content=body,
                                                headers={"Content-Type": "application/json"})
                 self._usage_metrics(data, metrics)
+                if self.debug is not None:
+                    self.debug.write("model_response", profile_id=self.profile.id, response=data)
                 return self._completion_message(data)
+            except Exception as error:
+                if self.debug is not None:
+                    self.debug.exception("model_exception", error, profile_id=self.profile.id)
+                raise
             finally:
                 metrics["duration_seconds"] = time.perf_counter() - started
                 self.last_metrics = metrics
+                if self.debug is not None:
+                    self.debug.write("model_metrics", profile_id=self.profile.id, metrics=metrics)
 
     @staticmethod
     def _usage_metrics(data, metrics):

@@ -21,6 +21,25 @@ async function send(page: Page, text: string) {
   await page.getByRole('button', { name: 'Отправить', exact: true }).click();
 }
 
+test('оценка настраивается только в настройках и сохраняется для следующего запроса', async ({ page }) => {
+  await page.goto('/');
+  await connection(page, 'Параметры оценки');
+  await expect(page.getByRole('form', { name: 'Отправка сообщения' }))
+    .not.toContainText('Оценка результата');
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByLabel('Целевая схожесть, %').fill('90');
+  await page.getByLabel('Максимум оценок', { exact: true }).fill('5');
+  await page.getByLabel('Исправлений без прогресса', { exact: true }).fill('2');
+  await page.getByRole('button', { name: 'Закрыть настройки', exact: true }).click();
+  await page.reload();
+  const request = page.waitForRequest(request => request.method() === 'POST'
+    && request.url().endsWith('/api/runs'));
+  await send(page, 'оценка-100');
+  expect((await request).postDataJSON().evaluation).toEqual({
+    enabled: true, target_similarity: 90, max_evaluations: 5, max_no_progress: 2 });
+  await expect(page.getByTestId('goal-card').last().getByText('Цель достигнута', { exact: true })).toBeVisible();
+});
+
 test('серверная оценка показывает 100% и зафиксированные требования', async ({ page }) => {
   await page.goto('/');
   await connection(page, 'Цель 100');
@@ -43,14 +62,26 @@ test('неудача 70% исправляется и показывает вто
   await expect(page.getByTestId('goal-card').last().getByText('Цель достигнута', { exact: true })).toBeVisible();
 });
 
-test('просьба о уточнении завершает прогон без CAD-изменений', async ({ page }) => {
+test('уточнение не показывается как выполненное построение', async ({ page }) => {
   await page.goto('/');
   await connection(page, 'Уточнение');
   await send(page, 'уточнение радиуса');
-  await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
+  await expect(page.getByTestId('run-status').last()).toHaveText('Нужно уточнение');
+  const indicator = page.getByRole('region', { name: 'Ход выполнения', exact: true });
+  await expect(indicator.getByRole('status')).toHaveText('Нужно уточнение');
+  await expect(page.locator('.message.assistant').last()).toContainText('Не указан радиус скругления');
   await expect(page.getByTestId('goal-card').last().getByText('Нужно уточнение', { exact: true })).toBeVisible();
   await expect(page.getByTestId('goal-card').last()).toContainText('Не указан радиус скругления');
   await expect(page.getByText('Вызовов: 0', { exact: true }).last()).toBeVisible();
+  await indicator.getByRole('button', { name: 'Подробности выполнения' }).click();
+  await expect(indicator).toContainText('CAD-операций завершено: 0 из 0');
+  await page.reload();
+  await expect(page.getByTestId('run-status').last()).toHaveText('Нужно уточнение');
+  await expect(indicator.getByRole('status')).toHaveText('Нужно уточнение');
+  await page.getByLabel('Язык интерфейса').selectOption('en');
+  await expect(page.getByTestId('run-status').last()).toHaveText('Clarification required');
+  await expect(page.getByRole('region', { name: 'Execution progress', exact: true })
+    .getByRole('status')).toHaveText('Clarification required');
 });
 
 test('виден визуальный pass, но неверный размер не даёт успеха', async ({ page }) => {
@@ -81,9 +112,9 @@ test('отсутствие прогресса упирается в лимит, 
 test('явное отключение оценки возвращает старый режим без карточки', async ({ page }) => {
   await page.goto('/');
   await connection(page, 'Без цели');
-  await page.locator('.goal-inline summary').click();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
   await page.getByLabel('Проверять цель до достижения').uncheck();
-  await page.locator('.goal-inline summary').click();
+  await page.getByRole('button', { name: 'Закрыть настройки', exact: true }).click();
   await send(page, 'оценка-100');
   await expect(page.getByTestId('run-status').last()).toHaveText('Завершён');
   await expect(page.getByTestId('goal-card')).toHaveCount(0);

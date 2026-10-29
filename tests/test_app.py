@@ -55,6 +55,59 @@ def test_health_profiles_crud_and_secret_never_returned(api):
     assert backend.settings.secret(saved["id"]) is None
 
 
+def test_debug_settings_capture_model_and_cad_and_survive_project_closure(api):
+    import io
+    import zipfile
+
+    from cadnext.settings import SettingsStore
+    from tests.test_settings import MemorySecrets
+
+    client, backend = api
+    assert client.get('/api/settings').json()['debug_logging_enabled'] is False
+    saved = profile(client, api_key='debug-private-key')
+    enabled = client.put('/api/settings', json={'debug_logging_enabled': True})
+    assert enabled.status_code == 200
+    assert enabled.json()['debug_logging_enabled'] is True
+    assert SettingsStore(backend.settings.path.parent, MemorySecrets()).debug_logging_enabled is True
+    run = start(client, saved['id'], 'Прочитай размер').json()
+    assert wait(client, run['id'])['status'] == 'completed'
+    assert client.post('/api/projects/session-1/close').status_code == 204
+    response = client.get('/api/debug/logs')
+    assert response.status_code == 200
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        text = '\n'.join(archive.read(name).decode('utf-8') for name in archive.namelist())
+    records = [json.loads(line) for line in text.splitlines()]
+    assert any(r['event'] == 'model_request' for r in records)
+    assert any(r['event'] == 'model_response' for r in records)
+    assert any(r['event'] == 'model_request' and r['run_id'] == run['id'] for r in records)
+    assert any(r['event'] == 'mcp_result' and r['run_id'] == run['id'] for r in records)
+    events = [r for r in records if r['event'] == 'run_event' and r['run_id'] == run['id']]
+    assert any(r['event_type'] == 'tool_start' and r['data']['name'] == 'get_dimension' for r in events)
+    assert any(r['event_type'] == 'tool_result' and r['data']['result']['ok'] for r in events)
+    assert any(r['event'] == 'project_closed' for r in records)
+    assert 'debug-private-key' not in text
+    assert client.put('/api/settings', json={'debug_logging_enabled': False}).status_code == 200
+    size = client.app.state.debug.path.stat().st_size
+    client.get('/api/profiles')
+    assert client.app.state.debug.path.stat().st_size == size
+    assert client.put('/api/settings', json={'debug_logging_enabled': 'true'}).status_code == 422
+    assert client.put('/api/settings', json={'debug_logging_enabled': None}).status_code == 422
+
+
+def test_debug_enable_failure_keeps_setting_disabled(api, monkeypatch):
+    client, backend = api
+
+    def fail():
+        raise OSError('Log directory unavailable')
+
+    monkeypatch.setattr(client.app.state.debug, 'prepare', fail)
+    response = client.put('/api/settings', json={'debug_logging_enabled': True})
+    assert response.status_code == 500
+    assert 'отладки' in response.json()['detail']
+    assert backend.settings.debug_logging_enabled is False
+    assert client.get('/api/settings').json()['debug_logging_enabled'] is False
+
+
 def test_global_python_permission_is_persisted_and_validated(api):
     from cadnext.settings import SettingsStore
     from tests.test_settings import MemorySecrets
@@ -542,6 +595,128 @@ def test_conversation_open_rejects_invalid_file(api):
                            json={'conversation': {'schema': 'wrong'}})
     assert response.status_code == 422
     assert 'Unsupported conversation format' in response.json()['detail']
+
+
+def test_close_project_ends_only_its_history_and_rejects_old_session(api):
+    client, _ = api
+    saved = profile(client)
+    first = start(client, saved['id'], 'First project').json()
+    wait(client, first['id'])
+    other = start(client, saved['id'], 'Other project', session_id='other-project').json()
+    wait(client, other['id'])
+    response = client.post('/api/projects/session-1/close')
+    assert response.status_code == 204
+    assert client.get('/api/runs?session_id=session-1').json() == []
+    assert len(client.get('/api/runs?session_id=other-project').json()) == 1
+    assert start(client, saved['id'], 'Stale request').status_code == 409
+    fresh = start(client, saved['id'], 'New project', session_id='fresh-project').json()
+    assert wait(client, fresh['id'])['status'] == 'completed'
+
+
+def test_closed_solidworks_document_ends_project_but_refresh_keeps_history(api):
+    client, backend = api
+    saved = profile(client, vision=True)
+    first = start(client, saved['id'], 'оценка-100', evaluation={'enabled': True}).json()
+    completed = wait(client, first['id'])
+    state = client.get('/api/projects/session-1/state')
+    assert state.status_code == 200
+    assert state.json()['closed'] is False
+    assert client.get('/api/runs?session_id=session-1').json()[0] == completed
+    backend.active_document = None
+    state = client.get('/api/projects/session-1/state')
+    assert state.json()['closed'] is True
+    assert client.get('/api/runs?session_id=session-1').json() == []
+    assert start(client, saved['id'], 'Do not continue the closed document').status_code == 409
+
+
+def test_reopened_project_can_be_closed_without_losing_other_history(api, tmp_path):
+    client, _ = api
+    saved = profile(client)
+    first = start(client, saved['id']).json()
+    wait(client, first['id'])
+    assert client.post('/api/cad/save', json={'session_id': 'session-1'}).status_code == 200
+    data = json.loads((tmp_path / 'Деталь1.cadnext.json').read_text(encoding='utf-8'))
+    opened = client.post('/api/conversations/open', json={'conversation': data}).json()
+    response = client.post(f'/api/projects/{opened["session_id"]}/close')
+    assert response.status_code == 204
+    assert len(client.get('/api/runs?session_id=session-1').json()) == 1
+
+
+def test_opened_history_waits_for_its_document_before_detecting_closure(api, tmp_path):
+    client, backend = api
+    saved = profile(client, vision=True)
+    first = start(client, saved['id'], 'оценка-100', evaluation={'enabled': True}).json()
+    wait(client, first['id'])
+    assert client.post('/api/cad/save', json={'session_id': 'session-1'}).status_code == 200
+    data = json.loads((tmp_path / 'Деталь1.cadnext.json').read_text(encoding='utf-8'))
+    backend.active_document = None
+    opened = client.post('/api/conversations/open', json={'conversation': data}).json()
+    session = opened['session_id']
+    assert client.get(f'/api/projects/{session}/state').json() == {'closed': False}
+    assert len(client.get(f'/api/runs?session_id={session}').json()) == 1
+    backend.active_document = 'Деталь1'
+    assert client.get(f'/api/projects/{session}/state').json() == {'closed': False}
+    backend.active_document = None
+    assert client.get(f'/api/projects/{session}/state').json() == {'closed': True}
+
+
+def test_project_inspection_keeps_history_on_switch_and_known_cad_error(api):
+    from tests.fake_mcp import ok
+
+    client, backend = api
+    saved = profile(client, vision=True)
+    first = start(client, saved['id'], 'оценка-100', evaluation={'enabled': True}).json()
+    completed = wait(client, first['id'])
+    original = backend.call
+
+    async def switched(name, arguments):
+        if name == 'list_open_documents':
+            return ok({'documents': [
+                {'title': 'Other', 'path': 'C:/Other.sldprt'},
+                {'title': 'Деталь1', 'path': backend.document_path.upper()}]})
+        return await original(name, arguments)
+
+    backend.call = switched
+    assert client.get('/api/projects/session-1/state').json() == {'closed': False}
+
+    async def error(name, arguments):
+        return {'ok': False, 'value': {'status': 'error'}, 'error': 'CAD_ERROR',
+                'uncertain': False, 'images': []}
+
+    backend.call = error
+    assert client.get('/api/projects/session-1/state').json() == {'closed': False}
+    assert client.get('/api/runs?session_id=session-1').json() == [completed]
+
+
+def test_project_inspection_unknown_outcome_survives_project_close(api):
+    client, backend = api
+    saved = profile(client, vision=True)
+    first = start(client, saved['id'], 'оценка-100', evaluation={'enabled': True}).json()
+    completed = wait(client, first['id'])
+
+    async def unknown(name, arguments):
+        return {'ok': False, 'value': None, 'error': 'Unknown outcome',
+                'uncertain': True, 'images': []}
+
+    backend.call = unknown
+    assert client.get('/api/projects/session-1/state').json() == {'closed': False}
+    assert client.get('/api/runs?session_id=session-1').json() == [completed]
+    assert client.post('/api/projects/session-1/close').status_code == 204
+    assert client.get('/api/health').json()['uncertain'] is True
+    assert start(client, saved['id'], session_id='fresh').status_code == 409
+
+
+def test_project_poll_does_not_touch_cad_while_run_is_active(api):
+    client, backend = api
+    saved = profile(client)
+    first = start(client, saved['id'], 'Читай долго').json()
+    client.portal.call(backend.entered.wait)
+    calls = list(backend.calls)
+    assert client.get('/api/projects/session-1/state').json() == {'closed': False}
+    assert backend.calls == calls
+    client.post(f'/api/runs/{first["id"]}/stop')
+    client.portal.call(backend.release.set)
+    assert wait(client, first['id'])['status'] == 'stopped'
 
 
 def test_opening_uncertain_conversation_blocks_new_runs(api, tmp_path):

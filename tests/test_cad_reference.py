@@ -6,6 +6,66 @@ import pytest
 from cadnext import cad_reference as reference
 
 
+@pytest.fixture
+def enum_index():
+    return {"version": {"year": 2025}, "symbols": {
+        "swEndConditions_e.swEndCondBlind": {
+            "symbol_id": "swEndConditions_e.swEndCondBlind", "version": {"year": 2025},
+            "kind": "constant", "value": 0, "overloads": []},
+        "swEndConditions_e.swEndCondMidPlane": {
+            "symbol_id": "swEndConditions_e.swEndCondMidPlane", "version": {"year": 2025},
+            "kind": "constant", "value": 6, "overloads": []},
+        "swEndConditions_extra_e.Other": {
+            "symbol_id": "swEndConditions_extra_e.Other", "version": {"year": 2025},
+            "kind": "constant", "value": 99, "overloads": []}}}
+
+
+def test_enum_type_lookup_returns_its_local_constants_without_prefix_collisions(enum_index):
+    result = reference.get_symbol(enum_index, "swEndConditions_e")
+    assert result["kind"] == "enum"
+    assert result["symbol_id"] == "swEndConditions_e"
+    assert result["version"] == {"year": 2025}
+    assert [(member["symbol_id"], member["value"]) for member in result["members"]] == [
+        ("swEndConditions_e.swEndCondBlind", 0),
+        ("swEndConditions_e.swEndCondMidPlane", 6)]
+    result["members"][0]["value"] = 100
+    assert reference.get_symbol(enum_index, "swEndConditions_e.swEndCondBlind")["value"] == 0
+
+
+def test_enum_help_uses_the_official_enum_page(enum_index):
+    requests = []
+
+    def help_page(request):
+        requests.append(request)
+        return httpx.Response(200, text="<h1>swEndConditions_e Enumeration</h1><p>swEndCondBlind = 0</p>")
+
+    local = reference.get_symbol(enum_index, "swEndConditions_e")
+    with httpx.Client(transport=httpx.MockTransport(help_page)) as client:
+        assert reference.with_help(local, include_help=False, client=client) == local
+        assert not requests
+        result = reference.with_help(local, include_help=True, client=client)
+    assert result["members"] == local["members"]
+    assert result["help"]["available"] is True
+    assert str(requests[0].url) == (
+        "https://help.solidworks.com/2025/english/api/swconst/"
+        "SOLIDWORKS.Interop.swconst~SOLIDWORKS.Interop.swconst.swEndConditions_e.html")
+
+
+def test_missing_enum_is_reported_without_fabricating_constants(enum_index):
+    result = reference.get_symbol(enum_index, "swMissing_e")
+    assert result["found"] is False
+    assert "members" not in result
+    with httpx.Client(transport=httpx.MockTransport(lambda request: pytest.fail("No help for missing enum"))) as client:
+        assert reference.with_help(result, include_help=True, client=client)["help"]["available"] is False
+
+
+@pytest.mark.parametrize("symbol_id", ["", "../swEndConditions_e", "swEndConditions_e.Bad.Member",
+                                      "https://example.com", "swEndConditions_e\n"])
+def test_invalid_symbol_ids_are_rejected(enum_index, symbol_id):
+    with pytest.raises(ValueError):
+        reference.get_symbol(enum_index, symbol_id)
+
+
 def test_missing_symbol_returns_available_member_interfaces_without_fabricating_a_signature():
     data = {"version": {"year": 2025}, "symbols": {
         "IPartDoc.FeatureByName": {"symbol_id": "IPartDoc.FeatureByName", "version": {"year": 2025},

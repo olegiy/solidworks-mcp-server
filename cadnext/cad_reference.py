@@ -10,6 +10,7 @@ import httpx
 from cadnext.cad_examples import EXAMPLES
 
 _SYMBOL = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*\.[A-Za-z_][A-Za-z_0-9]*$")
+_TYPE_NAME = re.compile(r"^[A-Za-z_][A-Za-z_0-9]*$")
 
 
 def load_index(path: Path) -> dict:
@@ -66,14 +67,21 @@ def search(index: dict, query: str) -> list[dict]:
 
 
 def get_symbol(index: dict, symbol_id: str) -> dict:
-    if not _SYMBOL.fullmatch(symbol_id):
+    type_name = bool(_TYPE_NAME.fullmatch(symbol_id))
+    if not type_name and not _SYMBOL.fullmatch(symbol_id):
         raise ValueError("Некорректный идентификатор API.")
+    if type_name:
+        members = [deepcopy(entry) for name, entry in sorted(index["symbols"].items())
+                   if name.startswith(symbol_id + ".") and entry.get("kind") == "constant"]
+        if members:
+            return {"symbol_id": symbol_id, "version": deepcopy(index["version"]),
+                    "kind": "enum", "members": members}
     if symbol_id not in index["symbols"]:
-        member = symbol_id.split(".")[1]
+        member = symbol_id.rsplit(".", 1)[-1]
         return {"symbol_id": symbol_id, "version": deepcopy(index["version"]), "found": False,
                 "message": "Символ отсутствует в установленной библиотеке; выберите существующий интерфейс.",
                 "alternatives": [item for item in search(index, member)
-                                 if item["symbol_id"].split(".")[1].lower() == member.lower()]}
+                                 if type_name or item["symbol_id"].split(".")[1].lower() == member.lower()]}
     return deepcopy(index["symbols"][symbol_id])
 
 
@@ -105,13 +113,14 @@ def with_help(symbol: dict, *, include_help: bool, client=None) -> dict:
                           "message": "Локальный символ не найден; пояснение не запрашивалось."}
         return result
     symbol_id = symbol["symbol_id"]
-    if not _SYMBOL.fullmatch(symbol_id):
+    enum = symbol.get("kind") == "enum"
+    if not (_TYPE_NAME if enum else _SYMBOL).fullmatch(symbol_id):
         raise ValueError("Некорректный идентификатор API.")
-    interface, member = symbol_id.split(".")
+    interface, _, member = symbol_id.partition(".")
     year = int(symbol["version"]["year"])
     url = (f"https://help.solidworks.com/{year}/english/api/sldworksapi/"
            f"SOLIDWORKS.Interop.sldworks~SOLIDWORKS.Interop.sldworks.{interface}~{member}.html")
-    if symbol.get("kind") == "constant":
+    if enum or symbol.get("kind") == "constant":
         url = (f"https://help.solidworks.com/{year}/english/api/swconst/"
                f"SOLIDWORKS.Interop.swconst~SOLIDWORKS.Interop.swconst.{interface}.html")
     result["help"] = {"url": url, "available": False}
@@ -129,7 +138,7 @@ def with_help(symbol: dict, *, include_help: bool, client=None) -> dict:
         parser = _HelpText()
         parser.feed(body.decode("utf-8", errors="replace"))
         text = "\n".join(parser.parts)
-        if member.lower() not in text.lower():
+        if (interface if enum else member).lower() not in text.lower():
             raise ValueError("Официальная страница не содержит запрошенный API.")
         result["help"].update(available=True, text=text[:24000],
                               source="official_help", executable=False)

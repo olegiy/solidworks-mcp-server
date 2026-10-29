@@ -7,6 +7,7 @@ async function prepare(page: Page, history = true, extraEvents: { seq: number; t
     name: 'Дизайн чата', base_url: 'http://localhost/v1', model: 'fake-model', local: true, vision: false,
   } });
   const profile = await result.json();
+  await page.route('**/api/projects/redesign/state', route => route.fulfill({ json: { closed: false } }));
   await page.addInitScript(id => {
     if (sessionStorage.getItem('redesign.initialized')) return;
     localStorage.setItem('cadnext.v1.session', 'redesign');
@@ -81,7 +82,7 @@ test('у сообщения пользователя есть копирован
 
 test('Enter отправляет один запрос, Shift+Enter сохраняет новую строку', async ({ page }) => {
   await prepare(page, false);
-  await page.getByRole('button', { name: 'Новый диалог', exact: true }).click();
+  await page.getByRole('button', { name: 'Новый проект', exact: true }).click();
   let sent = 0;
   page.on('request', request => { if (request.method() === 'POST' && request.url().endsWith('/api/runs')) sent++; });
   const input = page.getByLabel('Сообщение', { exact: true });

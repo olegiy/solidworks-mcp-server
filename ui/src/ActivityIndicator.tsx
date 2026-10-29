@@ -3,6 +3,7 @@ import { terminal } from './api';
 import type { Run, RunEvent } from './api';
 import { useI18n } from './i18n';
 import type { MessageKey } from './i18n';
+import { incompleteGoalKey, localTools } from './runPresentation';
 
 export interface PendingActivity {
   phase: 'images' | 'sending'; at: number; files: number; bytes: number;
@@ -46,7 +47,7 @@ function stageOf(run: Run, t: Translate) {
   const latestFirst = [...run.events].reverse();
   const status = latestFirst.find(event => event.type === 'status' && event.data.status === run.status);
   if (terminal(run.status)) {
-    const key = finishedKeys[run.status];
+    const key = incompleteGoalKey(run) ?? finishedKeys[run.status];
     return { label: key ? t(key) : run.status, at: stamp(status), kind: 'finished' };
   }
   if (run.status === 'stopping') {
@@ -65,6 +66,7 @@ function stageOf(run: Run, t: Translate) {
   if (latest?.type === 'tool_start') {
     const name = String(latest.data.name);
     const action = toolKeys[name];
+    if (localTools.has(name)) return { label: t('activityProcessingTool'), at: stamp(latest), kind: 'local' };
     return { label: `${latest.data.verification ? t('activityChecking') : t('activitySolidworks')}: ${action ? t(action) : name}`,
       at: stamp(latest), kind: 'cad' };
   }
@@ -107,7 +109,8 @@ export default function ActivityIndicator({ run, pending, contact }: {
   const pulse = active && !disconnected && stage.kind !== 'confirmation';
   const modelStarts = run?.events.filter(event => event.type === 'model_start').length ?? 0;
   const modelReplies = run?.events.filter(event => event.type === 'model_end' && event.data.outcome === 'received').length ?? 0;
-  const cadStarts = new Set(run?.events.filter(event => event.type === 'tool_start').map(event => event.data.tool_call_id));
+  const cadStarts = new Set(run?.events.filter(event => event.type === 'tool_start'
+    && !localTools.has(String(event.data.name))).map(event => event.data.tool_call_id));
   const cadResults = new Set(run?.events.filter(event => event.type === 'tool_result' && cadStarts.has(event.data.tool_call_id))
     .map(event => event.data.tool_call_id));
   const elapsed = endedAt !== undefined ? duration(firstAt, endedAt) : duration(stage.at, now);

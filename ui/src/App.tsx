@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent, ReactNode, RefObject } from 'react';
+import type { ChangeEvent, DragEvent, FormEvent, ReactNode, RefObject } from 'react';
 import { api, remember, stored, terminal } from './api';
 import type { AppSettings, Attachment, Confirmation, GoalOptions, LoadedConversation, ModelCatalog, Profile, ReasoningMetadata, Run, RunEvent, SaveResult } from './api';
 import { imageTypes, readImages, type DraftAttachment } from './attachments';
@@ -11,6 +11,7 @@ import ActivityIndicator from './ActivityIndicator';
 import GoalEvaluationCard from './GoalEvaluation';
 import ConstructionPlan from './ConstructionPlan';
 import { applyRunEvent } from './runEvents';
+import { incompleteGoalKey } from './runPresentation';
 import type { PendingActivity, RunContact } from './ActivityIndicator';
 import { useI18n } from './i18n';
 import type { MessageKey } from './i18n';
@@ -136,12 +137,16 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
   const [routingDraft, setRoutingDraft] = useState<string | null>(appSettings?.vision_profile_id ?? null);
   const [routingBusy, setRoutingBusy] = useState(false);
   const [routingNotice, setRoutingNotice] = useState('');
+  const [debugSettings, setDebugSettings] = useState<AppSettings | null>(appSettings);
+  const [debugBusy, setDebugBusy] = useState(false);
+  const [debugNotice, setDebugNotice] = useState('');
   const closeButton = useRef<HTMLButtonElement>(null);
   useEffect(() => { closeButton.current?.focus(); }, []);
   useEffect(() => {
     const controller = new AbortController();
     api<AppSettings>('/settings', { signal: controller.signal })
       .then(result => { setPythonAllowed(result.python_execution_allowed); setRouting(result);
+        setDebugSettings(result);
         setRoutingDraft(result.vision_routing_approved ? result.vision_profile_id : null);
         onAppSettingsChange(result); })
       .catch(error => { if (!controller.signal.aborted) setError(errorText(error, t)); });
@@ -157,6 +162,18 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
       setRoutingDraft(result.vision_routing_approved ? result.vision_profile_id : null);
     } catch (error) { setRouting(previous); setError(errorText(error, t)); }
     finally { setRoutingBusy(false); }
+  }
+  async function changeDebug(enabled: boolean) {
+    const previous = debugSettings;
+    if (previous) setDebugSettings({ ...previous, debug_logging_enabled: enabled });
+    setDebugBusy(true); setError(''); setDebugNotice('');
+    try {
+      const result = await api<AppSettings>('/settings', { method: 'PUT',
+        body: JSON.stringify({ debug_logging_enabled: enabled }) });
+      setDebugSettings(result); onAppSettingsChange(result);
+      setDebugNotice(t(result.debug_logging_enabled ? 'debugEnabled' : 'debugDisabled'));
+    } catch (error) { setDebugSettings(previous); setError(errorText(error, t)); }
+    finally { setDebugBusy(false); }
   }
   function changeGoal(changes: Partial<GoalOptions>) {
     const next = { ...goalOptions, ...changes };
@@ -314,6 +331,16 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
         && routing?.vision_routing_approved === true)
         ? <p className="hint">{t('goalRoutingConsentRequired')}</p> : null}
       {routingNotice ? <p role="status" className="notice">{routingNotice}</p> : null}
+      <h3>{t('debugTitle')}</h3>
+      <label className="check"><input type="checkbox" checked={debugSettings?.debug_logging_enabled === true}
+        disabled={!debugSettings || debugBusy} onChange={event => void changeDebug(event.target.checked)} />
+        {t('debugMode')}</label>
+      <p className="hint">{t('debugHint')}</p>
+      {debugSettings ? <p className="hint endpoint" data-testid="debug-log-path">{debugSettings.debug_log_path}</p> : null}
+      {debugSettings?.debug_log_available
+        ? <a href="/api/debug/logs" download="cadnext-debug.zip">{t('debugDownload')}</a> : null}
+      {debugSettings?.debug_log_error ? <p role="alert" className="error">{debugSettings.debug_log_error}</p> : null}
+      {debugNotice ? <p role="status" className="notice">{debugNotice}</p> : null}
     </div>
   </section>;
 }
@@ -377,6 +404,7 @@ function OperationLog({ events }: { events: RunEvent[] }) {
 
 function RunView({ run }: { run: Run }) {
   const { t } = useI18n();
+  const incomplete = incompleteGoalKey(run);
   return <article className="run" aria-label={t('request')}>
     {run.events.filter(event => ['message', 'image', 'error'].includes(event.type)).map(event => {
       if (event.type === 'message') return <div key={event.seq}
@@ -401,7 +429,7 @@ function RunView({ run }: { run: Run }) {
       return <p key={event.seq} className="error">{String(event.data.message)}</p>;
     })}
     <GoalEvaluationCard run={run} />
-    <div className="run-meta"><span className={`badge ${run.status}`} data-testid="run-status">{statusKeys[run.status] ? t(statusKeys[run.status]) : run.status}</span>
+    <div className="run-meta"><span className={`badge ${incomplete ? 'needs_attention' : run.status}`} data-testid="run-status">{incomplete ? t(incomplete) : statusKeys[run.status] ? t(statusKeys[run.status]) : run.status}</span>
       <span>{t('callsCount', { count: run.call_count })}</span>
       {run.verification === 'unverified' ? <strong className="warning">{t('resultNeedsReview')}</strong> : null}
       {run.verification === 'verified' ? <span>{t('checksPassed')}</span> : null}
@@ -430,10 +458,13 @@ export default function App() {
   const [streamId, setStreamId] = useState('');
   const [settings, setSettings] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [foreignRunId, setForeignRunId] = useState('');
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
   const [readingImages, setReadingImages] = useState(false);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const dragDepth = useRef(0);
   const [savingProfile, setSavingProfile] = useState(false);
   const [pendingActivity, setPendingActivity] = useState<PendingActivity | null>(null);
   const [runContact, setRunContact] = useState<RunContact | null>(null);
@@ -465,7 +496,7 @@ export default function App() {
     ? routing : currentProfile;
   const routingMissing = goalOptions.enabled && !!currentProfile && !currentProfile.vision && !routing;
   const imagesAllowed = effectiveProfile?.vision === true;
-  const canSend = !loading && !sending && !savingProject && !active && !!currentProfile && !uncertain && !readingImages && !savingProfile
+  const canSend = !loading && !foreignRunId && !sending && !savingProject && !active && !!currentProfile && !uncertain && !readingImages && !savingProfile
     && !routingMissing
     && !(lookup.loading && !currentReasoning)
     && (!!message.trim() || attachments.length > 0) && (!attachments.length || imagesAllowed);
@@ -487,13 +518,14 @@ export default function App() {
       .then(async ([profiles, health, history, loadedSettings]) => {
         if (health.active_run_id && !history.some(run => run.id === health.active_run_id)) {
           const run = await api<Run>(`/runs/${health.active_run_id}`);
-          history.push(run);
-          if (!disposed) { setSessionId(run.session_id); remember('session', run.session_id); }
+          if (run.session_id === sessionId) {
+            history = await api<Run[]>(`/runs?session_id=${encodeURIComponent(sessionId)}`);
+          } else if (!disposed) setForeignRunId(run.id);
         }
         if (disposed) return;
         setProfiles(profiles); setRuns(history); setAppSettings(loadedSettings);
         setSelected(previous => profiles.some(p => p.id === previous) ? previous : profiles[0]?.id ?? '');
-        const unfinished = health.active_run_id || history.find(run => !terminal(run.status))?.id;
+        const unfinished = history.find(run => !terminal(run.status))?.id;
         if (unfinished) {
           setRunContact({ runId: unfinished, at: Date.now(), failed: false });
           setStreamId(unfinished);
@@ -503,6 +535,35 @@ export default function App() {
     return () => { disposed = true; };
     // Initial restore only: a new dialogue is an explicit action below.
   }, []);
+
+  useEffect(() => {
+    if (!foreignRunId) return;
+    let disposed = false;
+    const timer = window.setInterval(() => {
+      void api<{ active_run_id: string | null }>('/health').then(health => {
+        if (!disposed) setForeignRunId(health.active_run_id ?? '');
+      }).catch(() => { /* Retry health without attaching another project's history. */ });
+    }, 1000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [foreignRunId]);
+
+  useEffect(() => {
+    if (loading || active || sending || savingProject || foreignRunId || !runs.length) return;
+    let disposed = false;
+    let checking = false;
+    const check = async () => {
+      if (checking) return;
+      checking = true;
+      try {
+        const state = await api<{ closed: boolean }>(`/projects/${sessionId}/state`);
+        if (!disposed && state.closed) resetProject();
+      } catch { /* An unavailable CAD connection must not erase history. */ }
+      finally { checking = false; }
+    };
+    void check();
+    const timer = window.setInterval(() => { void check(); }, 3000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [sessionId, loading, active?.id, sending, savingProject, foreignRunId, runs.length]);
 
   useEffect(() => {
     const leave = () => {
@@ -622,7 +683,7 @@ export default function App() {
     finally { profileLock.current = false; setSavingProfile(false); }
   }
   async function attach(files: File[]) {
-    if (!files.length || !imagesAllowed || readingLock.current || sending || active) return;
+    if (!files.length || !imagesAllowed || loading || savingProject || readingLock.current || sending || active) return;
     readingLock.current = true; setReadingImages(true); setError('');
     setPendingActivity({ phase: 'images', at: Date.now(), files: files.length + attachments.length,
       bytes: [...files, ...attachments].reduce((sum, image) => sum + image.size, 0) });
@@ -635,6 +696,19 @@ export default function App() {
       readingLock.current = false; setReadingImages(false);
       if (revision === draftRevision.current) setPendingActivity(null);
     }
+  }
+  function dragFiles(event: DragEvent<HTMLElement>) {
+    if (!event.dataTransfer.types.includes('Files')) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = imagesAllowed && !loading && !savingProject && !sending && !active && !readingImages
+      ? 'copy' : 'none';
+  }
+  function dropFiles(event: DragEvent<HTMLElement>) {
+    if (!event.dataTransfer.types.includes('Files')) return;
+    event.preventDefault();
+    dragDepth.current = 0; setDraggingFiles(false);
+    if (!imagesAllowed) { setError(t('imagesUnsupported')); return; }
+    void attach(Array.from(event.dataTransfer.files));
   }
   async function send(event: FormEvent) {
     event.preventDefault(); if (!canSend) return;
@@ -656,6 +730,7 @@ export default function App() {
       }) });
       merge(run); setRunContact({ runId: run.id, at: Date.now(), failed: false });
       setStreamId(run.id); setMessage(''); setAttachments([]); remember('session', sessionId);
+      pendingRequest.current = '';
     } catch (error) { setError(errorText(error, t)); } finally { setSending(false); setPendingActivity(null); }
   }
   async function stop() {
@@ -711,11 +786,21 @@ export default function App() {
       input.current?.focus();
     } catch (error) { setError(errorText(error, t)); }
   }
-  function newDialogue() {
+  function resetProject() {
     const id = crypto.randomUUID(); setSessionId(id); remember('session', id);
     setStreamId(''); setRuns([]); setError(''); setNotice(''); setSaveNotice(null);
     draftRevision.current++; setAttachments([]); setMessage(''); setPendingActivity(null); setRunContact(null);
+    pendingRequest.current = ''; dragDepth.current = 0; setDraggingFiles(false);
     input.current?.focus();
+  }
+  async function newDialogue() {
+    if (saveLock.current) return;
+    saveLock.current = true; setSavingProject(true);
+    try {
+      await api(`/projects/${sessionId}/close`, { method: 'POST' });
+      resetProject();
+    } catch (error) { setError(errorText(error, t)); }
+    finally { saveLock.current = false; setSavingProject(false); }
   }
   function changeGoalOptions(value: GoalOptions) {
     setGoalOptions(value); rememberGoalOptions(value);
@@ -736,8 +821,11 @@ export default function App() {
             onChange={event => setLanguage(event.target.value as Language)}>
             {languages.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
           </select></label>
-        <button className="header-button" aria-label={t('newDialogue')} disabled={!!active || sending || savingProject} onClick={newDialogue}>
+        <button className="header-button" aria-label={t('newDialogue')} disabled={loading || !!active || sending || savingProject} onClick={newDialogue}>
           <Icon name="plus" size={18} /><span className="button-label">{t('newDialogue')}</span></button>
+        <button className="header-button" aria-label={t('closeProject')}
+          disabled={loading || !!active || sending || savingProject} onClick={newDialogue}>
+          <Icon name="close" size={18} /><span className="button-label">{t('closeProject')}</span></button>
         <input ref={openInput} type="file" accept=".json,.cadnext.json,application/json" hidden
           aria-label={t('openConversation')} data-testid="open-conversation-input"
           onChange={openConversation} />
@@ -750,7 +838,17 @@ export default function App() {
         <button ref={settingsButton} className="header-button" aria-label={t('settings')} aria-expanded={settings} aria-controls="app-settings"
           disabled={savingProfile} onClick={openSettings}><Icon name="settings" size={18} />
           <span className="button-label">{t('settings')}</span></button></div></header>
-    <main>
+    <main onDragOver={dragFiles} onDrop={dropFiles}
+      onDragEnter={event => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        event.preventDefault(); dragDepth.current++; setDraggingFiles(true);
+      }} onDragLeave={event => {
+        if (!event.dataTransfer.types.includes('Files')) return;
+        dragDepth.current = Math.max(0, dragDepth.current - 1);
+        if (!dragDepth.current) setDraggingFiles(false);
+      }}>
+      {draggingFiles && imagesAllowed && !loading && !savingProject && !sending && !active && !readingImages
+        ? <div className="file-drop-hint" role="status" data-testid="file-drop-hint">{t('dropImages')}</div> : null}
       {error ? <p role="alert" className="error panel">{error}</p> : null}
       {notice ? <p role="status" className="notice panel">{notice}</p> : null}
       {saveNotice ? <p role={saveNotice.kind === 'ok' ? 'status' : 'alert'} data-testid="save-notice"
@@ -794,31 +892,7 @@ export default function App() {
               if (canSend) event.currentTarget.form?.requestSubmit();
             }
           }}
-          disabled={loading} /></div>
-        <details className="goal-inline">
-          <summary>{t('goalOptions')}: {goalOptions.enabled ? `${goalOptions.target_similarity}%` : '—'}
-            {' · '}{goalOptions.max_evaluations}/{goalOptions.max_no_progress}</summary>
-          <div className="goal-inline-fields">
-            <label className="check"><input id="goal-enabled" type="checkbox" checked={goalOptions.enabled}
-              onChange={event => changeGoalOptions({ ...goalOptions, enabled: event.target.checked })} />
-              {t('goalEnabled')}</label>
-            <label>{t('goalTarget')}<input type="number" min={1} max={100}
-              aria-label={t('goalTarget')} value={goalOptions.target_similarity}
-              disabled={!goalOptions.enabled}
-              onChange={event => changeGoalOptions({ ...goalOptions,
-                target_similarity: Number(event.target.value) })} /></label>
-            <label>{t('goalMaxEvaluations')}<input type="number" min={1} max={100}
-              aria-label={t('goalMaxEvaluations')} value={goalOptions.max_evaluations}
-              disabled={!goalOptions.enabled}
-              onChange={event => changeGoalOptions({ ...goalOptions,
-                max_evaluations: Number(event.target.value) })} /></label>
-            <label>{t('goalMaxNoProgress')}<input type="number" min={1} max={10}
-              aria-label={t('goalMaxNoProgress')} value={goalOptions.max_no_progress}
-              disabled={!goalOptions.enabled}
-              onChange={event => changeGoalOptions({ ...goalOptions,
-                max_no_progress: Number(event.target.value) })} /></label>
-          </div>
-        </details>
+          disabled={loading || savingProject} /></div>
         <div className="composer-footer">
           <div className="composer-controls">
             <input ref={fileInput} type="file" hidden multiple accept={imageTypes.join(',')} aria-label={t('imageFiles')}
