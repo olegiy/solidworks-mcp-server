@@ -36,6 +36,11 @@ def normalize_result(result) -> dict:
         or value.get("uncertain") is True
     )
     error = (value.get("error") if isinstance(value, dict) else value) if failed else None
+    if failed and not error and isinstance(value, dict):
+        error = value.get("error_type")
+        line = value.get("python_line")
+        if error and type(line) is int and line > 0:
+            error = t(f"{error} (Python, строка {line})", f"{error} (Python, line {line})")
     return {"ok": not failed, "value": value, "images": images,
             "error": str(error or t("Ошибка инструмента", "Tool error")) if failed else None,
             "uncertain": uncertain}

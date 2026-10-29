@@ -1,5 +1,6 @@
 import json
 
+import pytest
 from mcp.types import CallToolResult, ImageContent, TextContent
 
 
@@ -11,6 +12,29 @@ def test_nested_error_is_failure():
     )]))
     assert not result["ok"]
     assert result["error"] == "failed"
+
+
+@pytest.mark.parametrize("language,expected", [
+    ("ru", "AssertionError (Python, строка 42)"),
+    ("en", "AssertionError (Python, line 42)"),
+])
+def test_empty_python_error_keeps_type_and_line_in_displayed_error(language, expected):
+    from cadnext.i18n import get_language, set_language
+    from cadnext.mcp import normalize_result
+
+    previous = get_language()
+    payload = {"status": "error", "error": "", "error_type": "AssertionError",
+               "python_line": 42, "error_code": "CAD_ERROR"}
+    try:
+        set_language(language)
+        result = normalize_result(CallToolResult(content=[TextContent(
+            type="text", text=json.dumps(payload))]))
+    finally:
+        set_language(previous)
+    assert result["error"] == expected
+    assert result["value"] == payload
+    assert result["ok"] is False
+    assert result["uncertain"] is False
 
 
 def test_image_is_preserved():
