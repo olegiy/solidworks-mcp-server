@@ -12,6 +12,8 @@ from tests.test_agent import ScriptedProvider, reply, settle
 class SessionMcp(FakeMcp):
     def __init__(self, steps=(), **kwargs):
         catalog = deepcopy(CATALOG)
+        catalog.append(tool("open_document", {"path": {"type": "string"},
+                                             "session_id": {"type": "string"}}, ["path"]))
         for item in catalog:
             if item["function"]["name"] in {"create_part", "create_assembly"}:
                 item["function"]["parameters"]["properties"]["session_id"] = {"type": "string"}
@@ -49,7 +51,7 @@ async def test_run_owns_one_lazy_session_and_model_never_sees_its_id():
                           if t["function"]["name"] == "execute_python")
             assert "session_id" not in python["properties"]
             for item in tools:
-                if item["function"]["name"] in {"create_part", "create_assembly"}:
+                if item["function"]["name"] in {"create_part", "create_assembly", "open_document"}:
                     assert "session_id" not in item["function"]["parameters"]["properties"]
             return await super().complete(messages, tools)
 
@@ -63,6 +65,27 @@ async def test_run_owns_one_lazy_session_and_model_never_sees_its_id():
     assert mcp.lifecycle == [("open_python_session", {}),
                              ("close_python_session", {"session_id": "private-env"})]
     assert [args["session_id"] for _, args in mcp.calls] == ["private-env", "private-env"]
+    assert "private-env" not in json.dumps(run.snapshot())
+
+
+@pytest.mark.parametrize("active", ["bushing.sldprt", "Other"])
+async def test_explicit_open_rebinds_hidden_session_and_checks_active_path_before_python(active):
+    provider = ScriptedProvider([
+        reply(("before", "execute_python", {"code": "marker = 42"})),
+        reply(("open", "open_document", {"path": "C:/test/bushing.sldprt"})),
+        reply(("after", "execute_python", {"code": "result = marker"})),
+        reply(content="Готово")])
+    mcp = SessionMcp([("execute_python", ok({})),
+        ("open_document", ok({"opened": "bushing.sldprt"})),
+        ("connect_solidworks", ok({"active_document": active})),
+        ("list_open_documents", ok({"documents": [{"title": "bushing.sldprt", "path": "C:/test/bushing.sldprt"}]})),
+        ("execute_python", ok({}))])
+    agent = trusted_agent(mcp, provider)
+    run = agent.start(session_id="s", provider=provider, message="Открой тест")
+    await settle(agent, run)
+    assert run.status == ("completed" if active == "bushing.sldprt" else "failed")
+    assert ("open_document", {"path": "C:/test/bushing.sldprt", "session_id": "private-env"}) in mcp.calls
+    assert sum(name == "execute_python" for name, _ in mcp.calls) == (2 if active == "bushing.sldprt" else 1)
     assert "private-env" not in json.dumps(run.snapshot())
 
 

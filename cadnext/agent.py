@@ -747,7 +747,7 @@ class Agent:
                         raise ValueError("Invalid Python session")
                 self._guard(run)
                 transport_arguments["session_id"] = run._python_session
-            if name in _NEW_DOCUMENT and run._python_session is not None:
+            if name in _NEW_DOCUMENT | {"open_document"} and run._python_session is not None:
                 transport_arguments["session_id"] = run._python_session
             if name == "set_construction_plan":
                 try:
@@ -839,6 +839,8 @@ class Agent:
                 [("get_sheet_metal_info", {})] if name == "create_base_flange" else [])
         if name in _NEW_DOCUMENT:
             return [("list_open_documents", {})] * 2 + [("get_feature_tree", {})]
+        if name == "open_document":
+            return [("connect_solidworks", {}), ("list_open_documents", {})]
         if name == "add_component":
             return [("get_components", {})] * 2 + [("get_feature_tree", {})]
         if name == "save_document" and not arguments.get("save_as_path"):
@@ -886,6 +888,13 @@ class Agent:
                         and created in {item["title"] for item in documents["documents"]})
             tree = await self._read(run, catalog, "get_feature_tree", {}, call_id, evidence)
             self._check(isinstance(tree["features"], list))
+        elif name == "open_document":
+            connection = await self._read(run, catalog, "connect_solidworks", {}, call_id, evidence)
+            documents = await self._read(run, catalog, "list_open_documents", {}, call_id, evidence)
+            opened = value.get("opened")
+            matches = [item for item in documents["documents"] if item["title"] == opened]
+            self._check(opened and connection.get("active_document") == opened and len(matches) == 1
+                        and Path(matches[0].get("path", "")) == Path(arguments["path"]))
         elif name == "add_component":
             components = await self._read(run, catalog, "get_components", {}, call_id, evidence)
             created = value.get("component")

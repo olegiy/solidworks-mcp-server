@@ -556,9 +556,10 @@ def create_assembly(session_id: str | None = None) -> str:
 
 
 @mcp.tool()
-def open_document(path: str) -> str:
-    """Открыть документ SolidWorks по полному пути (.sldprt / .sldasm / .slddrw)."""
+def open_document(path: str, session_id: str | None = None) -> str:
+    """Открыть и активировать документ по полному пути (.sldprt / .sldasm / .slddrw)."""
     def job():
+        state = _python_sessions[session_id] if session_id is not None else None
         app = _app()
         if not os.path.isfile(path):
             raise RuntimeError(f"Файл не найден: {path}")
@@ -570,7 +571,25 @@ def open_document(path: str) -> str:
         doc = app.OpenDoc6(path, dtype, 1, "", errs, warns)   # 1 = silent
         if doc is None:
             raise RuntimeError(f"OpenDoc6 не открыл файл (errors={errs.value}, warnings={warns.value}).")
-        return _ok(opened=_get(doc, "GetTitle"), errors=errs.value, warnings=warns.value)
+        title = _get(doc, "GetTitle")
+        if os.path.normcase(os.path.abspath(_get(doc, "GetPathName"))) != os.path.normcase(os.path.abspath(path)):
+            raise RuntimeError("OpenDoc6 вернул другой документ; активация запрещена.")
+        matches = [item for item in (_get(app, "GetDocuments") or ()) if _get(item, "GetTitle") == title]
+        if len(matches) != 1:
+            raise RuntimeError("Заголовок документа неоднозначен; активация запрещена.")
+        activation_error = _byref_i4()
+        # swDontRebuildActiveDoc=1 prevents modal rebuild prompts; no retry.
+        activated = app.ActivateDoc3(title, False, 1, activation_error)
+        active = app.ActiveDoc
+        identity = getattr(doc, "_oleobj_", doc)
+        if activated is None or active is None or any(
+                getattr(item, "_oleobj_", item) != identity for item in (activated, active)):
+            raise RuntimeError("Открытый документ не стал активным; продолжение запрещено.")
+        if state is not None:
+            state["document"] = doc
+            state["env"]["model"] = doc
+        return _ok(opened=title, errors=errs.value, warnings=warns.value,
+                   activation_status=activation_error.value)
     return _run(job)
 
 

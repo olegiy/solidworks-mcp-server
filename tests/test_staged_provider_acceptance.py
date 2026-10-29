@@ -49,6 +49,7 @@ def test_independent_assembly_case_can_reference_earlier_test_bushing(tmp_path):
     text = prompts(tmp_path / "assembly-run", source_bushing=source)["assembly"]
     assert str(source) in text
     assert "assembly-run-agent-assembly.sldasm" in text
+    assert "Указанную тестовую втулку разрешено редактировать" in text
 
 
 def test_test_document_names_are_unique_between_acceptance_folders(tmp_path):
