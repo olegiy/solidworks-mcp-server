@@ -191,7 +191,6 @@ class Run:
     repairing: bool = False
     _repair_call_id: str | None = field(default=None, repr=False)
     _python_session: str | None = field(default=None, repr=False)
-    _python_expected_document: str | None = field(default=None, repr=False)
     _session_capable: bool = field(default=False, repr=False)
     construction_plan: list[dict] = field(default_factory=list)
     construction_plan_history: list[dict] = field(default_factory=list)
@@ -746,13 +745,9 @@ class Agent:
                     run._python_session = opened["value"]["session_id"]
                     if not isinstance(run._python_session, str) or not run._python_session:
                         raise ValueError("Invalid Python session")
-                elif run._python_expected_document is not None:
-                    bound = await self.mcp.call("open_python_session", {
-                        "session_id": run._python_session,
-                        "expected_document": run._python_expected_document})
-                    self._success(bound)
-                    run._python_expected_document = None
                 self._guard(run)
+                transport_arguments["session_id"] = run._python_session
+            if name in _NEW_DOCUMENT and run._python_session is not None:
                 transport_arguments["session_id"] = run._python_session
             if name == "set_construction_plan":
                 try:
@@ -988,8 +983,6 @@ class Agent:
             if mutating:
                 verified = await self._verify(run, catalog, call_id, name, arguments,
                     result["value"], before, path, file_before, evidence)
-                if name in _NEW_DOCUMENT and verified and run._python_session is not None:
-                    run._python_expected_document = result["value"]["created"]
                 run.checks[call_id] = {"status": "verified" if verified else "unverified",
                     "message": t("Результат подтверждён.", "The result is confirmed.") if verified else t(
                         "Выполнено, результат требует проверки.",

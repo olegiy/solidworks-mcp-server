@@ -68,6 +68,12 @@ def search(index: dict, query: str) -> list[dict]:
 def get_symbol(index: dict, symbol_id: str) -> dict:
     if not _SYMBOL.fullmatch(symbol_id):
         raise ValueError("Некорректный идентификатор API.")
+    if symbol_id not in index["symbols"]:
+        member = symbol_id.split(".")[1]
+        return {"symbol_id": symbol_id, "version": deepcopy(index["version"]), "found": False,
+                "message": "Символ отсутствует в установленной библиотеке; выберите существующий интерфейс.",
+                "alternatives": [item for item in search(index, member)
+                                 if item["symbol_id"].split(".")[1].lower() == member.lower()]}
     return deepcopy(index["symbols"][symbol_id])
 
 
@@ -93,6 +99,10 @@ class _HelpText(HTMLParser):
 def with_help(symbol: dict, *, include_help: bool, client=None) -> dict:
     result = deepcopy(symbol)
     if not include_help:
+        return result
+    if symbol.get("found") is False:
+        result["help"] = {"available": False,
+                          "message": "Локальный символ не найден; пояснение не запрашивалось."}
         return result
     symbol_id = symbol["symbol_id"]
     if not _SYMBOL.fullmatch(symbol_id):

@@ -84,24 +84,37 @@ def test_switching_active_document_cannot_silently_redirect_session_mutations(ca
         server.close_python_session(session)
 
 
-def test_application_can_explicitly_bind_created_document_without_losing_namespace(cad):
+@pytest.mark.parametrize("tool_name", ["create_part", "create_assembly"])
+def test_native_creation_pins_exact_identity_across_save_as_and_rejects_same_title_replacement(cad, monkeypatch, tool_name):
     app, original = cad
     session = json.loads(server.open_python_session())["session_id"]
     try:
         execute("saved_part = model\nlength = 60", session)
         assembly = SimpleNamespace(GetTitle="Assembly", changed=0)
-        app.GetDocuments, app.ActiveDoc = [original, assembly], assembly
-        result = json.loads(server.open_python_session(session_id=session, expected_document="Assembly"))
-        assert result["session_id"] == session
+        def new_document(*args):
+            app.GetDocuments, app.ActiveDoc = [original, assembly], assembly
+            return assembly
+
+        app.NewDocument = new_document
+        monkeypatch.setattr(server, "_template_path", lambda app, kind: "test-template")
+        result = json.loads(getattr(server, tool_name)(session_id=session))
+        assert result["created"] == "Assembly"
+        assembly.GetTitle = "saved-assembly.SLDASM"
         assert execute("model.changed += length\nresult = saved_part.GetTitle", session)["result"] == "'Part'"
         assert assembly.changed == 60 and original.changed == 0
-        app.ActiveDoc = original
-        refused = json.loads(server.open_python_session(session_id=session, expected_document="Assembly"))
-        assert refused["status"] == "error"
+        replacement = SimpleNamespace(GetTitle=assembly.GetTitle, changed=0)
+        app.GetDocuments, app.ActiveDoc = [original, replacement], replacement
         assert execute("model.changed += 1", session)["status"] == "error"
-        assert original.changed == 0
+        assert original.changed == replacement.changed == 0
     finally:
         server.close_python_session(session)
+
+
+def test_native_creation_rejects_unknown_session_before_new_document(cad, monkeypatch):
+    app, _ = cad
+    app.NewDocument = lambda *args: pytest.fail("Unknown session must not create any document")
+    monkeypatch.setattr(server, "_template_path", lambda app, kind: "template")
+    assert json.loads(server.create_part(session_id="foreign"))["status"] == "error"
 
 
 def test_session_cleanup_waits_for_timed_out_worker_and_runs_on_same_thread(monkeypatch):

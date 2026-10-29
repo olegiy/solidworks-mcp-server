@@ -6,6 +6,20 @@ import pytest
 from cadnext import cad_reference as reference
 
 
+def test_missing_symbol_returns_available_member_interfaces_without_fabricating_a_signature():
+    data = {"version": {"year": 2025}, "symbols": {
+        "IPartDoc.FeatureByName": {"symbol_id": "IPartDoc.FeatureByName", "version": {"year": 2025},
+                                   "overloads": [{"parameters": [{"name": "Name"}]}]}}}
+    result = reference.get_symbol(data, "IModelDoc2.FeatureByName")
+    assert result["found"] is False
+    assert result["symbol_id"] == "IModelDoc2.FeatureByName"
+    assert result["alternatives"] == [{"symbol_id": "IPartDoc.FeatureByName", "version": {"year": 2025}}]
+    assert "overloads" not in result
+    with httpx.Client(transport=httpx.MockTransport(lambda request: pytest.fail("No remote lookup for missing API"))) as client:
+        helped = reference.with_help(result, include_help=True, client=client)
+    assert helped["help"]["available"] is False
+
+
 def test_installed_typelib_supplies_actual_argument_order_and_version():
     path = Path(r"C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\sldworks.tlb")
     if not path.exists():
@@ -65,8 +79,7 @@ def test_examples_are_searchable_and_only_live_executed_recipes_have_version_lab
         item = reference.get_example(name)
         compile(item["code"], name, "exec")
         assert item["prerequisites"] and item["expected_features"]
-        assert item["verified_versions"] == (["SolidWorks 2025 SP5 (33.5.0)"]
-            if name in {"revolution", "chamfer"} else [])
+        assert item["verified_versions"] == ["SolidWorks 2025 SP5 (33.5.0)"]
 
 
 def test_revolution_recipe_exposes_its_live_executed_dimensioned_profile_stage():

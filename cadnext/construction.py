@@ -52,6 +52,11 @@ def model_tools(tools):
     tools = deepcopy([tool for tool in tools if tool["function"]["name"] not in
                       {"open_python_session", "close_python_session"}])
     for tool in tools:
+        if tool["function"]["name"] in {"create_part", "create_assembly"}:
+            schema = tool["function"]["parameters"]
+            schema["properties"].pop("session_id", None)
+            schema["required"] = [key for key in schema.get("required", []) if key != "session_id"]
+            schema["additionalProperties"] = False
         if tool["function"]["name"] == "execute_python":
             schema = tool["function"]["parameters"]
             schema["properties"].pop("session_id", None)

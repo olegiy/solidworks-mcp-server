@@ -522,27 +522,35 @@ def list_open_documents() -> str:
 # ============================= ДОКУМЕНТЫ ===================================
 
 @mcp.tool()
-def create_part() -> str:
+def create_part(session_id: str | None = None) -> str:
     """Создать новую деталь по шаблону по умолчанию."""
     def job():
+        state = _python_sessions[session_id] if session_id is not None else None
         app = _app()
         tpl = _template_path(app, 1)
         doc = app.NewDocument(tpl, 0, 0.0, 0.0)
         if doc is None:
             raise RuntimeError(f"NewDocument вернул None (шаблон: {tpl}).")
+        if state is not None:
+            state["document"] = doc
+            state["env"]["model"] = doc
         return _ok(created=_get(doc, "GetTitle"), template=tpl)
     return _run(job)
 
 
 @mcp.tool()
-def create_assembly() -> str:
+def create_assembly(session_id: str | None = None) -> str:
     """Создать новую сборку по шаблону по умолчанию."""
     def job():
+        state = _python_sessions[session_id] if session_id is not None else None
         app = _app()
         tpl = _template_path(app, 2)
         doc = app.NewDocument(tpl, 0, 0.0, 0.0)
         if doc is None:
             raise RuntimeError(f"NewDocument вернул None (шаблон: {tpl}).")
+        if state is not None:
+            state["document"] = doc
+            state["env"]["model"] = doc
         return _ok(created=_get(doc, "GetTitle"), template=tpl)
     return _run(job)
 
@@ -1043,19 +1051,9 @@ def add_mate(mate_type: str = "coincident", alignment: str = "closest",
 # ========================== АВАРИЙНЫЙ ЛЮК ==================================
 
 @mcp.tool()
-def open_python_session(session_id: str | None = None, expected_document: str | None = None) -> str:
-    """Create an environment or explicitly bind an application-verified new document."""
+def open_python_session() -> str:
+    """Application-owned environment; not offered to the language model."""
     def job():
-        if session_id is not None:
-            state = _python_sessions[session_id]
-            model = _model()
-            if not expected_document or _get(model, "GetTitle") != expected_document:
-                raise RuntimeError("Активный документ отличается от созданного приложением; подмена запрещена.")
-            state["document"] = model
-            state["env"]["model"] = model
-            return _ok(session_id=session_id)
-        if expected_document is not None:
-            raise ValueError("Привязка документа требует существующее окружение.")
         created_id = uuid4().hex
         _python_sessions[created_id] = {"env": {}, "document": None}
         return _ok(session_id=created_id)

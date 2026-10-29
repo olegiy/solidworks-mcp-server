@@ -12,6 +12,9 @@ from tests.test_agent import ScriptedProvider, reply, settle
 class SessionMcp(FakeMcp):
     def __init__(self, steps=(), **kwargs):
         catalog = deepcopy(CATALOG)
+        for item in catalog:
+            if item["function"]["name"] in {"create_part", "create_assembly"}:
+                item["function"]["parameters"]["properties"]["session_id"] = {"type": "string"}
         catalog += [tool("open_python_session"), tool("close_python_session", {
             "session_id": {"type": "string"}}, ["session_id"])]
         super().__init__(steps, catalog=catalog, **kwargs)
@@ -45,6 +48,9 @@ async def test_run_owns_one_lazy_session_and_model_never_sees_its_id():
             python = next(t["function"]["parameters"] for t in tools
                           if t["function"]["name"] == "execute_python")
             assert "session_id" not in python["properties"]
+            for item in tools:
+                if item["function"]["name"] in {"create_part", "create_assembly"}:
+                    assert "session_id" not in item["function"]["parameters"]["properties"]
             return await super().complete(messages, tools)
 
     provider = Provider([reply(("a", "execute_python", {"code": "a=1"}),
@@ -58,6 +64,23 @@ async def test_run_owns_one_lazy_session_and_model_never_sees_its_id():
                              ("close_python_session", {"session_id": "private-env"})]
     assert [args["session_id"] for _, args in mcp.calls] == ["private-env", "private-env"]
     assert "private-env" not in json.dumps(run.snapshot())
+
+
+async def test_failed_new_document_inspection_prevents_python_after_internal_binding():
+    provider = ScriptedProvider([
+        reply(("part", "execute_python", {"code": "part_ref = model"})),
+        reply(("new", "create_assembly", {}), ("must-not-run", "execute_python", {"code": "mutate()"}))])
+    mcp = SessionMcp([("execute_python", ok({})),
+        ("list_open_documents", ok({"documents": []})),
+        ("create_assembly", ok({"created": "Assembly1"})),
+        ("list_open_documents", ok({"documents": []}))])
+    agent = trusted_agent(mcp, provider)
+    run = agent.start(session_id="s", provider=provider, message="Построй")
+    await settle(agent, run)
+    assert run.status == "failed"
+    assert sum(name == "execute_python" for name, _ in mcp.calls) == 1
+    assert ("create_assembly", {"session_id": "private-env"}) in mcp.calls
+    assert mcp.lifecycle[-1][0] == "close_python_session"
 
 
 async def test_stop_waits_for_python_and_releases_session_without_another_cad_step():
@@ -94,8 +117,8 @@ async def test_native_created_assembly_explicitly_rebinds_existing_python_sessio
     await settle(agent, run)
     assert run.status == "completed"
     assert mcp.lifecycle == [("open_python_session", {}),
-        ("open_python_session", {"session_id": "private-env", "expected_document": "Assembly1"}),
         ("close_python_session", {"session_id": "private-env"})]
+    assert ("create_assembly", {"session_id": "private-env"}) in mcp.calls
     assert "private-env" not in json.dumps(run.snapshot())
 
 
