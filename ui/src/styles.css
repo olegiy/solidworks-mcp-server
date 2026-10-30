@@ -56,6 +56,16 @@ main { position: relative; width: min(960px, 100%); padding: 0 24px 20px; margin
 .message { width: fit-content; padding: 16px 20px; margin-bottom: 16px; border-radius: 20px; overflow-wrap: anywhere; min-width: 0; font-size: 15px; }
 .message.user { max-width: 78%; margin-left: auto; margin-right: 0; background: #eaf1ff; border: 1px solid #dfe9fb; border-bottom-right-radius: 5px; color: #2f4260; }
 .message.assistant { max-width: 88%; margin-left: 0; margin-right: auto; background: #f1f2f5; border: 1px solid #eaecf0; border-bottom-left-radius: 5px; }
+.message.assistant.clarification { width: 100%; max-width: 100%; margin-top: 16px; background: #fff7e6; border-color: #d6ad60; border-left: 4px solid #ac7416; color: #503a18; }
+.clarification-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.clarification-heading h3 { display: flex; align-items: center; gap: 9px; margin: 0; font-size: 18px; }
+.clarification-heading h3 svg { flex-shrink: 0; }
+.clarification > p { margin: 9px 0 14px; }
+.clarification > ol { margin: 0 0 16px; padding-left: 25px; }
+.clarification > ol > li { padding-left: 3px; margin: 12px 0; }
+.clarification > ol > li::marker { font-weight: 700; }
+.clarification-reply { background: #fff; border-color: #b7852b; color: #60400c; font-weight: 600; }
+.clarification-reply:hover { background: #ffefcb; border-color: #966411; }
 .message-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: -5px -5px 6px 0; min-height: 25px; }
 .message-author { color: #5e697a; font-size: 11px; font-weight: 600; letter-spacing: .15px; display: block; }
 .message.user .message-author { color: #52668a; }

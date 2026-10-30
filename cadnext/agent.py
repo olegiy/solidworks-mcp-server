@@ -212,7 +212,10 @@ _GOAL_TOOL_SCHEMAS = [
                             "description": ("Only unresolved required data that prevents construction. "
                                             "Do not include dimensions derived from given values, "
                                             "sufficient views, or already agreed interpretations. "
-                                            "Explain such deductions in the assistant text instead."),
+                                            "Explain such deductions in the assistant text instead. "
+                                            "Phrase each item as a direct question to the user, "
+                                            "specifying the dimension, unit, or choice needed to proceed; "
+                                            "do not merely state that information is missing."),
                             "items": {"type": "string", "maxLength": 2000}},
         }, "required": ["kind", "requirements"], "additionalProperties": False}}},
     {"type": "function", "function": {
@@ -256,6 +259,9 @@ _GOAL_GUIDANCE_RU = (
     "измеримые требования из запроса: обязательность, вес, метод cad или vision, ожидаемое "
     "значение и единицу. Не угадывай отсутствующие размеры: перечисли их в ambiguities. "
     "В ambiguities включай только нерешённые обязательные вопросы, мешающие построению. "
+    "Каждый пункт формулируй как прямой вопрос пользователю с вопросительным знаком: "
+    "какой размер, в каких единицах или какой из вариантов требуется выбрать. "
+    "Не ограничивайся утверждением о нехватке данных. "
     "Размеры, однозначно вычисляемые из заданных, отсутствие дополнительных видов при "
     "достаточном изображении и уже согласованные интерпретации не являются такими вопросами. "
     "Обоснованные выводы кратко опиши текстом и продолжай построение; если симметрия или "
@@ -273,6 +279,9 @@ _GOAL_GUIDANCE_EN = (
     "from the request in one cadnext_define_goal call: required flag, weight, cad or vision "
     "method, expected value, and unit. Never guess missing dimensions: list them in ambiguities. "
     "Use ambiguities only for unresolved required questions that prevent construction. "
+    "Phrase every item as a direct question to the user ending with a question mark: "
+    "which dimension, in which units, or which option needs to be chosen. "
+    "Do not merely state that information is missing. "
     "Dimensions unambiguously derived from given values, missing extra views when the image "
     "is sufficient, and already agreed interpretations are not blocking questions. "
     "Briefly explain justified deductions in text and continue construction; if symmetry or "
@@ -1739,11 +1748,13 @@ class Agent:
         raise _EndRun(status, summary)
 
     def _clarify_goal(self, run, contract):
-        message = t("Построение не начато. Уточните обязательные данные:",
-                    "Construction has not started. Please clarify the required data:")
-        message += "\n" + "\n".join(f"- {item}" for item in contract.ambiguities)
+        questions = list(contract.ambiguities)
+        message = t("**Нужен ваш ответ**\n\nПостроение не начато. Ответьте на вопросы для продолжения:",
+                    "**Your answer is needed**\n\nConstruction has not started. Answer these questions to continue:")
+        message += "\n\n" + "\n".join(f"{index}. {item}" for index, item in enumerate(questions, 1))
         run.messages.append({"role": "assistant", "content": message})
-        run._emit("message", role="assistant", content=message)
+        run._emit("message", role="assistant", content=message,
+                  kind="clarification", questions=questions)
         self._finish_goal(run, "completed", "unknown", "clarification_required", message)
 
     async def _execute_local(self, run, catalog, call_id, name, arguments):

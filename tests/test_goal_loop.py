@@ -265,22 +265,27 @@ async def test_blocked_goal_batch_closes_tool_calls_before_followup(informationa
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("language,ambiguity", [
-    ("ru", "Укажите радиус скругления"), ("en", "Specify the fillet radius"),
+    ("ru", "Какой радиус скругления использовать, в мм?"),
+    ("en", "What fillet radius should be used, in mm?"),
 ])
 async def test_clarification_finishes_without_mutation(language, ambiguity):
-    run, mcp, _ = await run_agent(
-        [], [response(define(requirement("d1", 50.0), ambiguities=[ambiguity]))],
+    questions = [ambiguity, "Which edges should be filleted?"]
+    run, mcp, provider = await run_agent(
+        [], [response(define(requirement("d1", 50.0), ambiguities=questions))],
         language=language)
     assert run.status == "completed"
     assert run.goal["outcome"] == "unknown"
     assert run.goal["completion_reason"] == "clarification_required"
     assert mcp.calls == []
-    clarification = [event["data"]["content"] for event in run.events
+    clarification = [event["data"] for event in run.events
                      if event["type"] == "message" and event["data"]["role"] == "assistant"]
     assert len(clarification) == 1
-    assert ambiguity in clarification[0]
+    assert clarification[0]["kind"] == "clarification"
+    assert clarification[0]["questions"] == questions
+    assert f"1. {ambiguity}\n2. Which edges should be filleted?" in clarification[0]["content"]
     assert ambiguity in run.goal["summary"]
-    assert run.messages[-1] == {"role": "assistant", "content": clarification[0]}
+    assert run.messages[-1] == {"role": "assistant", "content": clarification[0]["content"]}
+    assert len(provider.sent) == 1
 
 
 @pytest.mark.asyncio

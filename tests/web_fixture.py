@@ -199,7 +199,9 @@ class Backend:
                     kind, requirements, ambiguities = "cad", [
                         {"id": "d1", "description": "Длина", "source": "request",
                          "required": True, "weight": 1, "method": "cad", "expected": 50,
-                         "tolerance": 0.001, "unit": "mm"}], ["Не указан радиус скругления"]
+                         "tolerance": 0.001, "unit": "mm"}], [
+                             "Какой радиус скругления использовать, в мм?",
+                             "К каким рёбрам применить скругление?"]
                 elif "информ" in scenario or "справ" in scenario or "покажи снимок" in scenario:
                     kind, requirements, ambiguities = "informational", [], []
                 elif "код" in scenario:

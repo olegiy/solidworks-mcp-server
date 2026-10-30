@@ -69,19 +69,45 @@ test('уточнение не показывается как выполненн
   await expect(page.getByTestId('run-status').last()).toHaveText('Нужно уточнение');
   const indicator = page.getByRole('region', { name: 'Ход выполнения', exact: true });
   await expect(indicator.getByRole('status')).toHaveText('Нужно уточнение');
-  await expect(page.locator('.message.assistant').last()).toContainText('Не указан радиус скругления');
+  const clarification = page.getByRole('alert', { name: 'Нужен ваш ответ' });
+  await expect(clarification).toBeVisible();
+  await expect(clarification.getByRole('heading', { name: 'Нужен ваш ответ' })).toBeInViewport();
+  await expect(clarification.getByRole('listitem')).toHaveCount(2);
+  await expect(clarification.getByRole('listitem').first())
+    .toHaveText('Какой радиус скругления использовать, в мм?');
+  await expect(clarification).toContainText('Для продолжения ответьте на вопросы в поле сообщения.');
+  await clarification.getByRole('button', { name: 'Ответить', exact: true }).click();
+  await expect(page.getByLabel('Сообщение', { exact: true })).toBeFocused();
+  await expect(page.getByLabel('Сообщение', { exact: true })).toBeEmpty();
   await expect(page.getByTestId('goal-card').last().getByText('Нужно уточнение', { exact: true })).toBeVisible();
-  await expect(page.getByTestId('goal-card').last()).toContainText('Не указан радиус скругления');
   await expect(page.getByText('Вызовов: 0', { exact: true }).last()).toBeVisible();
   await indicator.getByRole('button', { name: 'Подробности выполнения' }).click();
   await expect(indicator).toContainText('CAD-операций завершено: 0 из 0');
   await page.reload();
   await expect(page.getByTestId('run-status').last()).toHaveText('Нужно уточнение');
   await expect(indicator.getByRole('status')).toHaveText('Нужно уточнение');
+  await expect(clarification.getByRole('listitem')).toHaveCount(2);
+
+  // Older saved conversations have no clarification metadata on the message event.
+  await page.route('**/api/runs?session_id=*', async route => {
+    const response = await route.fetch();
+    const runs = await response.json();
+    for (const run of runs) for (const event of run.events) {
+      delete event.data.kind;
+      delete event.data.questions;
+    }
+    await route.fulfill({ response, json: runs });
+  });
+  await page.reload();
+  await expect(clarification.getByRole('listitem')).toHaveCount(2);
   await page.getByLabel('Язык интерфейса').selectOption('en');
   await expect(page.getByTestId('run-status').last()).toHaveText('Clarification required');
   await expect(page.getByRole('region', { name: 'Execution progress', exact: true })
     .getByRole('status')).toHaveText('Clarification required');
+  const englishClarification = page.getByRole('alert', { name: 'Your answer is needed' });
+  await expect(englishClarification).toBeVisible();
+  await englishClarification.getByRole('button', { name: 'Reply', exact: true }).click();
+  await expect(page.getByLabel('Message', { exact: true })).toBeFocused();
 });
 
 test('виден визуальный pass, но неверный размер не даёт успеха', async ({ page }) => {

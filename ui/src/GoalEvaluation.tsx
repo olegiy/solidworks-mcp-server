@@ -76,9 +76,6 @@ export default function GoalEvaluationCard({ run }: { run: Run }) {
         <span className="muted">{t('goalStage')}: {phase}</span>
       </div>
     </header>
-    {clarification && goal.contract?.ambiguities.length
-      ? <p className="warning">{goal.contract.ambiguities.join(' · ')}</p>
-      : null}
     {reason && goal.completion_reason && reasonKeys[goal.completion_reason]
       ? <p className={goal.outcome === 'achieved' ? 'notice' : 'warning'}>{reason}</p> : null}
     {goal.summary && ['evaluation_unavailable', 'contract_missing', 'stopped', 'rejected',

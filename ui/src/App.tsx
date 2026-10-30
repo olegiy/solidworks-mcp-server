@@ -9,6 +9,7 @@ import MessageContent, { CopyButton } from './MessageContent';
 import Icon from './Icon';
 import ActivityIndicator from './ActivityIndicator';
 import GoalEvaluationCard from './GoalEvaluation';
+import Clarification from './Clarification';
 import ConstructionPlan from './ConstructionPlan';
 import { applyRunEvent } from './runEvents';
 import { incompleteGoalKey } from './runPresentation';
@@ -406,11 +407,18 @@ function OperationLog({ events }: { events: RunEvent[] }) {
   </details>;
 }
 
-function RunView({ run }: { run: Run }) {
+function RunView({ run, onReply }: { run: Run; onReply?: () => void }) {
   const { t } = useI18n();
   const incomplete = incompleteGoalKey(run);
+  const assistantMessages = run.events.filter(event => event.type === 'message' && event.data.role === 'assistant');
+  const clarification = assistantMessages.filter(event => event.data.kind === 'clarification').at(-1)
+    ?? (run.goal?.completion_reason === 'clarification_required' ? assistantMessages.at(-1) : undefined);
+  const questions = Array.isArray(clarification?.data.questions)
+    ? clarification.data.questions.filter((question): question is string => typeof question === 'string')
+    : run.goal?.contract?.ambiguities ?? [];
   return <article className="run" aria-label={t('request')}>
     {run.events.filter(event => ['message', 'image', 'error'].includes(event.type)).map(event => {
+      if (event.seq === clarification?.seq) return null;
       if (event.type === 'message') return <div key={event.seq}
         className={`message ${event.data.role === 'user' ? 'user' : 'assistant'}`}>
         <div className="message-heading"><span className="message-author">{event.data.role === 'user' ? t('you') : t('cadAgent')}</span>
@@ -443,6 +451,8 @@ function RunView({ run }: { run: Run }) {
     {run.status === 'uncertain' ? <p className="error">{t('uncertainHint')}</p> : null}
     <ConstructionPlan run={run} />
     <OperationLog events={run.events} />
+    {clarification ? <Clarification runId={run.id} questions={questions}
+      text={String(clarification.data.content)} onReply={onReply} /> : null}
   </article>;
 }
 
@@ -872,7 +882,9 @@ export default function App() {
             setMessage(text); input.current?.focus();
           }}><Icon name={icon} size={19} />{title}</button>)}</div>
         </div> : null}
-        {runs.map(run => <RunView key={run.id} run={run} />)}
+        {runs.map((run, index) => <RunView key={run.id} run={run}
+          onReply={index === runs.length - 1 && !loading && !active && !sending && !savingProject
+            ? () => input.current?.focus() : undefined} />)}
         {active?.confirmation ? <ConfirmationPanel key={active.confirmation.id}
           confirmation={active.confirmation} onAnswer={confirm} /> : null}
         <div ref={end} />
