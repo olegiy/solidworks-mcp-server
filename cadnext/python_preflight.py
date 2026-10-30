@@ -3,6 +3,8 @@
 import ast
 from types import CodeType
 
+_UNKNOWN = object()
+
 
 class PythonPreflightError(ValueError):
     def __init__(self, message: str, line: int):
@@ -21,6 +23,17 @@ def _condition_calls(expression):
     elif isinstance(expression, ast.Compare):
         for value in [expression.left, *expression.comparators]:
             yield from _condition_calls(value)
+
+
+def _literal_argument(args, keywords, position, name):
+    argument = next((item.value for item in keywords if item.arg == name), None)
+    if argument is None and len(args) > position:
+        if not any(isinstance(item, ast.Starred) for item in args[:position + 1]):
+            argument = args[position]
+    try:
+        return ast.literal_eval(argument)
+    except (ValueError, TypeError):
+        return _UNKNOWN
 
 
 def compile_python(code: str) -> CodeType:
@@ -50,6 +63,18 @@ def compile_python(code: str) -> CodeType:
             method = args[1].value
             args = args[2:]
         else:
+            continue
+        if method == "FeatureCut4":
+            single = _literal_argument(args, node.keywords, 0, "Sd")
+            second_end = _literal_argument(args, node.keywords, 4, "T2")
+            second_depth = _literal_argument(args, node.keywords, 6, "D2")
+            if (single is False and type(second_end) is int and second_end == 0
+                    and type(second_depth) in (int, float) and second_depth == 0):
+                raise PythonPreflightError(
+                    "FeatureCut4: Sd=False включает вторую сторону, но T2=0 (Blind) "
+                    "с D2=0 задаёт нулевую глухую глубину. Для одной стороны используй "
+                    "Sd=True; для двух задай ненулевую глубину или другое условие. "
+                    "Направление Dir проверь по нормали и стороне материала.", node.lineno)
             continue
         if method == "SelectByID2":
             position, keyword = 7, "Callout"

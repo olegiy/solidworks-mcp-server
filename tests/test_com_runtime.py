@@ -72,6 +72,10 @@ def test_native_mate_rejects_error_status_even_if_api_returns_an_object(monkeypa
     "if not model.SketchManager.InsertSketch(True):\n    raise RuntimeError('failed')",
     "if GET(model.SketchManager, 'InsertSketch', True):\n    pass",
     "assert model.SketchManager.InsertSketch(True) is not None",
+    "fm.FeatureCut4(False, False, False, 1, 0, 0., 0., False, False, False, False, "
+    "0., 0., False, False, False, False, False, False, False, False, False, False, 0, 0., False, False)",
+    "fm.FeatureCut4(Sd=False, T2=0, D2=0.0)",
+    "GET(fm, 'FeatureCut4', False, False, True, 1, 0, 0.01, 0.)",
 ])
 def test_python_preflight_rejects_known_bad_api_before_accessing_cad(monkeypatch, statement):
     accesses = []
@@ -157,6 +161,25 @@ def test_python_preflight_allows_void_sketch_calls_with_state_readback(monkeypat
         "result = 'state checked'"))
     assert response["status"] == "ok", response
     assert manager.ActiveSketch is None
+
+
+@pytest.mark.parametrize("statement", [
+    "model.FeatureCut4(True, False, True, 1, 0, .01, 0.)",
+    "model.FeatureCut4(False, False, True, 1, 1, .01, 0.)",
+    "model.FeatureCut4(Sd=False, T2=0, D2=.01)",
+    "GET(model, 'FeatureCut4', False, False, True, 1, 0, .01, .01)",
+    "depth = 0.\nmodel.FeatureCut4(False, False, True, 1, 0, .01, depth)",
+    "prefix = (True, False, True)\nmodel.FeatureCut4(*prefix, 1, 0, .01, 0.)",
+])
+def test_cut_preflight_preserves_valid_or_unresolved_second_side(monkeypatch, statement):
+    calls = []
+    model = SimpleNamespace(FeatureCut4=lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(ActiveDoc=model))
+    monkeypatch.setattr(server, "_nothing", lambda: None)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    response = json.loads(server.execute_python(statement))
+    assert response["status"] == "ok", response
+    assert len(calls) == 1
 
 
 def test_python_syntax_error_does_not_access_cad(monkeypatch):
