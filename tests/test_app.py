@@ -147,6 +147,18 @@ def test_profile_api_saves_reasoning_and_probe_uses_it(api):
     assert client.put(f'/api/profiles/{saved["id"]}', json={"reasoning_effort": None}).json()["reasoning_effort"] is None
 
 
+def test_profile_api_persists_streaming_flag_and_rejects_non_booleans(api):
+    client, _ = api
+    saved = profile(client, stream_responses=True)
+    assert saved["stream_responses"] is True
+    endpoint = f'/api/profiles/{saved["id"]}'
+    assert client.put(endpoint, json={"model": "changed"}).json()["stream_responses"] is True
+    for invalid in (None, 1, "true"):
+        assert client.put(endpoint, json={"stream_responses": invalid}).status_code == 422
+    assert client.get(endpoint).json()["stream_responses"] is True
+    assert client.put(endpoint, json={"stream_responses": False}).json()["stream_responses"] is False
+
+
 def test_only_one_run_and_status_get_never_reexecutes(api):
     client, backend = api
     saved = profile(client)

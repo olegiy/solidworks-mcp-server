@@ -120,7 +120,7 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
 }) {
   const { t } = useI18n();
   const blank = { name: '', base_url: 'http://127.0.0.1:8080/v1', model: '', vision: false, local: true,
-    reasoning_effort: null as string | null };
+    reasoning_effort: null as string | null, stream_responses: false };
   const [editing, setEditing] = useState(selected);
   const [form, setForm] = useState(() => profiles.find(p => p.id === selected) ?? blank);
   const lookup = useReasoning(form.model);
@@ -220,6 +220,7 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
       const savedReasoning = selectedReasoning(metadata, form.reasoning_effort, t);
       const body = { name: form.name, base_url: form.base_url, model: form.model,
         local: form.local, vision: form.vision, reasoning_effort: savedReasoning || null,
+        stream_responses: form.stream_responses,
         ...(key || clearKey ? { api_key: clearKey ? '' : key } : {}) };
       const result = await api<Profile>(editing ? `/profiles/${editing}` : '/profiles', {
         method: editing ? 'PUT' : 'POST', body: JSON.stringify(body),
@@ -278,6 +279,9 @@ function Connections({ profiles, selected, profileCatalog, onCatalog, onSaved, o
         </select></label>
         <p id="reasoning-hint" className="hint">{lookup.hint} {t('reasoningSavedHint')}</p>
         <button type="button" disabled={busy || !form.model.trim()} onClick={lookup.refresh}>{t('refreshLevels')}</button>
+        <label className="check"><input type="checkbox" checked={form.stream_responses}
+          onChange={e => setForm({ ...form, stream_responses: e.target.checked })} />{t('streamResponses')}</label>
+        <p className="hint">{t('streamResponsesHint')}</p>
         <label className="check"><input type="checkbox" checked={form.vision}
           onChange={e => setForm({ ...form, vision: e.target.checked })} />{t('imageSupport')}</label>
         <label className="check"><input type="checkbox" checked={form.local}

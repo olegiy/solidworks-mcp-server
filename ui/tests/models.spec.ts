@@ -1,5 +1,28 @@
 import { expect, test } from '@playwright/test';
 
+test('потоковый режим сохраняется в подключении и восстанавливается после перезагрузки', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await page.getByRole('button', { name: 'Новое подключение' }).click();
+  await page.getByLabel('Название подключения').fill('Потоковый API');
+  await page.getByLabel('Имя модели', { exact: true }).fill('fake-model');
+  await page.getByLabel('Имя модели', { exact: true }).press('Escape');
+  const streaming = page.getByRole('checkbox', { name: 'Потоковый режим API', exact: true });
+  await expect(streaming).not.toBeChecked();
+  await streaming.check();
+  await page.getByRole('button', { name: 'Сохранить подключение' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Подключение сохранено' })).toBeVisible();
+  const id = await page.getByLabel('Активное подключение').inputValue();
+  expect((await (await page.request.get(`/api/profiles/${id}`)).json()).stream_responses).toBe(true);
+  await page.reload();
+  await page.getByRole('button', { name: 'Настройки', exact: true }).click();
+  await expect(streaming).toBeChecked();
+  await streaming.uncheck();
+  await page.getByRole('button', { name: 'Сохранить подключение' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Подключение сохранено' })).toBeVisible();
+  expect((await (await page.request.get(`/api/profiles/${id}`)).json()).stream_responses).toBe(false);
+});
+
 test('отправка ждёт уровней и не передаёт устаревшее отключение обязательного рассуждения', async ({ page }) => {
   const profile = await (await page.request.post('/api/profiles', { data: {
     name: 'Ожидание уровней', base_url: 'https://another-provider.test/v1',

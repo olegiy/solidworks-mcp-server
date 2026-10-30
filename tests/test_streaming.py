@@ -23,6 +23,41 @@ def sse(chunks, done=True):
         "data: [DONE]\n\n" if done else "")
 
 
+async def test_saved_streaming_profile_uses_sse_for_normal_agent_completion(tmp_path):
+    from cadnext.settings import SettingsStore
+    from tests.test_settings import MemorySecrets
+
+    store = SettingsStore(tmp_path, MemorySecrets())
+    saved = store.save({"name": "Streaming", "base_url": "http://localhost/v1", "model": "m",
+                        "stream_responses": True})
+    store.save({"model": "updated"}, saved.id)
+    profile = SettingsStore(tmp_path, MemorySecrets()).get(saved.id)
+    requests = []
+
+    def respond(request):
+        payload = json.loads(request.content)
+        requests.append(payload)
+        if payload.get("stream") is not True:
+            return httpx.Response(429, json={"error": {"type": "streaming_required"}})
+        return httpx.Response(200, stream=BytesStream(sse([
+            {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "read-1",
+                "type": "function", "function": {"name": "get_dimension",
+                "arguments": '{"name":"D1@Sketch1"}'}}]}, "finish_reason": "tool_calls"}]}
+        ])))
+
+    provider = Provider(profile, transport=httpx.MockTransport(respond))
+    try:
+        message = await provider.complete([{"role": "user", "content": "Read"}], [
+            {"type": "function", "function": {"name": "get_dimension"}}])
+        assert message["tool_calls"][0]["function"] == {
+            "name": "get_dimension", "arguments": '{"name":"D1@Sketch1"}'}
+        assert len(requests) == 1
+        assert requests[0]["stream_options"] == {"include_usage": True}
+        assert requests[0]["model"] == "updated"
+    finally:
+        await provider.aclose()
+
+
 async def test_stream_assembles_native_tools_utf8_and_usage_before_returning():
     captured = []
     chunks = [

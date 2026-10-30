@@ -56,6 +56,18 @@ def test_legacy_profile_defaults_to_api_reasoning_setting(tmp_path):
         "id": "old", "name": "P", "base_url": "http://localhost/v1", "model": "m"}]}))
     store = SettingsStore(tmp_path, MemorySecrets())
     assert store.get("old").reasoning_effort is None
+    assert store.get("old").stream_responses is False
+
+
+@pytest.mark.parametrize("value", [None, 1, "true"])
+def test_invalid_streaming_flag_preserves_settings(tmp_path, value):
+    store = SettingsStore(tmp_path, MemorySecrets())
+    profile = store.save({"name": "P", "base_url": "http://localhost/v1", "model": "m"})
+    before = store.path.read_bytes()
+    with pytest.raises(ValueError):
+        store.save({"stream_responses": value}, profile.id)
+    assert store.path.read_bytes() == before
+    assert store.get(profile.id).stream_responses is False
 
 
 @pytest.mark.parametrize("effort", ["unknown", 123, {}])

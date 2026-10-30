@@ -127,7 +127,9 @@ class Provider:
         catalog = await self.list_model_catalog()
         return sorted(model["id"] for model in catalog["models"])
 
-    async def complete(self, messages, tools, *, stream=False, compact=True) -> dict:
+    async def complete(self, messages, tools, *, stream=None, compact=True) -> dict:
+        if stream is None:
+            stream = self.profile.stream_responses
         queued = time.perf_counter()
         async with self._completion_slots:
             started = time.perf_counter()

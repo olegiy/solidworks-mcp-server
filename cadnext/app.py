@@ -36,6 +36,7 @@ class ProfileBody(BaseModel):
     base_url: str | None = Field(default=None, max_length=2000)
     model: str | None = Field(default=None, max_length=300)
     reasoning_effort: ReasoningEffort | None = None
+    stream_responses: bool = False
     vision: bool = False
     local: bool | None = None
     api_key: SecretStr | None = None

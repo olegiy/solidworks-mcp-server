@@ -27,6 +27,7 @@ class Profile:
     vision: bool = False
     local: bool | None = None
     reasoning_effort: ReasoningEffort | None = None
+    stream_responses: bool = False
 
     def __post_init__(self):
         if self.reasoning_effort is not None and self.reasoning_effort not in get_args(ReasoningEffort):
@@ -46,7 +47,7 @@ class Profile:
         if not valid:
             raise ValueError(t("Нужен HTTP(S)-адрес API без пароля, параметров и фрагмента.",
                                "An HTTP(S) API address without a password, query, or fragment is required."))
-        if not isinstance(self.vision, bool) or (
+        if not isinstance(self.stream_responses, bool) or not isinstance(self.vision, bool) or (
                 self.local is not None and not isinstance(self.local, bool)):
             raise ValueError(t("Признаки подключения должны быть логическими значениями.",
                                    "Connection flags must be boolean values."))
@@ -271,7 +272,8 @@ class SettingsStore:
 
     def save(self, values: dict, profile_id: str | None = None) -> Profile:
         with self._lock:
-            allowed = {"name", "base_url", "model", "vision", "local", "api_key", "reasoning_effort"}
+            allowed = {"name", "base_url", "model", "vision", "local", "api_key", "reasoning_effort",
+                       "stream_responses"}
             if set(values) - allowed:
                 raise ValueError(t("Неизвестное поле настроек подключения.", "Unknown connection setting field."))
             key = values.get("api_key")
