@@ -151,12 +151,36 @@ def test_cad_path_boundary_precedes_decimal_measurements_in_following_prose(path
     assert ctx.restore(filtered) == prose
 
 
+@pytest.mark.parametrize("path", [
+    "C:/Client Projects/version.2/final-evidence-pack.json",
+    r"C:\Client Projects\Подробный_отчёт.md",
+    r"\\server\Client Projects\Вид_модели.png",
+    "C:/Client Projects/Вид_модели.bmp",
+])
+def test_report_path_token_excludes_following_evidence_in_all_roles(path):
+    from cadnext.privacy import PrivacyContext
+
+    ctx = PrivacyContext(local=False, consent=True)
+    prose = f"Прочти {path} (5 runs). Запиши Аудит.json; расхождение 1.076 мм³."
+    messages = [{"role": role, "content": prose}
+                for role in ("user", "assistant", "tool")]
+    filtered = ctx.outgoing_messages(messages)
+    for message in filtered:
+        token = message["content"].split()[1]
+        assert ctx.restore({"path": token}) == {"path": path}
+        assert "(5 runs). Запиши Аудит.json" in message["content"]
+        assert "Client Projects" not in message["content"]
+    assert ctx.restore(filtered) == messages
+
+
 @pytest.mark.parametrize('path', [
     r'C:\Client Projects\SecretCustomer\prototype.sldprt',
     r'\\server\Client Projects\SecretCustomer\prototype.sldprt',
     r'C:\Client Projects\SecretCustomer',
     r'C:\Client, Inc\SecretCustomer\prototype.sldprt',
     r'C:\Client; Projects\SecretCustomer\prototype.sldprt',
+    r'C:\Client.json archive\SecretCustomer',
+    r'\\server\Client.md (archive)\SecretCustomer',
 ])
 def test_unquoted_windows_path_with_spaces_is_fully_masked_in_all_roles(path):
     from cadnext.privacy import PrivacyContext

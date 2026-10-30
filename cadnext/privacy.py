@@ -10,12 +10,15 @@ _START = r"(?:[A-Za-z]:[\\/]|\\\\|/(?!/))"
 _WINDOWS_START = r'(?:(?<!\w)[A-Za-z]:[\\/]|\\\\)'
 _WINDOWS_CHARS = r'[^<>"\'\r\n|?*]'
 _PATH_END = r'(?=$|[\s,;:)"\']|\.(?=\s|$))'
+_NO_DIRECTORY_TAIL = r'(?!(?:(?!\.(?=\s|$))[^\r\n"\'])*[\\/])'
 _PATH = (
     rf'(?P<quote>["\'])(?P<path>{_START}[^<>"\'\r\n|?*]+)(?P=quote)'
-    # Prefer the first CAD file boundary to decimal numbers in later prose.
+    # Prefer CAD file boundaries to extensions or decimals in later prose.
     rf'|{_WINDOWS_START}{_WINDOWS_CHARS}*?\.(?i:sldprt|sldasm|slddrw|step|stp|iges|igs|dxf|dwg){_PATH_END}'
+    # A report suffix inside a directory name must not expose its remaining segments.
+    rf'|{_WINDOWS_START}{_WINDOWS_CHARS}*?\.(?i:json|md|png|bmp){_PATH_END}{_NO_DIRECTORY_TAIL}'
     # File extensions give a useful boundary; ambiguous directory prose is hidden conservatively.
-    rf'|{_WINDOWS_START}{_WINDOWS_CHARS}*\.[A-Za-z0-9]{{1,12}}{_PATH_END}'
+    rf'|{_WINDOWS_START}{_WINDOWS_CHARS}*\.[A-Za-z0-9]{{1,12}}{_PATH_END}{_NO_DIRECTORY_TAIL}'
     rf'|{_WINDOWS_START}{_WINDOWS_CHARS}+'
     r'|(?<![\w:/])/(?!/)[\w.~-]+(?:/[\w.~-]+)*'
 )
