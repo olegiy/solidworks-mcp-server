@@ -10,9 +10,35 @@ class PythonPreflightError(ValueError):
         self.python_line = line
 
 
+def _condition_calls(expression):
+    if isinstance(expression, ast.Call):
+        yield expression
+    elif isinstance(expression, ast.UnaryOp) and isinstance(expression.op, ast.Not):
+        yield from _condition_calls(expression.operand)
+    elif isinstance(expression, ast.BoolOp):
+        for value in expression.values:
+            yield from _condition_calls(value)
+    elif isinstance(expression, ast.Compare):
+        for value in [expression.left, *expression.comparators]:
+            yield from _condition_calls(value)
+
+
 def compile_python(code: str) -> CodeType:
     tree = ast.parse(code, filename="<cadnext-python>")
     compiled = compile(tree, "<cadnext-python>", "exec")
+    for condition in ast.walk(tree):
+        if not isinstance(condition, (ast.If, ast.While, ast.Assert, ast.IfExp)):
+            continue
+        for call in _condition_calls(condition.test):
+            direct = isinstance(call.func, ast.Attribute) and call.func.attr == "InsertSketch"
+            wrapped = (isinstance(call.func, ast.Name) and call.func.id == "GET"
+                       and len(call.args) >= 2 and isinstance(call.args[1], ast.Constant)
+                       and call.args[1].value == "InsertSketch")
+            if direct or wrapped:
+                raise PythonPreflightError(
+                    "InsertSketch возвращает void, а не признак успеха. Вызови его отдельно "
+                    "один раз и проверь ActiveSketch до/после; не повторяй переключение.",
+                    call.lineno)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue

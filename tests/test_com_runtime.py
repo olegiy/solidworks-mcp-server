@@ -69,6 +69,9 @@ def test_native_mate_rejects_error_status_even_if_api_returns_an_object(monkeypa
     "dimension.GetArcEndCondition(3)",
     "dimension.SetArcEndCondition(Index=0, Condition=3)",
     "GET(dimension, 'GetArcEndCondition', -1)",
+    "if not model.SketchManager.InsertSketch(True):\n    raise RuntimeError('failed')",
+    "if GET(model.SketchManager, 'InsertSketch', True):\n    pass",
+    "assert model.SketchManager.InsertSketch(True) is not None",
 ])
 def test_python_preflight_rejects_known_bad_api_before_accessing_cad(monkeypatch, statement):
     accesses = []
@@ -130,6 +133,30 @@ def test_python_preflight_ignores_api_examples_in_text(monkeypatch):
         "# dimension.SetArcEndCondition(0, 3)\n"
         "result = 'model.Extension.SelectByID2(Callout=None)'"))
     assert response["status"] == "ok", response
+
+
+def test_python_preflight_allows_void_sketch_calls_with_state_readback(monkeypatch):
+    sketch = object()
+    manager = SimpleNamespace(ActiveSketch=None)
+
+    def toggle(update):
+        assert update is True
+        manager.ActiveSketch = sketch if manager.ActiveSketch is None else None
+
+    manager.InsertSketch = toggle
+    monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(
+        ActiveDoc=SimpleNamespace(SketchManager=manager)))
+    monkeypatch.setattr(server, "_nothing", lambda: None)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    response = json.loads(server.execute_python(
+        "sm = model.SketchManager\n"
+        "sm.InsertSketch(True)\n"
+        "assert GET(sm, 'ActiveSketch') is not None\n"
+        "GET(sm, 'InsertSketch', True)\n"
+        "assert GET(sm, 'ActiveSketch') is None\n"
+        "result = 'state checked'"))
+    assert response["status"] == "ok", response
+    assert manager.ActiveSketch is None
 
 
 def test_python_syntax_error_does_not_access_cad(monkeypatch):
