@@ -64,6 +64,25 @@ def compile_python(code: str) -> CodeType:
             args = args[2:]
         else:
             continue
+        if method == "FullyDefineSketch":
+            for position, name, allowed in (
+                    (4, "HorizontalDimScheme", (1, 2, 3, 4)),
+                    (6, "VerticalDimScheme", (1, 2, 3, 4)),
+                    (8, "HorizontalDimPlacement", (-1, 1)),
+                    (9, "VerticalDimPlacement", (-1, 1))):
+                value = _literal_argument(args, node.keywords, position, name)
+                if value is not _UNKNOWN and (type(value) is not int or value not in allowed):
+                    raise PythonPreflightError(
+                        f"FullyDefineSketch: {name} должен быть одним из {allowed}, не 0. "
+                        "Прочитай swAutodimScheme/Placement и после операции проверь "
+                        "GetConstrainedStatus, управляющие размеры и геометрию.", node.lineno)
+            for position, name in ((5, "HorizontalDatumDisp"), (7, "VerticalDatumDisp")):
+                value = _literal_argument(args, node.keywords, position, name)
+                if value is None or isinstance(value, (bool, int, float, str)):
+                    raise PythonPreflightError(
+                        f"FullyDefineSketch: {name} — COM Dispatch. Для отсутствующей "
+                        "опоры используй NOTHING, не None/bool/число.", node.lineno)
+            continue
         if method == "FeatureCut4":
             single = _literal_argument(args, node.keywords, 0, "Sd")
             second_end = _literal_argument(args, node.keywords, 4, "T2")

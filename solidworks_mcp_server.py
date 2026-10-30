@@ -1223,6 +1223,10 @@ def execute_python(code: str, session_id: str | None = None) -> str:
     размером чертежа. Например, габарит 200 мм нельзя принять как 170 мм.
     Не заменяй значение размера текстом. Успешный COM-вызов не доказывает геометрию.
     InsertSketch возвращает void: вызывай отдельно один раз, затем проверяй ActiveSketch.
+    FullyDefineSketch: схемы размеров из swAutodimScheme_e имеют значения 1…4,
+    размещение размеров — -1 или 1, не 0. HorizontalDatumDisp/VerticalDatumDisp
+    требуют COM Dispatch (NOTHING без опоры). После вызова проверь статус эскиза,
+    управляющие размеры и привязку к началу координат; return code не доказывает status=3.
     IFeatureManager.FeatureCut4: 27 аргументов, результат IFeature. Старый
     IModelDoc2.FeatureCut4: 17 аргументов, результат void; это другой интерфейс,
     не запасная перегрузка. None от void-метода не доказывает отказ операции.

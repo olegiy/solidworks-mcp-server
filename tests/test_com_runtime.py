@@ -76,6 +76,11 @@ def test_native_mate_rejects_error_status_even_if_api_returns_an_object(monkeypa
     "0., 0., False, False, False, False, False, False, False, False, False, False, 0, 0., False, False)",
     "fm.FeatureCut4(Sd=False, T2=0, D2=0.0)",
     "GET(fm, 'FeatureCut4', False, False, True, 1, 0, 0.01, 0.)",
+    "sm.FullyDefineSketch(True, True, 526, True, 0, NOTHING, 0, NOTHING, 0, 0)",
+    "sm.FullyDefineSketch(HorizontalDimScheme=0)",
+    "GET(sm, 'FullyDefineSketch', True, True, 526, True, 1, NOTHING, 1, NOTHING, 0, 1)",
+    "sm.FullyDefineSketch(HorizontalDatumDisp=False)",
+    "sm.FullyDefineSketch(VerticalDatumDisp=None)",
 ])
 def test_python_preflight_rejects_known_bad_api_before_accessing_cad(monkeypatch, statement):
     accesses = []
@@ -176,6 +181,25 @@ def test_cut_preflight_preserves_valid_or_unresolved_second_side(monkeypatch, st
     model = SimpleNamespace(FeatureCut4=lambda *args, **kwargs: calls.append((args, kwargs)))
     monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(ActiveDoc=model))
     monkeypatch.setattr(server, "_nothing", lambda: None)
+    monkeypatch.setattr(server, "com_call", lambda job: job())
+    response = json.loads(server.execute_python(statement))
+    assert response["status"] == "ok", response
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("statement", [
+    "model.FullyDefineSketch(True, True, 526, True, 1, NOTHING, 1, NOTHING, 1, -1)",
+    "model.FullyDefineSketch(HorizontalDimScheme=2, VerticalDimScheme=4, "
+    "HorizontalDimPlacement=-1, VerticalDimPlacement=1, "
+    "HorizontalDatumDisp=NOTHING, VerticalDatumDisp=NOTHING)",
+    "scheme=0\nGET(model, 'FullyDefineSketch', True, True, 526, True, "
+    "scheme, NOTHING, 3, NOTHING, -1, 1)",
+])
+def test_fully_define_preflight_preserves_valid_or_dynamic_arguments(monkeypatch, statement):
+    calls = []
+    model = SimpleNamespace(FullyDefineSketch=lambda *args, **kwargs: calls.append((args, kwargs)))
+    monkeypatch.setattr(server, "_app", lambda: SimpleNamespace(ActiveDoc=model))
+    monkeypatch.setattr(server, "_nothing", object)
     monkeypatch.setattr(server, "com_call", lambda job: job())
     response = json.loads(server.execute_python(statement))
     assert response["status"] == "ok", response
