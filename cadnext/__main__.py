@@ -7,6 +7,7 @@ import socket
 import uvicorn
 
 from cadnext.app import create_app
+from cadnext.http_protocol import HttpProtocol
 
 
 def main(control_event=None):
@@ -20,7 +21,8 @@ def main(control_event=None):
             raise SystemExit("Порт 127.0.0.1:8876 занят или недоступен. Второй MCP-процесс не запущен.") from None
         app = create_app()
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=8876,
-                                                access_log=False, log_level="warning"))
+                                                access_log=False, log_level="warning",
+                                                http=HttpProtocol))
         # Uvicorn closes its sockets before lifespan shutdown. Keep the original
         # reservation until the MCP process (including any timed-out COM) exits.
         with listener.dup() as serving_listener:
