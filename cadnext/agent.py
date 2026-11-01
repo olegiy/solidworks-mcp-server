@@ -316,6 +316,10 @@ class _PythonRepair(Exception):
         self.result = result
 
 
+class _MeshRegionCorrection(Exception):
+    pass
+
+
 @dataclass
 class Run:
     session_id: str
@@ -1862,12 +1866,42 @@ class Agent:
                      await self.mesh_tools.dispatch(run._mesh_binding, name, arguments, stop=run._mesh_stop))
             result = {"ok": True, "value": value, "error": None, "uncertain": False}
         except MeshError as error:
-            result = {"ok": False, "value": None, "error": str(error), "uncertain": False}
+            result = {"ok": False, "value": None, "error": str(error), "uncertain": False,
+                      "error_code": error.code,
+                      "recoverable": name == "mesh_fit" and error.code in {
+                          "empty_region", "disconnected_region"}}
+            if result["recoverable"] and error.code == "empty_region":
+                result["recovery_hint"] = t(
+                    "bounds_mm выбирает только треугольники, все вершины которых внутри бокса. "
+                    "Сверь границы с mesh_inspect и выбери другую связную область: расширь бокс "
+                    "до полных треугольников или используй region_id. Не повторяй прежний "
+                    "выбор без изменения; пригодность измерения проверяй по usable.",
+                    "bounds_mm selects only triangles whose vertices are all inside the box. "
+                    "Check mesh_inspect bounds and choose another connected region: expand the box "
+                    "to include whole triangles or use a region_id. Do not repeat the unchanged "
+                    "selection; check measurement suitability using usable.")
+            elif result["recoverable"]:
+                result["recovery_hint"] = t(
+                    "bounds_mm выбрал несколько несвязных поверхностей. Выбери одну связную "
+                    "поверхность: используй region_id из mesh_inspect либо скорректируй бокс "
+                    "и при необходимости фильтр normal/angle_degrees. Не объединяй поверхности "
+                    "автоматически и не повторяй прежний выбор без изменения. Простое расширение "
+                    "бокса может захватить другие поверхности; проверяй пригодность по usable.",
+                    "bounds_mm selected multiple disconnected surfaces. Select one connected "
+                    "surface using a region_id from mesh_inspect or adjust the box and, if needed, "
+                    "the normal/angle_degrees filter. Do not merge surfaces automatically or repeat "
+                    "the unchanged selection. Simply expanding the box may include other surfaces; "
+                    "check measurement suitability using usable.")
         run.messages.append({"role": "tool", "tool_call_id": call_id, "content": _json(result)})
         run._pending.pop(call_id, None)
         run._emit("tool_result", tool_call_id=call_id, name=name, result=result, verification=False)
         self._guard(run)
         if not result["ok"]:
+            if result["recoverable"]:
+                self._close_pending(run, reason=t(
+                    "Вызов не выполнялся: сначала исправь выбор области mesh_fit.",
+                    "The call was not performed: correct the mesh_fit region selection first."))
+                raise _MeshRegionCorrection
             raise _EndRun("failed", result["error"])
 
     async def _verify_mesh(self, run):
@@ -2050,6 +2084,8 @@ class Agent:
                 self._guard(run)
                 try:
                     await self._execute(run, provider, catalog, call_id, name, arguments)
+                except _MeshRegionCorrection:
+                    break
                 except _PythonRepair as error:
                     self._guard(run)
                     await self._prepare_python_repair(run, error)
@@ -2496,6 +2532,8 @@ class Agent:
                 self._guard(run)
                 try:
                     await self._execute(run, provider, catalog, call_id, name, arguments)
+                except _MeshRegionCorrection:
+                    break
                 except _PythonRepair as error:
                     self._guard(run)
                     await self._prepare_python_repair(run, error)

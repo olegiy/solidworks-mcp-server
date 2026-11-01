@@ -10,6 +10,11 @@ from tests.fake_mcp import FakeMcp
 from tests.test_agent import ScriptedProvider, reply
 from tests.test_mesh_tools import ready_tools
 
+_FIT_REGION_CASES = [
+    ("empty_region", {"bounds_mm": [[-21, -16, 1], [21, 16, 4]]}),
+    ("disconnected_region", {"bounds_mm": [[-21, -1, -.1], [21, 1, 5.1]]}),
+]
+
 
 @pytest.mark.parametrize("evaluate", [False, True])
 async def test_mesh_measurements_are_local_budgeted_and_work_without_vision(tmp_path, evaluate):
@@ -71,6 +76,131 @@ async def test_mesh_budget_prevents_following_measurement_and_cad(tmp_path):
     try:
         await agent.wait(run.id)
         assert run.status == "limit_reached" and run.call_count == 1
+        assert not agent.mcp.calls
+    finally:
+        await agent.aclose()
+
+
+@pytest.mark.parametrize("evaluate", [False, True])
+@pytest.mark.parametrize("error_code,region", _FIT_REGION_CASES)
+async def test_invalid_fit_region_returns_to_model_before_queued_calls(tmp_path, evaluate, error_code, region):
+    from cadnext.evaluation import EvaluationOptions
+
+    tools, asset = await ready_tools(tmp_path)
+
+    def correct_region(messages):
+        results = {m["tool_call_id"]: json.loads(m["content"])
+                   for m in messages if m["role"] == "tool"}
+        failure = results["empty"]
+        assert failure["ok"] is False and failure["uncertain"] is False
+        assert failure["error_code"] == error_code and failure["recoverable"] is True
+        assert "bounds_mm" in failure["recovery_hint"]
+        if error_code == "disconnected_region":
+            assert "одну связную поверхность" in failure["recovery_hint"]
+        assert results["queued"]["ok"] is False
+        return reply(("corrected", "mesh_fit", {
+            "kind": "plane", "region": {"bounds_mm": [[-21, -16, -.1], [21, 16, .1]]}}))
+
+    answers = [reply(("empty", "mesh_fit", {
+        "kind": "cylinder", "region": region}),
+        ("queued", "get_dimension", {"name": "D1"})), correct_region,
+        reply(content="Измерения готовы")]
+    if evaluate:
+        answers.insert(0, reply(("goal", "cadnext_define_goal", {
+            "kind": "informational", "requirements": [], "ambiguities": []})))
+    provider = ScriptedProvider(answers)
+    agent = Agent(FakeMcp(), mesh_tools=tools)
+    try:
+        run = agent.start(session_id="s", provider=provider, message="Измерь сетку",
+                          mesh_reference={"asset_id": asset.asset_id, "tolerance_mm": .1},
+                          evaluation=EvaluationOptions() if evaluate else None)
+        await agent.wait(run.id)
+        assert run.status == "completed" and run.call_count == 2
+        assert not agent.mcp.calls and not agent.uncertain
+        results = [e["data"]["result"] for e in run.events if e["type"] == "tool_result"
+                   and e["data"]["name"] == "mesh_fit"]
+        assert len(results) == 2 and results[1]["value"]["fit"]["usable"]
+        assert not run._pending and run.repair_attempts == 0
+    finally:
+        await agent.aclose()
+
+
+@pytest.mark.parametrize("evaluate", [False, True])
+@pytest.mark.parametrize("error_code,region", _FIT_REGION_CASES)
+async def test_invalid_fit_region_correction_respects_call_limit(tmp_path, evaluate, error_code, region):
+    from cadnext.evaluation import EvaluationOptions
+
+    tools, asset = await ready_tools(tmp_path)
+    provider = ScriptedProvider([
+        reply((call_id, "mesh_fit", {"kind": "plane", "region": region}))
+        for call_id in ("empty", "again")])
+    agent = Agent(FakeMcp(), mesh_tools=tools)
+    try:
+        run = agent.start(session_id="s", provider=provider, message="Измерь сетку", max_calls=1,
+                          mesh_reference={"asset_id": asset.asset_id, "tolerance_mm": .1},
+                          evaluation=EvaluationOptions() if evaluate else None)
+        await agent.wait(run.id)
+        assert run.status == "limit_reached" and run.call_count == 1
+        assert len(provider.requests) == 2 and not agent.mcp.calls
+    finally:
+        await agent.aclose()
+
+
+@pytest.mark.parametrize("evaluate", [False, True])
+@pytest.mark.parametrize("error_code,region", _FIT_REGION_CASES)
+async def test_stop_after_invalid_fit_region_prevents_correction_and_queued_calls(
+        tmp_path, evaluate, error_code, region):
+    from cadnext.evaluation import EvaluationOptions
+    from cadnext.mesh.contracts import MeshError
+
+    tools, asset = await ready_tools(tmp_path)
+    original_dispatch = tools.dispatch
+
+    async def stop_on_error(*args, **kwargs):
+        try:
+            return await original_dispatch(*args, **kwargs)
+        except MeshError:
+            agent.stop(agent._active.id)
+            raise
+
+    tools.dispatch = stop_on_error
+    provider = ScriptedProvider([reply(("empty", "mesh_fit", {
+        "kind": "plane", "region": region}),
+        ("queued", "get_dimension", {"name": "D1"}))])
+    agent = Agent(FakeMcp(), mesh_tools=tools)
+    try:
+        run = agent.start(session_id="s", provider=provider, message="Измерь сетку",
+                          mesh_reference={"asset_id": asset.asset_id, "tolerance_mm": .1},
+                          evaluation=EvaluationOptions() if evaluate else None)
+        await agent.wait(run.id)
+        assert run.status == "stopped" and run.call_count == 1
+        assert len(provider.requests) == 1 and not agent.mcp.calls
+    finally:
+        await agent.aclose()
+
+
+@pytest.mark.parametrize("name,error_code", [
+    ("mesh_fit", "worker_timeout"), ("mesh_fit", "stale_reference"),
+    ("mesh_fit", "invalid_region"), ("mesh_section", "empty_region"),
+    ("mesh_section", "disconnected_region")])
+async def test_other_mesh_errors_remain_terminal(tmp_path, name, error_code):
+    from cadnext.mesh.contracts import MeshError
+
+    tools, asset = await ready_tools(tmp_path)
+
+    async def fail(*args, **kwargs):
+        raise MeshError(error_code, "Ошибка анализа сетки")
+
+    tools.dispatch = fail
+    arguments = {"kind": "plane", "region": "all"} if name == "mesh_fit" else {"frame": {
+        "origin_mm": [0, 0, 1], "normal": [0, 0, 1], "x_axis": [1, 0, 0], "y_axis": [0, 1, 0]}}
+    provider = ScriptedProvider([reply(("measure", name, arguments))])
+    agent = Agent(FakeMcp(), mesh_tools=tools)
+    try:
+        run = agent.start(session_id="s", provider=provider, message="Измерь сетку",
+                          mesh_reference={"asset_id": asset.asset_id, "tolerance_mm": .1})
+        await agent.wait(run.id)
+        assert run.status == "failed" and len(provider.requests) == 1
         assert not agent.mcp.calls
     finally:
         await agent.aclose()
