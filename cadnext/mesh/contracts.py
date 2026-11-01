@@ -1,5 +1,7 @@
 """Immutable input contracts for geometry measured in millimetres."""
 
+import hashlib
+import json
 import math
 from dataclasses import dataclass
 
@@ -77,3 +79,45 @@ class FitResult:
     coverage: dict
     degeneracies: tuple[str, ...]
     usable: bool
+
+
+@dataclass(frozen=True)
+class PlaneFrame:
+    origin_mm: tuple
+    x_axis: tuple
+    y_axis: tuple
+    normal: tuple
+
+    def __post_init__(self):
+        try:
+            values = np.asarray((self.origin_mm, self.x_axis, self.y_axis, self.normal), dtype=float)
+            axes = values[1:]
+            valid = (values.shape == (4, 3) and np.isfinite(values).all() and
+                     np.allclose(axes @ axes.T, np.eye(3), atol=1e-8, rtol=0) and
+                     np.allclose(np.cross(axes[0], axes[1]), axes[2], atol=1e-8, rtol=0))
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
+            raise MeshError("invalid_frame", "Нужна правая ортонормальная система координат плоскости.")
+        for name, value in zip(("origin_mm", "x_axis", "y_axis", "normal"), values, strict=True):
+            object.__setattr__(self, name, tuple(float(x) for x in value))
+
+    @property
+    def frame_id(self):
+        values = [self.origin_mm, self.x_axis, self.y_axis, self.normal]
+        return hashlib.sha256(json.dumps(values, allow_nan=False).encode()).hexdigest()
+
+    def to_cad(self, xy):
+        return (np.asarray(self.origin_mm)+np.asarray(xy) @ np.asarray([self.x_axis, self.y_axis])).tolist()
+
+
+@dataclass(frozen=True)
+class SectionResult:
+    sha256: str
+    frame_id: str
+    frame: dict
+    tolerance_mm: float
+    numerical_epsilon_mm: float
+    chains: list
+    usable_for_sketch: bool
+    reasons: tuple[str, ...]

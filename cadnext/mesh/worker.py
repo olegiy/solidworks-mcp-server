@@ -23,6 +23,12 @@ def dispatch(operation, payload):
     if operation == "fit":
         return {"fit": asdict(fit_region(mesh, payload["region"], payload["kind"],
                                          tolerance_mm=payload["tolerance_mm"]))}
+    if operation == "section":
+        from cadnext.mesh.contracts import PlaneFrame
+        from cadnext.mesh.sections import section_mesh
+
+        return {"section": asdict(section_mesh(mesh, PlaneFrame(**payload["frame"]),
+                                              tolerance_mm=payload["tolerance_mm"]))}
     raise MeshError("unavailable", "Эта операция анализа сетки пока недоступна.")
 
 
