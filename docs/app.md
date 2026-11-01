@@ -369,3 +369,24 @@ Playwright использует `tests/web_fixture.py`: настоящий API, 
 `npx playwright install chromium` в `ui/`. Версии npm-зависимостей закреплены в
 `ui/package-lock.json`. Известное предупреждение Starlette TestClient об устаревшем
 адаптере httpx не влияет на прохождение Python-тестов; зависимости Python сохранены.
+
+## Эталон STL/OBJ
+
+`POST /api/projects/{session_id}/mesh?format=stl|obj&units=mm|in` принимает
+сырой поток с фактическим пределом 100 МиБ, независимо от Content-Length.
+Возвращает 202; GET показывает processing/ready/error и прежний принятый
+`current`. DELETE останавливает подготовку и удаляет эталон. Закрытие проекта
+освобождает рабочие файлы. Активный Run блокирует изменение (409).
+В `POST /api/runs` передаётся `mesh_reference={asset_id,tolerance_mm}`;
+чужой asset отклоняется до CAD. Файл не попадает в image/base64 pipeline.
+
+Sidecar v2 используется при сеточной истории, v1 — для обычных проектов.
+Исходник публикуется атомарно до JSON; сбой возвращает предупреждение
+о сохранённом CAD без повторного save. При Open JSON не даёт доступа
+к локальным соседним файлам. `POST /api/conversation-imports` с `{mesh: manifest}`
+создаёт одноразовый import ID; PUT `/api/conversation-imports/{import_id}/{sha256}`
+принимает исходник потоком. `POST /api/conversations/open` принимает
+необязательный `mesh_import_id`. Хеш, размер, метаданные и геометрия
+проверяются, ID диалога перепривязывается. До 16 незакреплённых импортов
+живут до shutdown; рабочие assets тоже временные. Сохранённый каталог
+рядом с CAD остаётся. Детали — [mesh-to-cad.md](mesh-to-cad.md).

@@ -11,6 +11,9 @@ Python-окружение на один запрос и независимо ч�
 основа — прежние 27 инструментов
 [solidworks-mcp-server](https://github.com/aiforyouself/solidworks-mcp-server).
 Контракты и примеры — [поэтапное построение](docs/staged-construction.md).
+Исследовательский режим [STL/OBJ → редактируемый CAD](docs/mesh-to-cad.md)
+добавляет локальные измерения и переносимый эталон; точность реального
+CAD-экспорта ещё не подтверждена, поэтому итог формы остаётся `unknown`.
 Происхождение: [UPSTREAM.md](UPSTREAM.md). Лицензия: [MIT](LICENSE).
 
 ## Установка и запуск

@@ -211,3 +211,28 @@ def test_portable_asset_can_be_opened_after_application_restart(api):
         assert opened.json()["session_id"] == "session-1"
         root = app.state.agent.mesh_tools.store.root
     assert not root.exists()
+
+
+def test_replacement_with_same_bytes_keeps_new_units_in_sidecar(api):
+    client, _ = api
+    saved_mesh(client)
+    assert client.post('/api/projects/session-1/mesh?format=obj&units=in',
+                       content=encoded_plate('obj')).status_code == 202
+    prepared(client)
+    result = client.post('/api/cad/save', json={'session_id': 'session-1'}).json()
+    data = json.loads(Path(result['conversation']).read_text(encoding='utf-8'))
+    assert data['mesh']['reference']['units'] == 'in'
+    assert data['mesh']['reference']['scale_to_mm'] == 25.4
+
+
+def test_current_source_is_saved_even_before_first_mesh_run(api):
+    client, _ = api
+    saved = profile(client)
+    wait(client, start(client, saved['id']).json()['id'])
+    assert upload(client).status_code == 202
+    current = prepared(client)
+    result = client.post('/api/cad/save', json={'session_id': 'session-1'}).json()
+    data = json.loads(Path(result['conversation']).read_text(encoding='utf-8'))
+    assert data['version'] == 2
+    assert data['mesh']['reference']['sha256'] == current['sha256']
+    assert data['mesh']['relative_path']

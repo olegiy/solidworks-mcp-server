@@ -338,9 +338,10 @@ if __name__ == "__main__":
     import uvicorn
 
     from cadnext.app import create_app
+    from tests.mesh_backend import MeshBackend
 
     with tempfile.TemporaryDirectory(prefix="cadnext-browser-test-") as directory:
-        backend = Backend(Path(directory), delay=2)
+        backend = MeshBackend(Path(directory), delay=2)
         app = create_app(settings=backend.settings, mcp_factory=backend.mcp,
                          provider_factory=backend.provider)
         uvicorn.run(app, host="127.0.0.1", port=int(sys.argv[1]), access_log=False)

@@ -793,12 +793,12 @@ class Agent:
             "runs": runs,
         }
         mesh_runs = [run for run in runs if run.get("mesh_reference")]
-        if mesh_runs:
+        current = self.mesh_tools.store.current(session_id) if self.mesh_tools is not None else None
+        if mesh_runs or current is not None:
             result["version"] = 2
-            reference = deepcopy(mesh_runs[-1]["mesh_reference"])
-            current = self.mesh_tools.store.current(session_id) if self.mesh_tools is not None else None
+            reference = deepcopy(mesh_runs[-1]["mesh_reference"]) if mesh_runs else None
             if current is not None:
-                matching = [run for run in mesh_runs if run["mesh_reference"]["sha256"] == current.sha256]
+                matching = [run for run in mesh_runs if run["mesh_reference"]["asset_id"] == current.asset_id]
                 saved_reference = self.mesh_tools.store.references.get(current.asset_id)
                 if matching:
                     reference = {**deepcopy(matching[-1]["mesh_reference"]), "asset_id": current.asset_id}

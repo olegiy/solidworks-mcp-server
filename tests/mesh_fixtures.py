@@ -55,3 +55,47 @@ def make_stepped_bushing():
     return MeshFixture(np.asarray(vertices, dtype=np.float64), np.asarray(faces, dtype=np.int64),
                        {"height_mm": 40, "flange_diameter_mm": 30,
                         "stem_diameter_mm": 20, "hole_diameter_mm": 10})
+
+
+def make_pocket_bracket():
+    import numpy as np
+
+    axes = ([0,5,10,30,35,40], [0,5,25,30], [0,3,5,20,25])
+    occupied = set()
+    for i in range(5):
+        for j in range(3):
+            for k in range(4):
+                if k < 2 or i == 0:
+                    if not (i == 2 and j == 1 and k == 1):
+                        occupied.add((i,j,k))
+    vertices, faces, indices = [], [], {}
+    # Counterclockwise corners when viewed from outside each cell.
+    sides = [((-1,0,0), [(0,0,0),(0,0,1),(0,1,1),(0,1,0)]),
+             ((1,0,0), [(1,0,0),(1,1,0),(1,1,1),(1,0,1)]),
+             ((0,-1,0), [(0,0,0),(1,0,0),(1,0,1),(0,0,1)]),
+             ((0,1,0), [(0,1,0),(0,1,1),(1,1,1),(1,1,0)]),
+             ((0,0,-1), [(0,0,0),(0,1,0),(1,1,0),(1,0,0)]),
+             ((0,0,1), [(0,0,1),(1,0,1),(1,1,1),(0,1,1)])]
+    for cell in sorted(occupied):
+        for direction, corners in sides:
+            if tuple(cell[a]+direction[a] for a in range(3)) in occupied:
+                continue
+            ids = []
+            for corner in corners:
+                point = tuple(axes[a][cell[a]+corner[a]] for a in range(3))
+                if point not in indices:
+                    indices[point] = len(vertices)
+                    vertices.append(point)
+                ids.append(indices[point])
+            a,b,c,d = ids
+            faces.extend(((a,b,c), (a,c,d)))
+    return MeshFixture(np.asarray(vertices, dtype=float), np.asarray(faces, dtype=int),
+                       {'width_mm': 40, 'depth_mm': 30, 'height_mm': 25,
+                        'wall_mm': 5, 'pocket_width_mm': 20, 'pocket_depth_mm': 2})
+
+
+def encode_fixture(fixture, format):
+    import trimesh
+
+    encoded = trimesh.Trimesh(fixture.vertices, fixture.faces, process=False).export(file_type=format)
+    return encoded.encode() if isinstance(encoded, str) else encoded
