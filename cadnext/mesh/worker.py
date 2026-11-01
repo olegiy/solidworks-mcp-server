@@ -18,6 +18,16 @@ def dispatch(operation, payload):
     mesh = load_mesh(payload["path"], format=payload["format"], units=payload["units"])
     if mesh.sha256 != payload["sha256"]:
         raise MeshError("hash_mismatch", "Исходный файл эталона изменился.")
+    if "source_to_cad" in payload:
+        import numpy as np
+
+        from cadnext.mesh.contracts import MeshData, MeshReference
+
+        reference = MeshReference("internal", mesh.sha256, payload["format"], payload["units"],
+                                  payload["tolerance_mm"], payload["source_to_cad"])
+        transform = np.asarray(reference.source_to_cad)
+        mesh = MeshData(mesh.vertices @ transform[:3, :3].T+transform[:3, 3],
+                        mesh.faces, mesh.sha256, mesh.units, mesh.scale_to_mm)
     if operation == "inspect":
         return {"summary": asdict(inspect_mesh(mesh))}
     if operation == "fit":

@@ -32,6 +32,8 @@ from cadnext.evaluation import (
     update_progress,
 )
 from cadnext.i18n import get_language, set_language, t
+from cadnext.mesh import tools as mesh_tools_module
+from cadnext.mesh.contracts import MeshError
 from cadnext.provider import ProviderError
 
 _LOG = logging.getLogger(__name__)
@@ -39,7 +41,7 @@ _TERMINAL = {"completed", "stopped", "failed", "uncertain", "limit_reached", "re
 _READ_ONLY = {"connect_solidworks", "list_open_documents", "screenshot", "get_feature_tree",
               "get_dimension", "get_mass_properties", "get_sheet_metal_info", "get_components",
               "search_solidworks_api", "get_solidworks_api", "search_cad_examples",
-              "get_cad_example", "inspect_cad", "set_construction_plan"}
+              "get_cad_example", "inspect_cad", "set_construction_plan"} | mesh_tools_module.NAMES
 _FEATURE_RESULTS = {"create_sketch": "sketch", "create_base_flange": "feature",
                     "cut_through": "feature"}
 _NEW_DOCUMENT = {"create_part", "create_assembly"}
@@ -353,6 +355,10 @@ class Run:
     _session_capable: bool = field(default=False, repr=False)
     construction_plan: list[dict] = field(default_factory=list)
     construction_plan_history: list[dict] = field(default_factory=list)
+    mesh_reference: dict | None = None
+    mesh_evidence: list = field(default_factory=list)
+    _mesh_binding: object | None = field(default=None, repr=False)
+    _mesh_stop: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
 
     @property
     def done(self):
@@ -379,7 +385,8 @@ class Run:
                          "checks": self.checks, "messages": self.messages, "metrics": self.metrics,
                          "repair_attempts": self.repair_attempts, "repairing": self.repairing,
                          "construction_plan": self.construction_plan,
-                         "construction_plan_history": self.construction_plan_history})
+                         "construction_plan_history": self.construction_plan_history,
+                         "mesh_reference": self.mesh_reference, "mesh_evidence": self.mesh_evidence})
 
     def _emit(self, event_type: str, **data):
         self.events.append({"seq": len(self.events) + 1, "type": event_type,
@@ -467,10 +474,11 @@ def _file_signature(path: str):
 
 class Agent:
     def __init__(self, mcp, *, settings=None, max_history_bytes=8 * 1024 * 1024,
-                 max_catalog_bytes=256 * 1024, debug=None):
+                 max_catalog_bytes=256 * 1024, debug=None, mesh_tools=None):
         self.mcp = mcp
         self.settings = settings
         self.debug = debug
+        self.mesh_tools = mesh_tools
         self.runs: dict[str, Run] = {}
         self._history: dict[str, list[dict]] = {}
         self._closed_conversations: set[str] = set()
@@ -500,7 +508,7 @@ class Agent:
 
     def start(self, *, session_id: str, provider, message: str, attachments=None, max_calls=80,
               language: str | None = None, requested_profile_id: str | None = None,
-              evaluation=None) -> Run:
+              evaluation=None, mesh_reference=None) -> Run:
         if language is not None:
             set_language(language)
         language = get_language()
@@ -537,6 +545,12 @@ class Agent:
                   messages=messages, max_calls=max_calls, language=language,
                   evaluation=(evaluation.as_dict() if hasattr(evaluation, "as_dict")
                               else deepcopy(evaluation)))
+        if mesh_reference is not None:
+            if self.mesh_tools is None:
+                raise MeshError("unavailable", "Подсистема измерения сеток недоступна.")
+            run._mesh_binding = self.mesh_tools.bind(session_id, mesh_reference, run_id=run.id)
+            run.mesh_reference = run._mesh_binding.reference.snapshot()
+            run.mesh_evidence = run._mesh_binding.evidence
         if run.evaluation and run.evaluation.get("enabled"):
             run.goal = {
                 "version": 1,
@@ -1104,6 +1118,7 @@ class Agent:
             return
         set_language(run.language)
         run.stop_requested = True
+        run._mesh_stop.set()
         run._status("stopping", t(
             "Остановка: ждём исход уже отправленного COM-вызова."
             if run._inflight else "Остановка: следующие действия запрещены.",
@@ -1132,6 +1147,8 @@ class Agent:
         if self._active is not None:
             self.stop(self._active.id)
             await self.wait(self._active.id)
+        if self.mesh_tools is not None:
+            await self.mesh_tools.aclose()
 
     async def events(self, run_id: str, after: int = 0):
         run = self.get(run_id)
@@ -1187,6 +1204,8 @@ class Agent:
         self._guard(run)
         # Refresh the application-owned instruction even for existing dialogue history.
         prompt = _system_prompt(run.language)
+        if run.mesh_reference is not None:
+            prompt += mesh_tools_module.GUIDANCE
         if run.goal is not None:
             prompt += _GOAL_GUIDANCE_EN if run.language == "en" else _GOAL_GUIDANCE_RU
             contract = run.goal.get("contract")
@@ -1495,6 +1514,12 @@ class Agent:
         return True
 
     async def _execute(self, run, provider, catalog, call_id, name, arguments):
+        if name in mesh_tools_module.NAMES:
+            await self._execute_mesh(run, call_id, name, arguments)
+            return
+        if (run._mesh_binding is not None and name not in _READ_ONLY and
+                not run._mesh_binding.inspected):
+            raise _EndRun("failed", "Перед построением нужно выполнить mesh_inspect исходного эталона.")
         checks = self._verification_calls(name, arguments)
         self._budget(run, 1 + len(checks))
         for check_name, check_arguments in checks:
@@ -1756,6 +1781,23 @@ class Agent:
         run._emit("message", role="assistant", content=message,
                   kind="clarification", questions=questions)
         self._finish_goal(run, "completed", "unknown", "clarification_required", message)
+
+    async def _execute_mesh(self, run, call_id, name, arguments):
+        self._guard(run)
+        self._budget(run)
+        run.call_count += 1
+        run._emit("tool_start", tool_call_id=call_id, name=name, arguments=arguments, verification=False)
+        try:
+            value = await self.mesh_tools.dispatch(run._mesh_binding, name, arguments, stop=run._mesh_stop)
+            result = {"ok": True, "value": value, "error": None, "uncertain": False}
+        except MeshError as error:
+            result = {"ok": False, "value": None, "error": str(error), "uncertain": False}
+        run.messages.append({"role": "tool", "tool_call_id": call_id, "content": _json(result)})
+        run._pending.pop(call_id, None)
+        run._emit("tool_result", tool_call_id=call_id, name=name, result=result, verification=False)
+        self._guard(run)
+        if not result["ok"]:
+            raise _EndRun("failed", result["error"])
 
     async def _execute_local(self, run, catalog, call_id, name, arguments):
         run._emit("tool_start", tool_call_id=call_id, name=name, arguments=arguments,
@@ -2322,6 +2364,10 @@ class Agent:
             run._session_capable = {"open_python_session", "close_python_session"} <= {
                 tool["function"]["name"] for tool in tools}
             tools = construction.model_tools(tools)
+            if run._mesh_binding is not None:
+                if {tool["function"]["name"] for tool in tools} & mesh_tools_module.NAMES:
+                    raise _EndRun("failed", "Инструменты сетки конфликтуют с каталогом MCP.")
+                tools = [*tools, *deepcopy(mesh_tools_module.SCHEMAS)]
             if run.goal is not None:
                 names = {tool.get("function", {}).get("name") for tool in tools}
                 if names & _LOCAL_TOOLS:

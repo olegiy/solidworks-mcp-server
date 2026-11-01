@@ -121,3 +121,45 @@ class SectionResult:
     chains: list
     usable_for_sketch: bool
     reasons: tuple[str, ...]
+
+
+IDENTITY_TRANSFORM = ((1., 0., 0., 0.), (0., 1., 0., 0.), (0., 0., 1., 0.), (0., 0., 0., 1.))
+
+
+@dataclass(frozen=True)
+class MeshReference:
+    asset_id: str
+    sha256: str
+    format: str
+    units: str
+    tolerance_mm: float
+    source_to_cad: tuple = IDENTITY_TRANSFORM
+
+    def __post_init__(self):
+        input_scale(self.format, self.units)
+        validate_tolerance(self.tolerance_mm)
+        try:
+            matrix = np.asarray(self.source_to_cad, dtype=float)
+            rotation = matrix[:3, :3]
+            valid = (matrix.shape == (4, 4) and np.isfinite(matrix).all() and
+                     np.allclose(matrix[3], [0, 0, 0, 1], atol=1e-10, rtol=0) and
+                     np.allclose(rotation @ rotation.T, np.eye(3), atol=1e-10, rtol=0) and
+                     abs(np.linalg.det(rotation)-1) < 1e-10)
+        except (TypeError, ValueError):
+            valid = False
+        if not valid:
+            raise MeshError("invalid_transform", "Эталону нужно жёсткое преобразование без масштаба и отражения.")
+        object.__setattr__(self, "source_to_cad", tuple(tuple(float(v) for v in row) for row in matrix))
+
+    @property
+    def scale_to_mm(self):
+        return input_scale(self.format, self.units)
+
+    @property
+    def frame_id(self):
+        return hashlib.sha256(json.dumps(self.source_to_cad).encode()).hexdigest()
+
+    def snapshot(self):
+        from dataclasses import asdict
+
+        return {**asdict(self), "frame_id": self.frame_id, "scale_to_mm": self.scale_to_mm}
