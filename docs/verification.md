@@ -1504,3 +1504,18 @@ Live-экспорт тела, действительная точность ITes
 повторное открытие новой детали SolidWorks 2025 **не выполнялись**.
 Не запускались второй настоящий MCP, внешняя модель или live-мутации.
 Режим остаётся исследовательским; инструкция — [mesh-to-cad.md](mesh-to-cad.md).
+
+
+Финальный обзор всей ветки gpt-6-astra: Critical0, Important3, Minor0.
+Три Important исправлены и подтверждены RED→GREEN: Stop/лимит до mesh gate
+не оставляют общий achieved; processing replacement блокирует Run до CAD;
+поздний Open после отмены не меняет проект и черновик. Обе ветки импорта
+(история/связанный исходник) прошли дополнительные браузерные регрессии.
+
+После исправлений: **749 passed,6 skipped,1 deselected** за121.74с;
+полный Playwright **81 passed** за1.5мин, затем **2 passed** для обоих
+вариантов отмены позднего Open. UI build, Ruff, py_compile сервера,
+ручной обзор server diff и git diff --check прошли. Один прежний warning
+Starlette/httpx сохраняется. Production precision_known=false, live CAD
+и внешний LLM не проверены. Все решения и их цена сохранены в
+[mesh-implementation-notes.md](mesh-implementation-notes.md).

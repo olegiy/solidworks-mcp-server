@@ -117,3 +117,32 @@ test('сохранённый проект переносит STL/OBJ через 
   await expect(page.getByTestId('mesh-state')).toContainText('Готов');
   await expect(page.getByRole('region', { name: 'Соответствие сетке' })).toContainText('Не подтверждено');
 });
+
+for (const mode of ['история', 'исходник']) {
+test(`отмена импорта запрещает позднему Open переключить проект: ${mode}`, async ({ page }) => {
+  await prepare(page);
+  await page.getByLabel('Сообщение', { exact: true }).fill('Черновик текущего проекта');
+  let release!: () => void;
+  const barrier = new Promise<void>(resolve => { release = resolve; });
+  let started!: () => void;
+  const entered = new Promise<void>(resolve => { started = resolve; });
+  await page.route('**/api/conversation-imports', route => route.fulfill({ json: { import_id: 'staged' } }));
+  await page.route('**/api/conversation-imports/staged/*', route => route.fulfill({ status: 204 }));
+  await page.route('**/api/conversations/open', async route => {
+    started(); await barrier;
+    await route.fulfill({ json: { session_id: 'late-import', runs: [], document: {} } }).catch(() => {});
+  });
+  await page.getByTestId('open-conversation-input').setInputFiles({ name: 'saved.cadnext.json',
+    mimeType: 'application/json', buffer: Buffer.from(JSON.stringify({ version: 2,
+      mesh: { reference: { sha256: 'a'.repeat(64) }, relative_path: `part.cadnext.assets/${'a'.repeat(64)}.obj` } })) });
+  if (mode === 'история') await page.getByRole('button', { name: 'Открыть только историю' }).click();
+  else await page.getByLabel('Связанный STL/OBJ').setInputFiles(mesh);
+  await entered;
+  await page.getByRole('dialog', { name: 'Исходник сетки проекта' }).getByRole('button', { name: 'Отмена' }).click();
+  const response = page.waitForResponse(r => r.url().endsWith('/api/conversations/open')).catch(() => null);
+  release();
+  await response;
+  await expect(page.getByLabel('Сообщение', { exact: true })).toHaveValue('Черновик текущего проекта');
+  await expect.poll(() => page.evaluate(() => sessionStorage.getItem('cadnext.v1.session'))).not.toBe('late-import');
+});
+}

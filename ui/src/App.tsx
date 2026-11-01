@@ -807,9 +807,10 @@ export default function App() {
       await loadConversation(conversation);
     } catch (error) { setError(errorText(error, t)); }
   }
-  async function loadConversation(conversation: unknown, meshImportId?: string) {
+  async function loadConversation(conversation: unknown, meshImportId?: string, signal?: AbortSignal) {
       const result = await api<LoadedConversation>('/conversations/open', { method: 'POST',
         body: JSON.stringify({ conversation, mesh_import_id: meshImportId }) });
+      if (signal?.aborted) return;
       setPendingConversation(null);
       setSessionId(result.session_id); remember('session', result.session_id);
       setMesh(null); setMeshBusy(false);
@@ -973,7 +974,7 @@ export default function App() {
       </form>
     </main>
     {pendingConversation ? <MeshImportDialog mesh={pendingConversation.mesh}
-      onOpen={importId => loadConversation(pendingConversation.conversation, importId)}
+      onOpen={(importId, signal) => loadConversation(pendingConversation.conversation, importId, signal)}
       onClose={() => setPendingConversation(null)} /> : null}
     {settings ? <SettingsDialog onClose={() => setSettings(false)} returnFocusTo={settingsOpener} fallbackFocusTo={settingsButton}>
       <Connections profiles={profiles} selected={selected} profileCatalog={catalogs[selected] ?? null}

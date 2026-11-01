@@ -4,7 +4,7 @@ import { api, uploadBinary } from './api';
 export interface PortableMesh { reference: { sha256: string }; relative_path: string | null }
 
 export default function MeshImportDialog({ mesh, onOpen, onClose }: {
-  mesh: PortableMesh; onOpen: (importId?: string) => Promise<void>; onClose: () => void;
+  mesh: PortableMesh; onOpen: (importId?: string, signal?: AbortSignal) => Promise<void>; onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const controller = useRef<AbortController | null>(null);
@@ -25,10 +25,18 @@ export default function MeshImportDialog({ mesh, onOpen, onClose }: {
         method: 'POST', body: JSON.stringify({ mesh }), signal: abort.signal });
       await uploadBinary(`/conversation-imports/${staged.import_id}/${mesh.reference.sha256}`,
         file, abort.signal, setProgress, 'PUT');
-      if (!abort.signal.aborted) await onOpen(staged.import_id);
+      if (!abort.signal.aborted) await onOpen(staged.import_id, abort.signal);
     } catch (error) {
       if (!abort.signal.aborted) setError(error instanceof Error ? error.message : 'Не удалось открыть проект.');
     } finally { if (!abort.signal.aborted) setBusy(false); }
+  }
+  async function history() {
+    if (busy) return;
+    const abort = new AbortController(); controller.current = abort;
+    setBusy(true); setError('');
+    try { await onOpen(undefined, abort.signal); }
+    catch (error) { if (!abort.signal.aborted) setError(String(error)); }
+    finally { if (!abort.signal.aborted) setBusy(false); }
   }
   return <dialog ref={dialog} className="mesh-import" aria-label="Исходник сетки проекта"
     onCancel={event => { event.preventDefault(); controller.current?.abort(); onClose(); }}>
@@ -42,7 +50,7 @@ export default function MeshImportDialog({ mesh, onOpen, onClose }: {
     {busy ? <p role="status">Загрузка исходника: {Math.round(progress*100)}%</p> : null}
     {error ? <p role="alert">{error}</p> : null}
     <div className="actions">
-      <button type="button" disabled={busy} onClick={() => void onOpen().catch(error => setError(String(error)))}>
+      <button type="button" disabled={busy} onClick={() => void history()}>
         Открыть только историю</button>
       <button type="button" onClick={() => { controller.current?.abort(); onClose(); }}>Отмена</button>
     </div>

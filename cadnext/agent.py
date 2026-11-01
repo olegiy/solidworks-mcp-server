@@ -812,6 +812,8 @@ class Agent:
         return result
 
     def validate_mesh_continuation(self, session_id, spec):
+        if self.mesh_tools is not None and self.mesh_tools.store.processing(session_id):
+            raise AgentBusy("Дождитесь завершения обработки исходника сетки.")
         if session_id in self._mesh_required and spec is None:
             raise MeshError("missing_reference", "Для продолжения проекта выберите исходник STL/OBJ и допуск.")
 
@@ -2085,7 +2087,9 @@ class Agent:
         goal["last_score"] = evaluation.score
         goal["authority"] = evaluation.authority
         goal["last_evaluated_bindings"] = int(goal.get("bindings_revision", 0))
-        goal["outcome"] = evaluation.outcome
+        # Native dimensions can pass before the independent mesh gate finishes.
+        goal["outcome"] = ("unknown" if run._mesh_binding is not None and evaluation.outcome == "achieved"
+                           else evaluation.outcome)
         goal["no_progress"] = update_progress(
             run._last_evaluation, evaluation, int(goal["no_progress"]),
             best_weight=int(goal["best_passed_weight"]))

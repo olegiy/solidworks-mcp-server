@@ -652,7 +652,10 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
             raise HTTPException(status_code=409, detail=str(error)) from None
         requested = store().get(body.profile_id)
         mesh_spec = body.mesh_reference.model_dump() if body.mesh_reference is not None else None
-        agent().validate_mesh_continuation(body.session_id, mesh_spec)
+        try:
+            agent().validate_mesh_continuation(body.session_id, mesh_spec)
+        except AgentBusy as error:
+            raise HTTPException(status_code=409, detail=str(error)) from None
         if mesh_spec is not None:
             agent().mesh_tools.bind(body.session_id, mesh_spec, run_id="validation")
         options = body.evaluation.options()

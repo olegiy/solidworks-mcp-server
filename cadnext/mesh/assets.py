@@ -54,6 +54,9 @@ class MeshAssetStore:
         asset_id = self._current.get(session_id)
         return self._assets.get(asset_id) if asset_id else None
 
+    def processing(self, session_id):
+        return session_id in self._pending or session_id in self._receiving
+
     async def receive(self, session_id, chunks, *, format, units) -> MeshAsset:
         self._session(session_id)
         input_scale(format, units)

@@ -125,3 +125,33 @@ def test_close_project_releases_mesh_bytes(api):
     assert store.current("session-1") is None
 
 
+def test_processing_replacement_blocks_run_with_previously_ready_source(api):
+    import asyncio
+
+    client, backend = api
+    saved = profile(client)
+    assert upload(client).status_code == 202
+    previous = prepared(client)
+    worker = client.app.state.agent.mesh_tools.worker
+    original = worker.request
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def delayed(operation, payload, *, stop):
+        entered.set()
+        await release.wait()
+        return await original(operation, payload, stop=stop)
+
+    worker.request = delayed
+    assert upload(client).status_code == 202
+    client.portal.call(asyncio.wait_for, entered.wait(), 3)
+    before = len(backend.calls)
+    try:
+        response = start(client, saved['id'], 'Прочитай размер', mesh_reference={
+            'asset_id': previous['asset_id'], 'tolerance_mm': .1})
+        assert response.status_code == 409
+        assert len(backend.calls) == before
+    finally:
+        client.portal.call(release.set)
+        prepared(client)
+
+

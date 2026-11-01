@@ -259,3 +259,18 @@ async def test_mesh_final_comparison_is_reserved_before_any_cad_mutation(tmp_pat
         assert run.confirmation is None
     finally:
         await agent.aclose()
+
+
+@pytest.mark.parametrize('interruption', ['stop', 'limit'])
+async def test_interrupted_final_mesh_gate_never_publishes_achieved(tmp_path, interruption):
+    agent, run, _ = await mesh_cad_agent(tmp_path, evaluate=True, stop_on_export=interruption == 'stop')
+    if interruption == 'limit':
+        run.max_calls = 4
+    try:
+        await agent.wait(run.id)
+        assert run.status == ('stopped' if interruption == 'stop' else 'limit_reached')
+        assert run.goal['last_score'] == 100
+        assert run.goal['outcome'] != 'achieved'
+        assert run.mesh_verification['status'] == 'unknown'
+    finally:
+        await agent.aclose()
