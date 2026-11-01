@@ -6,9 +6,7 @@ from dataclasses import asdict
 
 import numpy as np
 from rtree.index import Index
-from scipy.sparse import coo_matrix
-from scipy.sparse.csgraph import connected_components
-from scipy.spatial import cKDTree
+from scipy.optimize import least_squares
 
 from cadnext.mesh.analysis import _circle
 from cadnext.mesh.contracts import SectionResult, validate_tolerance
@@ -26,13 +24,18 @@ def _intersections(mesh, frame, epsilon):
         points, d = vertices[ids], distances[ids]
         if np.all(d == 0):
             for a, b in ((0, 1), (1, 2), (2, 0)):
-                coplanar.append((points[a], points[b], int(face_id)))
+                coplanar.append(((points[a], ("v", int(ids[a]))),
+                                 (points[b], ("v", int(ids[b]))), int(face_id)))
             continue
-        hits = [points[i] for i in range(3) if d[i] == 0]
+        hits = [(points[i], ("v", int(ids[i]))) for i in range(3) if d[i] == 0]
         for a, b in ((0, 1), (1, 2), (2, 0)):
             if d[a]*d[b] < 0:
-                hits.append(points[a]+(points[b]-points[a]) * (d[a]/(d[a]-d[b])))
-        if len(hits) == 2 and np.linalg.norm(hits[0]-hits[1]) > epsilon:
+                key = ("e", *sorted((int(ids[a]), int(ids[b]))))
+                # Evaluate shared edges in the same direction for identical coordinates.
+                low, high = key[1:]
+                point = vertices[low]+(vertices[high]-vertices[low])*(distances[low]/(distances[low]-distances[high]))
+                hits.append((point, key))
+        if len(hits) == 2 and hits[0][1] != hits[1][1]:
             ordinary.append((*hits, int(face_id)))
     return ordinary, coplanar
 
@@ -41,15 +44,14 @@ def _graph(ordinary, coplanar, frame, epsilon):
     segments = ordinary+coplanar
     if not segments:
         return np.empty((0, 2)), {}, {}
-    xyz = np.array([p for a, b, _ in segments for p in (a, b)])
-    xy = (xyz-np.asarray(frame.origin_mm)) @ np.asarray([frame.x_axis, frame.y_axis]).T
-    neighbours = cKDTree(xy).query_pairs(epsilon, output_type="ndarray")
-    graph = coo_matrix((np.ones(len(neighbours)), (neighbours[:, 0], neighbours[:, 1])),
-                       shape=(len(xy), len(xy)))
-    count, labels = connected_components(graph, directed=False)
-    first = np.full(count, len(xy), dtype=int)
-    np.minimum.at(first, labels, np.arange(len(xy)))
-    points = xy[first]
+    identities, coordinates, labels = {}, [], []
+    for a, b, _ in segments:
+        for xyz, key in (a, b):
+            if key not in identities:
+                identities[key] = len(coordinates)
+                coordinates.append((xyz-np.asarray(frame.origin_mm)) @ np.asarray([frame.x_axis, frame.y_axis]).T)
+            labels.append(identities[key])
+    points = np.asarray(coordinates)
     ordinary_edges, planar_edges = defaultdict(set), defaultdict(list)
     for i, (_, _, face_id) in enumerate(segments):
         a, b = labels[2*i:2*i+2]
@@ -138,6 +140,57 @@ def _inside(point, polygon):
     return count % 2 == 1
 
 
+def _profile_span(points, tolerance):
+    start, end = points[0], points[-1]
+    direction = end-start
+    length = np.linalg.norm(direction)
+    if length < 1e-14:
+        return None, len(points)//2
+    projection = np.clip((points-start) @ direction/length**2, 0, 1)
+    errors = np.linalg.norm(points-(start+projection[:, None]*direction), axis=1)
+    split = int(np.argmax(errors))
+    if errors.max() <= tolerance/4:
+        return {"kind": "line", "max_error_mm": float(errors.max())}, split
+    if len(points) < 3:
+        return None, split
+    midpoint = (start+end)/2
+    perpendicular = np.array([-direction[1], direction[0]])/length
+    center, _, _ = _circle(points, tolerance)
+    initial = float(np.dot(center-midpoint, perpendicular))
+
+    def residual(h):
+        c = midpoint+h[0]*perpendicular
+        radius = np.linalg.norm(start-c)
+        return np.linalg.norm(points-c, axis=1)-radius
+
+    solution = least_squares(residual, [initial], max_nfev=80)
+    center = midpoint+solution.x[0]*perpendicular
+    radius = float(np.linalg.norm(start-center))
+    delta = points-center
+    angles = np.unwrap(np.arctan2(delta[:, 1], delta[:, 0]))
+    sweep = float(angles[-1]-angles[0])
+    changes = np.diff(angles)*np.sign(sweep)
+    if not solution.success or abs(sweep) > 2*np.pi-1e-8 or not np.all(changes >= -1e-10):
+        return None, split
+    directions = np.diff(points, axis=0)
+    t = np.clip(-np.einsum("ij,ij->i", delta[:-1], directions)/np.sum(directions**2, axis=1), 0, 1)
+    chord_minimum = np.linalg.norm(delta[:-1]+t[:, None]*directions, axis=1)
+    radial_errors = np.abs(np.linalg.norm(delta, axis=1)-radius)
+    chord_errors = np.abs(chord_minimum-radius)
+    error = max(float(radial_errors.max()), float(chord_errors.max()))
+    if error > tolerance/4:
+        if chord_errors.max() > radial_errors.max():
+            split = int(np.argmax(chord_errors))+1
+        else:
+            split = int(np.argmax(radial_errors))
+        return None, split
+    # Polar projection is continuous and monotone on each chord. Its radial bound
+    # therefore bounds both directed distances over the entire arc and polyline.
+    return {"kind": "arc", "max_error_mm": error, "center_mm": center.tolist(),
+            "radius_mm": radius, "sweep_radians": sweep,
+            "start_angle_radians": float(angles[0])}, split
+
+
 def _segments(points, sources, closed, frame, tolerance, epsilon, prefix):
     output = []
     # Diagonal splits of a flat facet must not bias a fitted radius.
@@ -178,18 +231,37 @@ def _segments(points, sources, closed, frame, tolerance, epsilon, prefix):
             add("arc", opposite, start, faces, error, center_mm=center.tolist(), radius_mm=radius,
                 sweep_radians=sense*np.pi, start_angle_radians=start_angle+sense*np.pi)
             return output
-    # Collapse only numerically collinear segments, never a tolerance-sized open gap.
-    pairs = list(zip(keep, keep[1:]))
-    if closed and keep:
-        pairs.append((keep[-1], keep[0]))
-    for a, b in pairs:
-        indices = list(range(a, b)) if b > a else list(range(a, len(points)))+list(range(0, b))
-        faces = set().union(*(sources[i] for i in indices))
-        segment = points[b]-points[a]
-        chain = points[indices]
-        deviation = np.abs(segment[0]*(chain[:, 1]-points[a, 1])-segment[1]*(chain[:, 0]-points[a, 0]))
-        error = float(deviation.max()/np.linalg.norm(segment)) if len(chain) else 0.
-        add("line", points[a], points[b], faces, error)
+    if closed:
+        # Start at the longest reduced edge to keep straight/curved junctions stable.
+        lengths = [np.linalg.norm(points[keep[(i+1) % len(keep)]]-points[k]) for i, k in enumerate(keep)]
+        start = keep[int(np.argmax(lengths))] if keep else 0
+        points = np.concatenate((points[start:], points[:start], points[start:start+1]))
+        sources = sources[start:]+sources[:start]
+    pieces, pending = [], [(0, len(points)-1)]
+    while pending:
+        a, b = pending.pop()
+        fitted, split = _profile_span(points[a:b+1], tolerance)
+        if fitted is not None:
+            pieces.append((a, b, fitted))
+        else:
+            split = a+max(1, min(b-a-1, split))
+            pending.extend([(split, b), (a, split)])
+    pieces.sort(key=lambda p: p[0])
+    i = 0
+    while i+1 < len(pieces):
+        a, b, _ = pieces[i]
+        _, c, _ = pieces[i+1]
+        merged, _ = _profile_span(points[a:c+1], tolerance)
+        if merged is not None:
+            pieces[i:i+2] = [(a, c, merged)]
+            i = max(0, i-1)
+        else:
+            i += 1
+    for a, b, fitted in pieces:
+        faces = set().union(*sources[a:b])
+        details = dict(fitted)
+        kind, error = details.pop("kind"), details.pop("max_error_mm")
+        add(kind, points[a], points[b], faces, error, **details)
     return output
 
 
@@ -217,7 +289,8 @@ def section_mesh(mesh, frame, *, tolerance_mm) -> SectionResult:
                 path = path[::-1]
                 xy = points[path[:-1]]
         sources = [edges[tuple(sorted((a, b)))] for a, b in zip(path, path[1:])]
-        prefix = hashlib.sha256(f"{mesh.sha256}:{frame.frame_id}:{index}".encode()).hexdigest()[:24]
+        context = getattr(mesh, "context_id", "")
+        prefix = hashlib.sha256(f"sections-2:{mesh.sha256}:{context}:{frame.frame_id}:{tolerance}:{index}".encode()).hexdigest()[:24]
         segments = _segments(xy, sources, closed, frame, tolerance, epsilon, prefix)
         if not closed:
             reasons.append("open_chain")
