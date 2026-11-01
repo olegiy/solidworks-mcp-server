@@ -34,6 +34,7 @@ from cadnext.evaluation import (
 from cadnext.i18n import get_language, set_language, t
 from cadnext.mesh import tools as mesh_tools_module
 from cadnext.mesh.contracts import MeshError
+from cadnext.mesh.evidence import validate_mesh_evidence
 from cadnext.provider import ProviderError
 
 _LOG = logging.getLogger(__name__)
@@ -359,6 +360,10 @@ class Run:
     mesh_evidence: list = field(default_factory=list)
     _mesh_binding: object | None = field(default=None, repr=False)
     _mesh_stop: asyncio.Event = field(default_factory=asyncio.Event, repr=False)
+    mesh_verification: dict | None = None
+    _mesh_revision: int = field(default=0, repr=False)
+    _mesh_compared_revision: int = field(default=-1, repr=False)
+    _mesh_export_available: bool = field(default=False, repr=False)
 
     @property
     def done(self):
@@ -367,6 +372,9 @@ class Run:
     @property
     def verification(self):
         states = {check["status"] for check in self.checks.values()}
+        if self.mesh_verification is not None:
+            states.add({"pass": "verified", "fail": "failed"}.get(
+                self.mesh_verification.get("status"), "unverified"))
         if "failed" in states:
             return "failed"
         if states & {"unverified", "pending"}:
@@ -386,7 +394,8 @@ class Run:
                          "repair_attempts": self.repair_attempts, "repairing": self.repairing,
                          "construction_plan": self.construction_plan,
                          "construction_plan_history": self.construction_plan_history,
-                         "mesh_reference": self.mesh_reference, "mesh_evidence": self.mesh_evidence})
+                         "mesh_reference": self.mesh_reference, "mesh_evidence": self.mesh_evidence,
+                         "mesh_verification": self.mesh_verification})
 
     def _emit(self, event_type: str, **data):
         self.events.append({"seq": len(self.events) + 1, "type": event_type,
@@ -404,6 +413,9 @@ class Run:
             "repair_attempts": self.repair_attempts, "repairing": self.repairing,
             "metrics": self.metrics, "requested_profile_id": self.requested_profile_id,
             "profile_id": self.profile_id, "evaluation": self.evaluation}
+        if self.mesh_verification is not None:
+            data["mesh_verification"] = {k: deepcopy(v) for k, v in self.mesh_verification.items()
+                                         if k != "comparison"}
         if self.goal is not None:
             options = self.goal.get("options") or {}
             data["goal"] = {
@@ -551,6 +563,7 @@ class Agent:
             run._mesh_binding = self.mesh_tools.bind(session_id, mesh_reference, run_id=run.id)
             run.mesh_reference = run._mesh_binding.reference.snapshot()
             run.mesh_evidence = run._mesh_binding.evidence
+            run.mesh_verification = {"status": "unknown", "reasons": ["not_compared"]}
         if run.evaluation and run.evaluation.get("enabled"):
             run.goal = {
                 "version": 1,
@@ -1521,7 +1534,8 @@ class Agent:
                 not run._mesh_binding.inspected):
             raise _EndRun("failed", "Перед построением нужно выполнить mesh_inspect исходного эталона.")
         checks = self._verification_calls(name, arguments)
-        self._budget(run, 1 + len(checks))
+        self._budget(run, 1 + len(checks) + (3 if run._mesh_binding is not None
+                                           and name not in _READ_ONLY else 0))
         for check_name, check_arguments in checks:
             if check_name == "get_feature_tree":
                 check_arguments = {"limit": _TREE_LIMIT, **check_arguments}
@@ -1581,6 +1595,9 @@ class Agent:
                                and arguments.get("stage_id") != repair_stage["id"])
         stage = self._begin_stage(run, call_id, name, arguments) if mutating else None
         if mutating:
+            if run._mesh_binding is not None:
+                run._mesh_revision += 1
+                run.mesh_verification = {"status": "unknown", "reasons": ["cad_changed"]}
             if run.goal is not None and run.goal.get("contract") is not None:
                 run.goal["revision"] = int(run.goal["revision"]) + 1
                 run.goal["phase"] = "executing"
@@ -1785,10 +1802,12 @@ class Agent:
     async def _execute_mesh(self, run, call_id, name, arguments):
         self._guard(run)
         self._budget(run)
-        run.call_count += 1
+        if name != "mesh_compare":
+            run.call_count += 1
         run._emit("tool_start", tool_call_id=call_id, name=name, arguments=arguments, verification=False)
         try:
-            value = await self.mesh_tools.dispatch(run._mesh_binding, name, arguments, stop=run._mesh_stop)
+            value = (await self._verify_mesh(run) if name == "mesh_compare" else
+                     await self.mesh_tools.dispatch(run._mesh_binding, name, arguments, stop=run._mesh_stop))
             result = {"ok": True, "value": value, "error": None, "uncertain": False}
         except MeshError as error:
             result = {"ok": False, "value": None, "error": str(error), "uncertain": False}
@@ -1798,6 +1817,69 @@ class Agent:
         self._guard(run)
         if not result["ok"]:
             raise _EndRun("failed", result["error"])
+
+    async def _verify_mesh(self, run):
+        self._guard(run)
+        if not run._mesh_export_available or not run._session_capable:
+            self._budget(run)
+            run.call_count += 1
+            run.mesh_verification = {"status": "unknown", "reasons": ["cad_export_unavailable"]}
+            return deepcopy(run.mesh_verification)
+        self._budget(run, 3)
+        if run._python_session is None:
+            opened = await self.mcp.call("open_python_session", {})
+            self._success(opened)
+            run._python_session = opened["value"]["session_id"]
+        self._guard(run)
+        run.call_count += 1
+        run._inflight = True
+        try:
+            exported = await self.mcp.call("export_verification_mesh", {
+                "python_session_id": run._python_session,
+                "chord_tolerance_mm": run.mesh_reference["tolerance_mm"]/10, "max_triangles": 25000})
+        finally:
+            run._inflight = False
+        if exported.get("uncertain"):
+            self._uncertain = True
+            self._success(exported)
+        self._guard(run)
+        if not exported.get("ok"):
+            run.mesh_verification = {"status": "unknown", "reasons": ["cad_export_failed"]}
+            return deepcopy(run.mesh_verification)
+        snapshot = deepcopy(exported["value"]["snapshot"])
+        snapshot.update(run_id=run.id, frame_id=run.mesh_reference["frame_id"])
+        run.call_count += 1
+        checks_passed = bool(run.construction_plan) and all(
+            stage["status"] == "done" and stage["checks"] and all(check["passed"] for check in stage["checks"])
+            for stage in run.construction_plan)
+        try:
+            comparison = await self.mesh_tools.compare(run._mesh_binding, snapshot,
+                                                       stop=run._mesh_stop, cad_checks_passed=checks_passed)
+        except MeshError:
+            self._guard(run)
+            run.mesh_verification = {"status": "unknown", "reasons": ["comparison_unavailable"]}
+            return deepcopy(run.mesh_verification)
+        self._guard(run)
+        # Read again after CPU work: a user can switch or edit CAD while it is running.
+        connection = await self._call(run, {"connect_solidworks": Draft202012Validator({"type": "object"})},
+                                      "connect_solidworks", {}, f"mesh:{run._mesh_revision}:fresh",
+                                      verification=True)
+        self._success(connection)
+        self._guard(run)
+        current = connection["value"]
+        status = validate_mesh_evidence(comparison, run.mesh_reference, snapshot)
+        reasons = list(comparison["reasons"])
+        if (current.get("document_id") != snapshot["document_identity"] or
+                current.get("document_update_stamp") != snapshot["revision"]):
+            status = "unknown"
+            reasons.append("stale_cad_snapshot")
+        run.mesh_verification = {"status": status, "reasons": reasons, "comparison": comparison}
+        run._mesh_compared_revision = run._mesh_revision
+        summary = {k: deepcopy(v) for k, v in comparison.items() if k not in {"regions", "violating_regions"}}
+        summary.update(status=status, reasons=reasons, measured_regions=len(comparison["regions"]),
+                       violating_regions=comparison["violating_regions"][:20])
+        run._emit("mesh_verification", **summary)
+        return summary
 
     async def _execute_local(self, run, catalog, call_id, name, arguments):
         run._emit("tool_start", tool_call_id=call_id, name=name, arguments=arguments,
@@ -1971,6 +2053,22 @@ class Agent:
                                  "expected": item["expected"], "unit": item["unit"]}
                                 for item in evaluation.per_requirement])
         if evaluation.outcome == "achieved":
+            if run._mesh_binding is not None:
+                result = await self._verify_mesh(run)
+                if result["status"] == "unknown":
+                    self._finish_goal(run, "completed", "unknown", "mesh_unknown",
+                                      "Соответствие CAD исходной сетке не подтверждено; проверьте отчёт сетки.")
+                if result["status"] == "fail":
+                    if number >= int(goal["options"]["max_evaluations"]):
+                        self._finish_goal(run, "limit_reached", "not_achieved", "mesh_fail",
+                                          "Цель не достигнута: соответствие сетке нарушено, лимит оценок исчерпан.")
+                    goal["phase"] = "correcting"
+                    goal["outcome"] = "not_achieved"
+                    run.messages.append({"role": "user", "content":
+                        "Исправь только измеренные расхождения формы, сохрани выполненные этапы. "
+                        "Не повторяй операции с неизвестным исходом. Соответствие по выборке: "+_json(result)})
+                    run._emit("mesh_correction", comparison=result)
+                    return
             self._finish_goal(run, "completed", "achieved", "criteria_met",
                               t(f"Критерии выполнены: {evaluation.score:g}% веса требований.",
                                 f"Criteria met: {evaluation.score:g}% of requirement weight."))
@@ -2331,6 +2429,9 @@ class Agent:
                     raise _EndRun("failed", t(
                         "Модель не предложила исправление Python-кода; запрос остановлен.",
                         "The model did not propose a Python repair; the request was stopped."))
+                if (run._mesh_binding is not None and run._mesh_revision > 0 and
+                        run._mesh_compared_revision != run._mesh_revision):
+                    await self._verify_mesh(run)
                 raise _EndRun("completed", t("Запрос завершён. Результат требует проверки.",
                                            "The request completed. The result requires verification.")
                             if run.verification == "unverified" else t("Запрос завершён.",
@@ -2361,6 +2462,8 @@ class Agent:
             self._guard(run)
             run._status("running", t("Запрос выполняется.", "The request is running."))
             tools = await self.mcp.tools()
+            run._mesh_export_available = "export_verification_mesh" in {
+                tool["function"]["name"] for tool in tools}
             run._session_capable = {"open_python_session", "close_python_session"} <= {
                 tool["function"]["name"] for tool in tools}
             tools = construction.model_tools(tools)

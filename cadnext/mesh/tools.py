@@ -143,3 +143,21 @@ class MeshTools:
 
     async def aclose(self):
         await self.worker.aclose()
+
+    async def compare(self, binding, snapshot, *, stop, cad_checks_passed):
+        reference = binding.reference
+        data = {"path": str(self.store.path_for(binding.session_id, reference.asset_id)),
+                "format": reference.format, "units": reference.units, "sha256": reference.sha256,
+                "frame_id": reference.frame_id, "source_to_cad": reference.source_to_cad,
+                "tolerance_mm": reference.tolerance_mm, "cad_path": snapshot["path"],
+                "cad_sha256": snapshot["sha256"], "options": {
+                    "tolerance_mm": reference.tolerance_mm,
+                    "chord_tolerance_mm": snapshot["chord_tolerance_mm"],
+                    "precision_known": snapshot["precision_known"], "cad_checks_passed": cad_checks_passed,
+                    "frame_id": reference.frame_id, "document_identity": snapshot["document_identity"],
+                    "revision": snapshot["revision"], "run_id": binding.run_id}}
+        response = await self.worker.request("compare", data, stop=stop)
+        if response.get("sha256") != reference.sha256 or response.get("frame_id") != reference.frame_id:
+            raise MeshError("stale_response", "Ответ сравнения относится к другому эталону.")
+        binding.evidence.append(deepcopy(response))
+        return response["comparison"]

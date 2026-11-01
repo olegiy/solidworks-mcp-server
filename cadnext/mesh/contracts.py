@@ -163,3 +163,23 @@ class MeshReference:
         from dataclasses import asdict
 
         return {**asdict(self), "frame_id": self.frame_id, "scale_to_mm": self.scale_to_mm}
+
+
+@dataclass(frozen=True)
+class MeshComparison:
+    reference_sha256: str
+    cad_sha256: str
+    frame_id: str
+    document_identity: str
+    revision: int
+    run_id: str
+    tolerance_mm: float
+    chord_tolerance_mm: float
+    method: str
+    seed: int
+    reference_to_cad: dict
+    cad_to_reference: dict
+    regions: list
+    violating_regions: list
+    status: str
+    reasons: tuple

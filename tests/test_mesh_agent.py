@@ -149,3 +149,113 @@ async def test_real_provider_sends_only_sanitized_numeric_mesh_summary(tmp_path)
     finally:
         await agent.aclose()
         await provider.aclose()
+
+
+async def mesh_cad_agent(tmp_path, *, stamp=7, stop_on_export=False, evaluate=False):
+    import hashlib
+
+    from cadnext.mesh.loader import load_mesh
+    from tests.fake_mcp import ok, tool
+    from tests.test_staged_agent import SessionMcp
+
+    tools, asset = await ready_tools(tmp_path)
+    reference = load_mesh(tools.store.path_for("s", asset.asset_id), format="obj", units="mm")
+    raw = json.dumps({"vertices_mm": reference.vertices.tolist(), "faces": reference.faces.tolist()}).encode()
+    path = tmp_path / "cad-snapshot.json"
+    path.write_bytes(raw)
+    metadata = {"snapshot_id": "snapshot", "sha256": hashlib.sha256(raw).hexdigest(),
+                "document_identity": "doc", "revision": 7, "precision_known": False,
+                "chord_tolerance_mm": .01, "path": str(path)}
+    mcp = SessionMcp([("export_verification_mesh", ok({"snapshot": metadata})),
+                      ("connect_solidworks", ok({"active_document": "Part", "document_id": "doc",
+                                                 "document_update_stamp": stamp}))])
+    mcp.catalog.append(tool("export_verification_mesh"))
+    agent = Agent(mcp, mesh_tools=tools)
+    answers = [reply(("inspect", "mesh_inspect", {})),
+               reply(("compare", "mesh_compare", {})), reply(content="Готово")]
+    if evaluate:
+        from tests.test_goal_loop import define, dimension, doc_steps, requirement, response
+
+        mcp.steps = [*doc_steps(("get_dimension", dimension("D1", 50))), *mcp.steps]
+        answers = [response(define(requirement())), reply(("bind", "cadnext_bind_requirements", {
+            "bindings": [{"requirement_id": "d1", "tool": "get_dimension", "name": "D1"}]})),
+            reply(("inspect", "mesh_inspect", {})), reply(content="Готово")]
+    provider = ScriptedProvider(answers)
+    if stop_on_export:
+        original = mcp.call
+
+        async def call(name, arguments):
+            result = await original(name, arguments)
+            if name == "export_verification_mesh":
+                agent.stop(agent._active.id)
+            return result
+
+        mcp.call = call
+    from cadnext.evaluation import EvaluationOptions
+
+    run = agent.start(session_id="s", provider=provider, message="Сравни",
+                      mesh_reference={"asset_id": asset.asset_id, "tolerance_mm": .1},
+                      evaluation=EvaluationOptions() if evaluate else None)
+    return agent, run, path
+
+
+async def test_cad_snapshot_unknown_precision_never_verifies_run_or_leaks_paths(tmp_path):
+    agent, run, path = await mesh_cad_agent(tmp_path)
+    try:
+        await agent.wait(run.id)
+        assert run.status == "completed"
+        assert run.mesh_verification["status"] == "unknown"
+        assert run.verification == "unverified"
+        assert run.call_count == 4  # inspect + export + comparison + final revision read
+        assert str(path) not in json.dumps(run.snapshot())
+        assert [name for name, _ in agent.mcp.calls] == ["export_verification_mesh", "connect_solidworks"]
+    finally:
+        await agent.aclose()
+
+
+async def test_document_changed_during_comparison_invalidates_evidence(tmp_path):
+    agent, run, _ = await mesh_cad_agent(tmp_path, stamp=8)
+    try:
+        await agent.wait(run.id)
+        assert run.mesh_verification["status"] == "unknown"
+        assert "stale_cad_snapshot" in run.mesh_verification["reasons"]
+    finally:
+        await agent.aclose()
+
+
+async def test_stop_after_cad_snapshot_prevents_worker_and_following_cad_read(tmp_path):
+    agent, run, _ = await mesh_cad_agent(tmp_path, stop_on_export=True)
+    try:
+        await agent.wait(run.id)
+        assert run.status == "stopped"
+        assert [name for name, _ in agent.mcp.calls] == ["export_verification_mesh"]
+        assert run.call_count == 2
+    finally:
+        await agent.aclose()
+
+
+async def test_mesh_unknown_blocks_achieved_even_when_native_dimensions_pass(tmp_path):
+    agent, run, _ = await mesh_cad_agent(tmp_path, evaluate=True)
+    try:
+        await agent.wait(run.id)
+        assert run.status == "completed"
+        assert run.goal["last_score"] == 100
+        assert run.goal["outcome"] == "unknown" and run.goal["completion_reason"] == "mesh_unknown"
+        assert run.verification == "unverified"
+    finally:
+        await agent.aclose()
+
+
+async def test_mesh_final_comparison_is_reserved_before_any_cad_mutation(tmp_path):
+    tools, asset = await ready_tools(tmp_path)
+    agent = Agent(FakeMcp(), mesh_tools=tools)
+    run = agent.start(session_id="s", provider=ScriptedProvider([
+        reply(("inspect", "mesh_inspect", {}), ("python", "execute_python", {"code": "mutate()"}))]),
+        message="Построй", max_calls=4,
+        mesh_reference={"asset_id": asset.asset_id, "tolerance_mm": .1})
+    try:
+        await agent.wait(run.id)
+        assert run.status == "limit_reached" and not agent.mcp.calls
+        assert run.confirmation is None
+    finally:
+        await agent.aclose()

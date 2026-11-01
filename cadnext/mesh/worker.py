@@ -39,6 +39,30 @@ def dispatch(operation, payload):
 
         return {"section": asdict(section_mesh(mesh, PlaneFrame(**payload["frame"]),
                                               tolerance_mm=payload["tolerance_mm"]))}
+    if operation == "compare":
+        import hashlib
+        from pathlib import Path
+
+        import numpy as np
+
+        from cadnext.mesh.compare import compare_surfaces
+        from cadnext.mesh.contracts import MeshData
+
+        with Path(payload["cad_path"]).open("rb") as stream:
+            raw = stream.read(100*1024*1024+1)
+        if len(raw) > 100*1024*1024 or hashlib.sha256(raw).hexdigest() != payload["cad_sha256"]:
+            raise MeshError("hash_mismatch", "Проверочная CAD-сетка изменилась или превышает лимит.")
+        geometry = json.loads(raw)
+        vertices = np.asarray(geometry["vertices_mm"], dtype=float)
+        faces = np.asarray(geometry["faces"], dtype=float)
+        if (vertices.ndim != 2 or vertices.shape[1] != 3 or not 0 < len(vertices) <= 250000
+                or faces.ndim != 2 or faces.shape[1] != 3 or not 0 < len(faces) <= 250000
+                or not np.isfinite(vertices).all() or not np.isfinite(faces).all()
+                or np.any(faces != np.floor(faces)) or faces.min() < 0 or faces.max() >= len(vertices)):
+            raise MeshError("invalid_snapshot", "Некорректная геометрия проверочной CAD-сетки.")
+        vertices, inverse = np.unique(vertices, axis=0, return_inverse=True)
+        cad = MeshData(vertices, inverse[faces.astype(int)], payload["cad_sha256"], "mm", 1.)
+        return {"comparison": asdict(compare_surfaces(mesh, cad, options=payload["options"]))}
     raise MeshError("unavailable", "Эта операция анализа сетки пока недоступна.")
 
 

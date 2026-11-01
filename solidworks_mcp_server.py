@@ -512,7 +512,9 @@ def connect_solidworks() -> str:
         return _ok(revision=str(ver),
                    hint="Revision 31=SW2023, 32=SW2024, 33=SW2025",
                    active_document=active,
-                   document_id=_document_identity(model) if model is not None else None)
+                   document_id=_document_identity(model) if model is not None else None,
+                   document_update_stamp=(_get(model, "GetUpdateStamp") if model is not None
+                                          and hasattr(model, "GetUpdateStamp") else None))
     return _run(job)
 
 
