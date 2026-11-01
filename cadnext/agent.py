@@ -1960,13 +1960,23 @@ class Agent:
             result = {"ok": False, "value": None, "error": str(error), "uncertain": False,
                       "error_code": error.code,
                       "recoverable": name == "mesh_fit" and error.code in {
-                          "empty_region", "disconnected_region", "seed_distance"}}
+                          "empty_region", "disconnected_region", "seed_distance", "axis_mismatch"}}
             if result["recoverable"] and error.code == "seed_distance":
                 result["recovery_hint"] = t(
                     "Начальная seed_mm дальше допуска от сетки. Используй указанную ближайшую точку "
                     "либо выбери surface_id из mesh_inspect. Не повторяй прежнюю точку без изменения.",
                     "seed_mm is farther than tolerance from the mesh. Use the reported closest point "
                     "or a surface_id from mesh_inspect. Do not repeat the unchanged point.")
+            elif result["recoverable"] and error.code == "axis_mismatch":
+                result["recovery_hint"] = t(
+                    "Выбранная поверхность не подтверждает заданную axis. Выбери другую связную "
+                    "область или surface_id из mesh_inspect, либо проверь форму mesh_section. "
+                    "Не снимай ограничение оси ради успешного fit и не повторяй выбор без изменения; "
+                    "пригодность нового измерения проверяй по usable.",
+                    "The selected surface does not confirm the requested axis. Choose another connected "
+                    "region or surface_id from mesh_inspect, or examine the shape with mesh_section. "
+                    "Do not remove the axis constraint merely to obtain a successful fit or repeat an "
+                    "unchanged selection; check the new measurement using usable.")
             elif result["recoverable"] and error.code == "empty_region":
                 result["recovery_hint"] = t(
                     "bounds_mm выбирает только треугольники, все вершины которых внутри бокса. "

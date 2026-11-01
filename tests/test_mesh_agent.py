@@ -16,6 +16,61 @@ _FIT_REGION_CASES = [
 ]
 
 
+@pytest.mark.parametrize('evaluate', [False, True])
+@pytest.mark.parametrize('outcome', ['correct', 'limit', 'stop'])
+async def test_axis_mismatch_returns_to_model_with_budget_and_stop(tmp_path, evaluate, outcome):
+    from cadnext.evaluation import EvaluationOptions
+    from cadnext.mesh.contracts import MeshError
+
+    tools, asset = await ready_tools(tmp_path)
+    selections = []
+    rejected = {'seed_mm': [10, 0, 1], 'axis': [0, 1, 0]}
+    corrected = {'seed_mm': [11, 0, 1], 'axis': rejected['axis']}
+
+    async def dispatch(binding, name, arguments, *, stop):
+        selections.append(arguments['region'])
+        if len(selections) == 1:
+            if outcome == 'stop':
+                agent.stop(run.id)
+            raise MeshError('axis_mismatch', 'Selected surface does not match the axis')
+        return {'fit': {'usable': True}}
+
+    tools.dispatch = dispatch
+
+    def correct(messages):
+        results = {m['tool_call_id']: json.loads(m['content'])
+                   for m in messages if m.get('role') == 'tool'}
+        failure = results['mismatch']
+        assert failure['recoverable'] and not failure['uncertain']
+        assert failure['error_code'] == 'axis_mismatch'
+        assert 'axis' in failure['recovery_hint'] and 'surface_id' in failure['recovery_hint']
+        assert not results['queued']['ok']
+        assert not run.checks and not run.construction_plan and run._mesh_revision == 0
+        return reply(('corrected', 'mesh_fit', {'kind': 'cylinder', 'region': corrected}))
+
+    answers = [reply(('mismatch', 'mesh_fit', {'kind': 'cylinder', 'region': rejected}),
+                     ('queued', 'get_dimension', {'name': 'D1'})), correct, reply(content='Done')]
+    if evaluate:
+        answers.insert(0, reply(('goal', 'cadnext_define_goal', {
+            'kind': 'informational', 'requirements': [], 'ambiguities': []})))
+    provider = ScriptedProvider(answers)
+    agent = Agent(FakeMcp(), mesh_tools=tools)
+    try:
+        run = agent.start(session_id='s', provider=provider, message='Measure',
+                          max_calls=1 if outcome == 'limit' else 10,
+                          mesh_reference={'asset_id': asset.asset_id, 'tolerance_mm': .1},
+                          evaluation=EvaluationOptions() if evaluate else None)
+        await agent.wait(run.id)
+        assert run.status == {'correct': 'completed', 'limit': 'limit_reached', 'stop': 'stopped'}[outcome]
+        assert selections == ([rejected, corrected] if outcome == 'correct' else [rejected])
+        assert run.call_count == (2 if outcome == 'correct' else 1)
+        assert not agent.mcp.calls and not agent.uncertain and run.repair_attempts == 0
+        if outcome == 'stop':
+            assert len(provider.requests) == (2 if evaluate else 1)
+    finally:
+        await agent.aclose()
+
+
 async def test_seed_distance_returns_to_model_and_retains_owned_worker(tmp_path):
     tools, asset = await ready_tools(tmp_path)
     process_ids = []
