@@ -1095,6 +1095,39 @@ def open_python_session() -> str:
     return _run(job)
 
 
+def _verification_mesh_root():
+    return Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "cad_agent_next" / "cad_mesh"
+
+
+@mcp.tool()
+def export_verification_mesh(python_session_id: str, chord_tolerance_mm: float,
+                             max_triangles: int = 25000) -> str:
+    """Application-owned read-only CAD snapshot; never offered to the model."""
+    def job():
+        import pythoncom
+        from win32com.client import VARIANT
+        from cadnext.cad_mesh_export import export_mesh
+
+        state = _python_sessions[python_session_id]
+        app = _app()
+        document = app.ActiveDoc
+        if document is None:
+            raise ValueError("Нет активной детали для получения CAD-сетки.")
+        pinned = state["document"]
+        if pinned is not None and _document_identity(pinned) != _document_identity(document):
+            raise RuntimeError("Активный документ Python-сессии изменён.")
+        if not any(_document_identity(doc) == _document_identity(document)
+                   for doc in _get(app, "GetDocuments") or ()):
+            raise RuntimeError("Документ Python-сессии закрыт.")
+        state["document"] = document
+        snapshot = export_mesh(app, document, get=_get, identity=_document_identity,
+                               empty=VARIANT(pythoncom.VT_EMPTY, None), root=_verification_mesh_root(),
+                               chord_tolerance_mm=chord_tolerance_mm, max_triangles=max_triangles)
+        state.setdefault("mesh_artifacts", []).append(snapshot["path"])
+        return _ok(snapshot=snapshot)
+    return _run(job)
+
+
 def _reference_index():
     global _api_index
     if _api_index is None:
@@ -1170,6 +1203,8 @@ def close_python_session(session_id: str) -> str:
     def job():
         state = _python_sessions.pop(session_id, None)
         if state is not None:
+            for artifact in state.get("mesh_artifacts", []):
+                Path(artifact).unlink(missing_ok=True)
             state["env"].clear()
             state.clear()
             gc.collect()
@@ -1182,6 +1217,8 @@ def close_python_session(session_id: str) -> str:
 
 def _release_python_sessions():
     for state in _python_sessions.values():
+        for artifact in state.get("mesh_artifacts", []):
+            Path(artifact).unlink(missing_ok=True)
         state["env"].clear()
         state.clear()
     _python_sessions.clear()

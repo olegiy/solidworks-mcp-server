@@ -60,7 +60,7 @@ _SECTIONS = {"feature": "features", "body_count": "bodies", "dimension": "dimens
 
 def model_tools(tools):
     tools = deepcopy([tool for tool in tools if tool["function"]["name"] not in
-                      {"open_python_session", "close_python_session"}])
+                      {"open_python_session", "close_python_session", "export_verification_mesh"}])
     for tool in tools:
         if tool["function"]["name"] in {"create_part", "create_assembly", "open_document"}:
             schema = tool["function"]["parameters"]

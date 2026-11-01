@@ -52,7 +52,7 @@ async def test_tools_list_over_real_stdio():
 
     async with SolidWorksMcp() as client:
         tools = await client.tools()
-        assert len(tools) == 34
+        assert len(tools) == 35
         assert "execute_python" in {tool["function"]["name"] for tool in tools}
 
 
