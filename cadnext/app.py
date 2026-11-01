@@ -362,17 +362,20 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
             reference = manifest["reference"]
             asset = await app.state.mesh_import_store.receive(import_id, request.stream(),
                 format=reference["format"], units=reference["units"])
+            owner = "import:"+import_id
             try:
                 if asset.sha256 != sha256 or asset.size_bytes != manifest["size_bytes"]:
                     raise MeshError("asset_changed", "Хеш или размер выбранного исходника не совпал.")
                 await agent().mesh_tools.worker.request("inspect", {
-                    "path": str(app.state.mesh_import_store.path_for(import_id, asset.asset_id)),
+                    "owner": owner, "path": str(app.state.mesh_import_store.path_for(import_id, asset.asset_id)),
                     "format": asset.format, "units": asset.units, "sha256": asset.sha256,
                     "frame_id": reference["frame_id"]}, stop=asyncio.Event())
                 app.state.mesh_import_store.accept(import_id, asset.asset_id)
             except BaseException:
                 app.state.mesh_import_store.reject(import_id, asset.asset_id)
                 raise
+            finally:
+                await agent().mesh_tools.invalidate(owner)
         await project_operation(receive)
 
     @app.post("/api/projects/{session_id}/close", status_code=204)

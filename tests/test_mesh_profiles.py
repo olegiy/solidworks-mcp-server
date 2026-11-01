@@ -68,3 +68,15 @@ def test_zero_length_topological_edge_terminates_profile_fitting():
 
     result, _ = _profile_span(np.zeros((2, 2)), .1)
     assert result is not None
+
+
+def test_narrow_closed_circular_cap_is_not_replaced_with_full_circle():
+    from cadnext.mesh.sections import section_mesh
+
+    angles = np.deg2rad(np.linspace(-2.5, 2.5, 9))
+    vertices = [[7*np.cos(a), 7*np.sin(a), 0] for a in angles]+[[6.996, 0, 1], [6.996, 0, -1]]
+    faces = [face for i in range(9) for face in [(i, (i+1) % 9, 9), ((i+1) % 9, i, 10)]]
+    result = section_mesh(mesh_data(vertices, faces), frame(0), tolerance_mm=.1)
+    assert result.usable_for_sketch
+    arcs = [s for c in result.chains for s in c["segments"] if s["kind"] == "arc"]
+    assert sum(abs(s["sweep_radians"]) for s in arcs) < .2

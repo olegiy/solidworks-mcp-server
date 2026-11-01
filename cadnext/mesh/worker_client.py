@@ -151,7 +151,7 @@ class MeshWorkerClient:
                 return response
             except BaseException as exc:
                 # Geometry is read-only and owned; terminating this child cannot cancel COM.
-                if not (isinstance(exc, MeshError) and exc.code in {"empty_region", "disconnected_region"}
+                if not (isinstance(exc, MeshError) and exc.code in {"empty_region", "disconnected_region", "seed_distance"}
                         and exchange is not None and exchange.done() and not exchange.cancelled()
                         and exchange.exception() is None and not stop.is_set()):
                     await asyncio.shield(self._dispose())

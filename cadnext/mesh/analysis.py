@@ -151,7 +151,7 @@ def fit_region(mesh, region, kind, *, tolerance_mm, catalog=None) -> FitResult:
             raise MeshError("invalid_fit", "Для выбора поверхности нужен аналитический примитив.")
         if isinstance(region, dict) and ("seed_mm" in region or "surface_id" in region):
             indices = select_surface(mesh, region, kind, tolerance, catalog=catalog)
-            return measure_surface(mesh, indices, kind, tolerance)
+            return measure_surface(mesh, indices, kind, tolerance, compete=True)
         # Preserve strict whole-triangle selection for the legacy forms.
         _, _, _, selected_id = select_region(mesh, region)
         triangles, normals, _ = face_geometry(mesh)
@@ -167,7 +167,7 @@ def fit_region(mesh, region, kind, *, tolerance_mm, catalog=None) -> FitResult:
                 normal = np.asarray(region["normal"])
                 mask &= normals @ (normal/np.linalg.norm(normal)) >= np.cos(np.deg2rad(region.get("angle_degrees", 5)))
             indices = np.flatnonzero(mask)
-        return replace(measure_surface(mesh, indices, kind, tolerance, trim=False), region_id=selected_id)
+        return replace(measure_surface(mesh, indices, kind, tolerance, trim=False, compete=True), region_id=selected_id)
     if kind not in {"plane", "circle"}:
         raise MeshError("invalid_fit", "Выберите плоскость, окружность, цилиндр, конус, сферу или тор.")
     points, normals, area_fraction, region_id = select_region(mesh, region)

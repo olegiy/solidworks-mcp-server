@@ -141,5 +141,7 @@ def fit_primitive(points, normals, kind, tolerance):
     # The residual Jacobian is normalized in length and has no redundant axis coordinate.
     jac = solution.jac
     singular = np.linalg.svd(jac, compute_uv=False)
-    model.condition = float(singular[0]/max(singular[-1], 1e-30))
+    model.rank_confirmed = (jac.shape[0] >= jac.shape[1] and
+                            np.linalg.matrix_rank(jac, tol=singular[0]*1e-10) == jac.shape[1])
+    model.condition = float(singular[0]/max(singular[-1], 1e-30)) if model.rank_confirmed else 1e30
     return model

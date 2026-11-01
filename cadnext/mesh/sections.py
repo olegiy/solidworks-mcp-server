@@ -220,10 +220,12 @@ def _segments(points, sources, closed, frame, tolerance, epsilon, prefix):
         t = np.clip(-np.einsum("ij,ij->i", delta, directions)/np.sum(directions**2, axis=1), 0, 1)
         chord_min = np.linalg.norm(delta+t[:, None]*directions, axis=1)
         error = max(np.abs(np.linalg.norm(delta, axis=1)-radius).max(), np.abs(chord_min-radius).max())
-        angles = np.unwrap(np.arctan2(delta[:, 1], delta[:, 0]))
         sense = 1 if _area(points) > 0 else -1
-        changes = np.diff(angles)*sense
-        if converged and error <= tolerance/4 and np.all(changes > -1e-9):
+        raw_angles = np.arctan2(delta[:, 1], delta[:, 0])
+        changes = np.angle(np.exp(1j*(np.roll(raw_angles, -1)-raw_angles)))*sense
+        winding = float(changes.sum())
+        if (converged and error <= tolerance/4 and np.all(changes > -1e-9)
+                and abs(winding-2*np.pi) < 1e-8):
             start_angle = float(np.arctan2(delta[0, 1], delta[0, 0]))
             start = center+radius*np.array([np.cos(start_angle), np.sin(start_angle)])
             opposite = 2*center-start

@@ -16,6 +16,32 @@ _FIT_REGION_CASES = [
 ]
 
 
+async def test_seed_distance_returns_to_model_and_retains_owned_worker(tmp_path):
+    tools, asset = await ready_tools(tmp_path)
+    process_ids = []
+
+    def correct(messages):
+        failure = next(json.loads(m["content"]) for m in messages if m.get("tool_call_id") == "miss")
+        assert failure["recoverable"] and failure["error_code"] == "seed_distance"
+        assert "ближайшая" in failure["error"] and "seed_mm" in failure["recovery_hint"]
+        assert tools.worker.process is not None
+        process_ids.append(tools.worker.process.pid)
+        return reply(("correct", "mesh_fit", {"region": {"seed_mm": [10, 10, 0]}, "kind": "plane"}))
+
+    agent = Agent(FakeMcp(), mesh_tools=tools)
+    try:
+        run = agent.start(session_id="s", provider=ScriptedProvider([
+            reply(("miss", "mesh_fit", {"region": {"seed_mm": [1000, 1000, 1000]}, "kind": "plane"})),
+            correct, reply(content="Готово")]), message="Измерь",
+            mesh_reference={"asset_id": asset.asset_id, "tolerance_mm": .1})
+        await agent.wait(run.id)
+        assert run.status == "completed", run.messages[-1:]
+        assert tools.worker.process.pid == process_ids[0]
+        assert run.call_count == 2 and not agent.mcp.calls
+    finally:
+        await agent.aclose()
+
+
 @pytest.mark.parametrize("evaluate", [False, True])
 async def test_mesh_measurements_are_local_budgeted_and_work_without_vision(tmp_path, evaluate):
     from cadnext.evaluation import EvaluationOptions

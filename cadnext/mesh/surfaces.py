@@ -3,7 +3,8 @@
 import hashlib
 import json
 import time
-from dataclasses import asdict
+from collections import deque
+from dataclasses import asdict, replace
 
 import numpy as np
 from scipy.sparse import coo_matrix
@@ -103,7 +104,17 @@ def facet_bound(model, triangles, tolerance):
     return bound, False
 
 
-def measure_surface(mesh, indices, kind, tolerance, *, trim=True):
+def _alternatives(best, candidates, tolerance):
+    # An alternative can explain the data even when its own measurement coverage
+    # is insufficient. Such a family still prevents unique parameter claims.
+    return [r.kind for r in candidates if r.kind != best.kind and
+            r.max_residual_mm <= tolerance/4 and "ill_conditioned" not in r.degeneracies and
+            "non_ring_torus" not in r.degeneracies and
+            r.coverage["bound_confirmed"] and r.coverage["facet_bound_mm"] <= tolerance/4 and
+            r.rms_mm <= max(best.rms_mm*2, tolerance/100)]
+
+
+def measure_surface(mesh, indices, kind, tolerance, *, trim=True, compete=False):
     tolerance = validate_tolerance(tolerance)
     indices = np.sort(np.asarray(indices, dtype=int))
     vertices, normals = _vertex_normals(mesh, indices)
@@ -145,6 +156,8 @@ def measure_surface(mesh, indices, kind, tolerance, *, trim=True):
         degeneracies.append("nonconverged")
     if model.condition > 1e8:
         degeneracies.append("ill_conditioned")
+    if not model.rank_confirmed:
+        degeneracies.append("rank_deficient")
     center, axis, sizes = model.decode(model.p)
     delta = (points[~rejected]-model.origin)/model.scale-center
     coverage = {"area_fraction": float(areas[indices].sum()/areas.sum()), "facet_bound_mm": bound,
@@ -188,6 +201,12 @@ def measure_surface(mesh, indices, kind, tolerance, *, trim=True):
     result = FitResult(kind, surface_id(mesh, indices, tolerance), parameters, int((~rejected).sum()),
                        float(np.sqrt(np.mean(residual[~rejected]**2))), maximum, coverage,
                        tuple(sorted(set(degeneracies))), not degeneracies)
+    if compete and result.usable:
+        candidates = [measure_surface(mesh, indices, other, tolerance, trim=trim) for other in KINDS if other != kind]
+        alternatives = _alternatives(result, candidates, tolerance)
+        if alternatives:
+            result = replace(result, usable=False, degeneracies=("ambiguous_models",),
+                             coverage={**coverage, "alternatives": alternatives})
     return result
 
 
@@ -204,32 +223,69 @@ def _patches(mesh):
     return np.split(order, np.flatnonzero(np.diff(labels[order]))+1)
 
 
-def _grow(mesh, indices, kind, tolerance, available):
+def _normal_gradient(model, centers, tolerance):
+    step = max(tolerance*1e-3, 1e-7)
+    return np.column_stack([(model.distance(centers+np.eye(3)[i]*step)-
+                             model.distance(centers-np.eye(3)[i]*step))/(2*step) for i in range(3)])
+
+
+def _axis_matches(model, constraints):
+    if "axis" not in constraints:
+        return True
+    requested = np.asarray(constraints["axis"], float)
+    if requested.shape != (3,) or not np.isfinite(requested).all() or np.linalg.norm(requested) < 1e-12:
+        raise MeshError("invalid_region", "Некорректное направление оси.")
+    axis = model.decode(model.p)[1]
+    return axis is not None and abs(np.dot(requested/np.linalg.norm(requested), axis)) >= np.cos(np.deg2rad(.5))
+
+
+def _grow(mesh, indices, kind, tolerance, available, *, constraints=None):
     triangles, normals, _ = face_geometry(mesh)
     pairs = adjacency(mesh)[0]
+    constraints = constraints or {}
     selected = np.zeros(len(triangles), bool)
     selected[indices] = True
+    selected &= available
+    if not selected.any():
+        return np.array([], dtype=int)
     for _ in range(6):
         vertices, vertex_normals = _vertex_normals(mesh, np.flatnonzero(selected))
         model = fit_primitive(mesh.vertices[vertices], vertex_normals, kind, tolerance)
         if np.quantile(np.abs(model.distance(mesh.vertices[vertices])), .98) > tolerance/4:
             break
-        boundary = pairs[selected[pairs[:, 0]] != selected[pairs[:, 1]]].ravel()
-        candidates = np.unique(boundary[~selected[boundary] & available[boundary]])
+        if not _axis_matches(model, constraints):
+            break
+        candidates = np.flatnonzero(~selected & available)
         if not len(candidates):
             break
         candidate_triangles = triangles[candidates]
         distance = np.abs(model.distance(candidate_triangles.reshape(-1, 3))).reshape(-1, 3).max(axis=1)
         centers = candidate_triangles.mean(axis=1)
-        step = max(tolerance*1e-3, 1e-7)
-        gradient = np.column_stack([(model.distance(centers+np.eye(3)[i]*step)-
-                                     model.distance(centers-np.eye(3)[i]*step))/(2*step) for i in range(3)])
-        agreement = np.abs(np.einsum("ij,ij->i", gradient, normals[candidates]))
-        accepted = candidates[(distance <= tolerance/4) & (agreement >= np.cos(np.deg2rad(15)))]
+        gradient = _normal_gradient(model, centers, tolerance)
+        signed = np.einsum("ij,ij->i", gradient, normals[candidates])
+        compatible = (distance <= tolerance/4) & (np.abs(signed) >= np.cos(np.deg2rad(15)))
+        if constraints.get("side"):
+            compatible &= signed > 0 if constraints["side"] == "outer" else signed < 0
+        accepted = candidates[compatible]
         if not len(accepted):
             break
-        selected[accepted] = True
+        eligible = selected.copy()
+        eligible[accepted] = True
+        links = pairs[eligible[pairs].all(axis=1)]
+        graph = coo_matrix((np.ones(len(links)), (links[:, 0], links[:, 1])), shape=(len(selected), len(selected)))
+        _, labels = connected_components(graph, directed=False)
+        grown = eligible & np.isin(labels, labels[selected])
+        if np.array_equal(grown, selected):
+            break
+        selected = grown
     return np.flatnonzero(selected)
+
+
+def _split_patch(mesh, indices):
+    centers = mesh.vertices[mesh.faces[indices]].mean(axis=1)
+    axis = int(np.argmax(np.ptp(centers, axis=0)))
+    ids = indices[np.lexsort((indices, centers[:, axis]))]
+    return np.split(ids, [len(ids)//2])
 
 
 def surface_catalog(mesh, tolerance, *, budget_s=25):
@@ -239,10 +295,12 @@ def surface_catalog(mesh, tolerance, *, budget_s=25):
     complete = True
     triangles, _, areas = face_geometry(mesh)
     patches = sorted(_patches(mesh), key=lambda ids: (-float(areas[ids].sum()), int(ids[0])))
-    for indices in patches:
+    pending = deque((ids, 0) for ids in patches)
+    while pending:
         if time.monotonic()-started >= budget_s:
             complete = False
             break
+        indices, depth = pending.popleft()
         indices = np.asarray([i for i in indices if i not in assigned], dtype=int)
         if len(indices) < 2:
             continue
@@ -253,12 +311,15 @@ def surface_catalog(mesh, tolerance, *, budget_s=25):
         acceptable = [r for r in candidates if r.max_residual_mm <= tolerance/4 and
                       "ill_conditioned" not in r.degeneracies and "non_ring_torus" not in r.degeneracies]
         if not acceptable:
+            # Mixed smooth patches need local hypotheses before any family can claim them.
+            if len(indices) >= 8 and depth < 8:
+                left, right = _split_patch(mesh, indices)
+                pending.extend([(left, depth+1), (right, depth+1)])
             continue
         # Prefer the least complex fitting family; retain genuinely competing hypotheses.
         best = min(acceptable, key=lambda r: (not r.usable, KINDS.index(r.kind)))
         indices = hypotheses[KINDS.index(best.kind)][0]
-        alternatives = [r.kind for r in acceptable if r.kind != best.kind and r.usable and
-                        best.usable and r.rms_mm <= max(best.rms_mm*2, tolerance/100)]
+        alternatives = _alternatives(best, acceptable, tolerance)
         record = {**asdict(best), "surface_id": best.region_id, "area_mm2": float(areas[indices].sum()),
                   "bounds_mm": [triangles[indices].min(axis=(0, 1)).tolist(), triangles[indices].max(axis=(0, 1)).tolist()],
                   "source_face_ids": indices.tolist(), "alternatives": alternatives}
@@ -300,19 +361,6 @@ def select_surface(mesh, region, kind, tolerance, *, catalog=None):
         if axis.shape != (3,) or not np.isfinite(axis).all() or np.linalg.norm(axis) < 1e-12:
             raise MeshError("invalid_region", "Некорректное направление оси.")
         axis /= np.linalg.norm(axis)
-        if records and "axis" in records[0]["parameters"]:
-            if abs(np.dot(axis, records[0]["parameters"]["axis"])) < np.cos(np.deg2rad(.5)):
-                raise MeshError("axis_mismatch", "Ось поверхности не совпадает с ограничением поиска.")
-    side = region.get("side")
-    if side and records:
-        params = records[0]["parameters"]
-        center = np.asarray(params.get("center_mm", params.get("origin_mm", seed)))
-        radial = triangles.mean(axis=1)-center
-        if "axis" in params:
-            axis = np.asarray(params["axis"])
-            radial -= (radial @ axis)[:, None]*axis
-        sign = np.einsum("ij,ij->i", normals, radial)
-        allowed &= sign > 0 if side == "outer" else sign < 0
     if not allowed[face]:
         raise MeshError("empty_region", "Начальная точка исключена ограничениями поиска.")
     mask = np.zeros(len(mesh.faces), bool)
@@ -322,4 +370,25 @@ def select_surface(mesh, region, kind, tolerance, *, catalog=None):
     pairs = pairs[mask[pairs].all(axis=1)]
     graph = coo_matrix((np.ones(len(pairs)), (pairs[:, 0], pairs[:, 1])), shape=(len(mask), len(mask)))
     _, labels = connected_components(graph, directed=False)
-    return np.flatnonzero(mask & (labels == labels[face]))
+    indices = np.flatnonzero(mask & (labels == labels[face]))
+    for _ in range(9):
+        vertices, vertex_normals = _vertex_normals(mesh, indices)
+        model = fit_primitive(mesh.vertices[vertices], vertex_normals, kind, tolerance)
+        if np.quantile(np.abs(model.distance(mesh.vertices[vertices])), .98) <= tolerance/4 or len(indices) < 8:
+            break
+        halves = _split_patch(mesh, indices)
+        indices = next(ids for ids in halves if face in ids)
+    if not _axis_matches(model, region):
+        raise MeshError("axis_mismatch", "Ось поверхности не совпадает с ограничением поиска.")
+    if region.get("side"):
+        gradient = _normal_gradient(model, triangles.mean(axis=1), tolerance)
+        signed = np.einsum("ij,ij->i", normals, gradient)
+        allowed &= signed > 0 if region["side"] == "outer" else signed < 0
+        if not allowed[face]:
+            raise MeshError("empty_region", "Начальная точка исключена ограничением стороны поверхности.")
+    indices = _grow(mesh, indices, kind, tolerance, allowed, constraints=region)
+    vertices, vertex_normals = _vertex_normals(mesh, indices)
+    model = fit_primitive(mesh.vertices[vertices], vertex_normals, kind, tolerance)
+    if not _axis_matches(model, region):
+        raise MeshError("axis_mismatch", "Ось итоговой поверхности не совпадает с ограничением поиска.")
+    return indices

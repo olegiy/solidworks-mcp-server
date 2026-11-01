@@ -1884,8 +1884,14 @@ class Agent:
             result = {"ok": False, "value": None, "error": str(error), "uncertain": False,
                       "error_code": error.code,
                       "recoverable": name == "mesh_fit" and error.code in {
-                          "empty_region", "disconnected_region"}}
-            if result["recoverable"] and error.code == "empty_region":
+                          "empty_region", "disconnected_region", "seed_distance"}}
+            if result["recoverable"] and error.code == "seed_distance":
+                result["recovery_hint"] = t(
+                    "Начальная seed_mm дальше допуска от сетки. Используй указанную ближайшую точку "
+                    "либо выбери surface_id из mesh_inspect. Не повторяй прежнюю точку без изменения.",
+                    "seed_mm is farther than tolerance from the mesh. Use the reported closest point "
+                    "or a surface_id from mesh_inspect. Do not repeat the unchanged point.")
+            elif result["recoverable"] and error.code == "empty_region":
                 result["recovery_hint"] = t(
                     "bounds_mm выбирает только треугольники, все вершины которых внутри бокса. "
                     "Сверь границы с mesh_inspect и выбери другую связную область: расширь бокс "

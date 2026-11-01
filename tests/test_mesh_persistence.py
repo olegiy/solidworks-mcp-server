@@ -236,3 +236,24 @@ def test_current_source_is_saved_even_before_first_mesh_run(api):
     assert data['version'] == 2
     assert data['mesh']['reference']['sha256'] == current['sha256']
     assert data['mesh']['relative_path']
+
+
+def test_staged_import_uses_private_owner_and_forgets_it_after_validation(api):
+    client, _ = api
+    _, data, result = saved_mesh(client)
+    source = Path(result["saved"]).parent / data["mesh"]["relative_path"]
+    worker = client.app.state.agent.mesh_tools.worker
+    original = worker.request
+    requests = []
+
+    async def capture(operation, payload, **kwargs):
+        requests.append((operation, payload))
+        return await original(operation, payload, **kwargs)
+
+    worker.request = capture
+    staged = client.post('/api/conversation-imports', json={"mesh": data["mesh"]}).json()
+    digest = data["mesh"]["reference"]["sha256"]
+    assert client.put(f'/api/conversation-imports/{staged["import_id"]}/{digest}', content=source.read_bytes()).status_code == 204
+    inspection = next(payload for operation, payload in requests if operation == "inspect")
+    assert inspection["owner"] == "import:"+staged["import_id"]
+    assert any(operation == "forget" and payload["owner"] == inspection["owner"] for operation, payload in requests)

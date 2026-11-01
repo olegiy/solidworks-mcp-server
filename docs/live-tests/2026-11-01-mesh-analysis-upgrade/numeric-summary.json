@@ -1,0 +1,2476 @@
+{
+  "sha256": "1cd05e0095736357f0a0763d913b8776e3be05793d76596ffb976d3e02c58ae7",
+  "frame_id": "eba91ea447c2a18c1510229bb460a99bcd030ed6bde4091c466992e0dbafb3d1",
+  "tolerance_mm": 0.1,
+  "catalog": {
+    "complete": false,
+    "algorithm": "analytic-surfaces-1",
+    "unrecognized_triangles": 21772,
+    "unrecognized_area_mm2": 12206.4914199414,
+    "surfaces_total": 47,
+    "surfaces_offset": 0
+  },
+  "surfaces": [
+    {
+      "kind": "plane",
+      "region_id": "surface:791a25e35e9c5a85d3c51c1a04061afa8bf18204ab02e42a2ce49f50fbe26bf2",
+      "parameters": {
+        "origin_mm": [
+          40.208404541015625,
+          10.0,
+          40.208404541015625
+        ],
+        "normal": [
+          -7.52926998366684e-13,
+          -1.0,
+          -7.529269983548355e-13
+        ]
+      },
+      "used_points": 312,
+      "rms_mm": 0.013443517161321578,
+      "max_residual_mm": 0.024623870880581347,
+      "coverage": {
+        "area_fraction": 0.11400968746826311,
+        "facet_bound_mm": 0.024623870880581347,
+        "bound_confirmed": true,
+        "condition_number": 3.136599718737782,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.024623870880581347
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:791a25e35e9c5a85d3c51c1a04061afa8bf18204ab02e42a2ce49f50fbe26bf2",
+      "area_mm2": 2157.9715991541925,
+      "bounds_mm": [
+        [
+          1.0519697666168213,
+          9.97537612915039,
+          1.0519697666168213
+        ],
+        [
+          79.36483764648438,
+          10.012310981750488,
+          79.36483764648438
+        ]
+      ],
+      "alternatives": [
+        "cone",
+        "sphere"
+      ],
+      "supporting_faces": 468
+    },
+    {
+      "kind": "cylinder",
+      "region_id": "surface:c77e4ee0d9f95dcbe3f5ffe337ccd3165469ee2e2dc22f370f33adf095a119d6",
+      "parameters": {
+        "origin_mm": [
+          40.20840288231902,
+          7.99999952436208,
+          40.208478969338834
+        ],
+        "axis": [
+          6.544524771570144e-08,
+          0.9999999998702125,
+          -1.611120028987935e-05
+        ],
+        "radius_mm": 27.40411835589203,
+        "axial_span_mm": 7.31375224234721
+      },
+      "used_points": 242,
+      "rms_mm": 0.011704947025804968,
+      "max_residual_mm": 0.020576424896469183,
+      "coverage": {
+        "area_fraction": 0.06649393852937413,
+        "facet_bound_mm": 0.06060339384127644,
+        "bound_confirmed": true,
+        "condition_number": 24.748329503143523,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.020576424896469183,
+        "angle_degrees": 354.99998723236274
+      },
+      "degeneracies": [
+        "facet_error"
+      ],
+      "usable": false,
+      "surface_id": "surface:c77e4ee0d9f95dcbe3f5ffe337ccd3165469ee2e2dc22f370f33adf095a119d6",
+      "area_mm2": 1258.5950724778363,
+      "bounds_mm": [
+        [
+          12.78377914428711,
+          1.0000001192092896,
+          12.78377914428711
+        ],
+        [
+          67.63302612304688,
+          8.31286907196045,
+          67.63302612304688
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 362
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:9696dfb9379b3082d928e2273a1049741ec3ee39f4a360988da0dec61e8171a8",
+      "parameters": {
+        "origin_mm": [
+          39.78091046488163,
+          0.005043106633525615,
+          40.20840455405558
+        ],
+        "normal": [
+          -5.366083838217894e-06,
+          0.9999999999822596,
+          2.585700014784174e-06
+        ]
+      },
+      "used_points": 1023,
+      "rms_mm": 0.00591145054388539,
+      "max_residual_mm": 0.008101161345373954,
+      "coverage": {
+        "area_fraction": 0.047219491835412554,
+        "facet_bound_mm": 0.008101161345373954,
+        "bound_confirmed": true,
+        "condition_number": 4.067691567633074,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.008101161345373954
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:9696dfb9379b3082d928e2273a1049741ec3ee39f4a360988da0dec61e8171a8",
+      "area_mm2": 893.7689820058406,
+      "bounds_mm": [
+        [
+          13.821967124938965,
+          0.0,
+          13.808403015136719
+        ],
+        [
+          66.59484100341797,
+          0.013003125786781311,
+          66.60840606689453
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 1515
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:11a76a4eccf72e305a6aa3aa17fa906e8d1c1adfdf105a92cae24a8519e65f98",
+      "parameters": {
+        "origin_mm": [
+          40.208404541015625,
+          29.99999999994506,
+          40.208404541015625
+        ],
+        "normal": [
+          1.7996290802553866e-12,
+          1.0,
+          -5.39888779175294e-12
+        ]
+      },
+      "used_points": 102,
+      "rms_mm": 0.01689183600807105,
+      "max_residual_mm": 0.024623870858934548,
+      "coverage": {
+        "area_fraction": 0.01362981017235239,
+        "facet_bound_mm": 0.024623870858934548,
+        "bound_confirmed": true,
+        "condition_number": 2.9926787877783076,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.024623870858934548
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:11a76a4eccf72e305a6aa3aa17fa906e8d1c1adfdf105a92cae24a8519e65f98",
+      "area_mm2": 257.9845968088194,
+      "bounds_mm": [
+        [
+          28.89553451538086,
+          29.97537612915039,
+          28.89553451538086
+        ],
+        [
+          51.521270751953125,
+          30.0,
+          51.521270751953125
+        ]
+      ],
+      "alternatives": [
+        "cone",
+        "sphere"
+      ],
+      "supporting_faces": 150
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:8a8476f8278f59c1d29a1885d200387ca453023b2cf7ed9d1edb6f896a17f42f",
+      "parameters": {
+        "origin_mm": [
+          40.208431521571356,
+          -26.400032919514718,
+          40.208437694984056
+        ],
+        "axis": [
+          -5.309308551129294e-07,
+          0.9999999999996514,
+          -6.446013408720202e-07
+        ],
+        "half_angle_degrees": 44.99996483113318
+      },
+      "used_points": 100,
+      "rms_mm": 9.313771962261499e-07,
+      "max_residual_mm": 3.0365005028809587e-06,
+      "coverage": {
+        "area_fraction": 0.012606967190662266,
+        "facet_bound_mm": 0.06134869516611701,
+        "bound_confirmed": false,
+        "condition_number": 136.46631956390317,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 3.0365005028809587e-06,
+        "angle_degrees": 352.65305377107893,
+        "axial_span_mm": 1.000045019528727,
+        "radius_change_mm": 1.0000437918491727
+      },
+      "degeneracies": [
+        "facet_error"
+      ],
+      "usable": false,
+      "surface_id": "surface:8a8476f8278f59c1d29a1885d200387ca453023b2cf7ed9d1edb6f896a17f42f",
+      "area_mm2": 238.62425863145253,
+      "bounds_mm": [
+        [
+          12.822481155395508,
+          0.0,
+          12.808403015136719
+        ],
+        [
+          67.59432220458984,
+          1.0000001192092896,
+          67.60840606689453
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 100
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:cf2f4d3e4f153865394f41e86fb939f4ff2c0c07e0c637393a9f8d4be29c5474",
+      "parameters": {
+        "origin_mm": [
+          40.208404541015625,
+          20.0,
+          40.208404541015625
+        ],
+        "normal": [
+          0.0,
+          1.0,
+          0.0
+        ]
+      },
+      "used_points": 43,
+      "rms_mm": 0.0,
+      "max_residual_mm": 0.0,
+      "coverage": {
+        "area_fraction": 0.0049120989304849705,
+        "facet_bound_mm": 0.0,
+        "bound_confirmed": true,
+        "condition_number": 4.53104695158434,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.0
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:cf2f4d3e4f153865394f41e86fb939f4ff2c0c07e0c637393a9f8d4be29c5474",
+      "area_mm2": 92.97604633091396,
+      "bounds_mm": [
+        [
+          32.789451599121094,
+          20.0,
+          33.78340148925781
+        ],
+        [
+          47.62735366821289,
+          20.0,
+          46.63340377807617
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 43
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:13d48cc15a81f0bf285c3364d2a60a32a9f57fc419e3fc7304c006b7cfe8ba9f",
+      "parameters": {
+        "origin_mm": [
+          34.64418983459473,
+          25.0,
+          36.99590301513672
+        ],
+        "normal": [
+          -0.8660254487569419,
+          5.551115123125783e-17,
+          -0.49999992210533145
+        ]
+      },
+      "used_points": 4,
+      "rms_mm": 4.181982122493094e-16,
+      "max_residual_mm": 5.903696736104667e-16,
+      "coverage": {
+        "area_fraction": 0.003919572613237232,
+        "facet_bound_mm": 5.903696736104667e-16,
+        "bound_confirmed": true,
+        "condition_number": 2.6957977770700463,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 5.903696736104667e-16
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:13d48cc15a81f0bf285c3364d2a60a32a9f57fc419e3fc7304c006b7cfe8ba9f",
+      "area_mm2": 74.18954097688473,
+      "bounds_mm": [
+        [
+          32.789451599121094,
+          20.0,
+          33.78340148925781
+        ],
+        [
+          36.49892807006836,
+          30.0,
+          40.208404541015625
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 2
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:7390491647152d3df0e6c998d3ee3481d1eebef002381dbf95484601a48f5122",
+      "parameters": {
+        "origin_mm": [
+          45.77261543273926,
+          25.0,
+          36.99590301513672
+        ],
+        "normal": [
+          -0.8660254487569419,
+          5.551115123125783e-17,
+          0.49999992210533145
+        ]
+      },
+      "used_points": 4,
+      "rms_mm": 4.181982122493094e-16,
+      "max_residual_mm": 5.903696736104667e-16,
+      "coverage": {
+        "area_fraction": 0.003919572613237232,
+        "facet_bound_mm": 5.903696736104667e-16,
+        "bound_confirmed": true,
+        "condition_number": 2.69579777321215,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 5.903696736104667e-16
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:7390491647152d3df0e6c998d3ee3481d1eebef002381dbf95484601a48f5122",
+      "area_mm2": 74.18954097688473,
+      "bounds_mm": [
+        [
+          43.917877197265625,
+          20.0,
+          33.78340148925781
+        ],
+        [
+          47.62735366821289,
+          30.0,
+          40.208404541015625
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 2
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:e7a56fc4a7dd97d22765086a1fd0e799adfed28eeda55b41ddfe32e023d95df1",
+      "parameters": {
+        "origin_mm": [
+          34.64418983459473,
+          25.0,
+          43.4209041595459
+        ],
+        "normal": [
+          -0.8660253202112408,
+          0.0,
+          0.500000144752997
+        ]
+      },
+      "used_points": 4,
+      "rms_mm": 4.218965231155263e-17,
+      "max_residual_mm": 4.218965231155263e-17,
+      "coverage": {
+        "area_fraction": 0.003919570867870352,
+        "facet_bound_mm": 4.218965231155263e-17,
+        "bound_confirmed": true,
+        "condition_number": 2.6957989767366586,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 4.218965231155263e-17
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:e7a56fc4a7dd97d22765086a1fd0e799adfed28eeda55b41ddfe32e023d95df1",
+      "area_mm2": 74.18950794063807,
+      "bounds_mm": [
+        [
+          32.789451599121094,
+          20.0,
+          40.208404541015625
+        ],
+        [
+          36.49892807006836,
+          30.0,
+          46.63340377807617
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 2
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:8fb686a60577326f4fd9b1287863fdec7bf1c48f4c841e965bb30a73890140bc",
+      "parameters": {
+        "origin_mm": [
+          45.77261543273926,
+          25.0,
+          43.4209041595459
+        ],
+        "normal": [
+          -0.8660253202112408,
+          0.0,
+          -0.500000144752997
+        ]
+      },
+      "used_points": 4,
+      "rms_mm": 4.218965231155263e-17,
+      "max_residual_mm": 4.218965231155263e-17,
+      "coverage": {
+        "area_fraction": 0.003919570867870352,
+        "facet_bound_mm": 4.218965231155263e-17,
+        "bound_confirmed": true,
+        "condition_number": 2.6957989805945477,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 4.218965231155263e-17
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:8fb686a60577326f4fd9b1287863fdec7bf1c48f4c841e965bb30a73890140bc",
+      "area_mm2": 74.18950794063807,
+      "bounds_mm": [
+        [
+          43.917877197265625,
+          20.0,
+          40.208404541015625
+        ],
+        [
+          47.62735366821289,
+          30.0,
+          46.63340377807617
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 2
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:70b4c57d658f33ccb6caff8bc70506ac6754a432660a24affcf6b10faeea24b4",
+      "parameters": {
+        "origin_mm": [
+          40.20840263366699,
+          25.0,
+          33.78340148925781
+        ],
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "used_points": 4,
+      "rms_mm": 0.0,
+      "max_residual_mm": 0.0,
+      "coverage": {
+        "area_fraction": 0.0039195699872334915,
+        "facet_bound_mm": 0.0,
+        "bound_confirmed": true,
+        "condition_number": 2.6957995879337715,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.0
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:70b4c57d658f33ccb6caff8bc70506ac6754a432660a24affcf6b10faeea24b4",
+      "area_mm2": 74.18949127197266,
+      "bounds_mm": [
+        [
+          36.49892807006836,
+          20.0,
+          33.78340148925781
+        ],
+        [
+          43.917877197265625,
+          30.0,
+          33.78340148925781
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 2
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:1a9f5ef680144121d02f634cb7d1c87374963e2a24099ea90a3da0a2d07c21a9",
+      "parameters": {
+        "origin_mm": [
+          40.20840263366699,
+          25.0,
+          46.63340377807617
+        ],
+        "normal": [
+          0.0,
+          0.0,
+          1.0
+        ]
+      },
+      "used_points": 4,
+      "rms_mm": 0.0,
+      "max_residual_mm": 0.0,
+      "coverage": {
+        "area_fraction": 0.0039195699872334915,
+        "facet_bound_mm": 0.0,
+        "bound_confirmed": true,
+        "condition_number": 2.6957995879337715,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.0
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:1a9f5ef680144121d02f634cb7d1c87374963e2a24099ea90a3da0a2d07c21a9",
+      "area_mm2": 74.18949127197266,
+      "bounds_mm": [
+        [
+          36.49892807006836,
+          20.0,
+          46.63340377807617
+        ],
+        [
+          43.917877197265625,
+          30.0,
+          46.63340377807617
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 2
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:621157d390ddf95569d027848364e288821c74eea20fd04c1c2f4e193ed9f352",
+      "parameters": {
+        "origin_mm": [
+          40.20839329543001,
+          2.9922345058977706,
+          40.208393303591194
+        ],
+        "axis": [
+          7.861117551270981e-08,
+          0.9999999999999938,
+          7.85871481921519e-08
+        ],
+        "half_angle_degrees": 76.50011331019073
+      },
+      "used_points": 144,
+      "rms_mm": 3.4257771640021546e-07,
+      "max_residual_mm": 9.838485620948302e-07,
+      "coverage": {
+        "area_fraction": 0.003010702383406653,
+        "facet_bound_mm": 0.015804448364047072,
+        "bound_confirmed": true,
+        "condition_number": 6620.366290161795,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 9.838485620948302e-07,
+        "angle_degrees": 354.9999983922588,
+        "axial_span_mm": 0.07326960083251025,
+        "radius_change_mm": 0.30519251040980405
+      },
+      "degeneracies": [
+        "ambiguous_cylinder",
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:621157d390ddf95569d027848364e288821c74eea20fd04c1c2f4e193ed9f352",
+      "area_mm2": 56.98647528269005,
+      "bounds_mm": [
+        [
+          11.121271133422852,
+          9.90211296081543,
+          11.121271133422852
+        ],
+        [
+          69.2955322265625,
+          9.97537612915039,
+          69.2955322265625
+        ]
+      ],
+      "alternatives": [
+        "sphere"
+      ],
+      "supporting_faces": 144
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:b1c943422834c4df89ca604853e63da730392aa0a5c4f4c10e71c6a939b225a6",
+      "parameters": {
+        "origin_mm": [
+          40.20838647312386,
+          -2.019763080229543,
+          40.20838647308813
+        ],
+        "axis": [
+          2.0625194395385038e-07,
+          0.9999999999999574,
+          2.0625238819672233e-07
+        ],
+        "half_angle_degrees": 67.50000779194865
+      },
+      "used_points": 144,
+      "rms_mm": 6.124704577166456e-07,
+      "max_residual_mm": 1.6125533920443104e-06,
+      "coverage": {
+        "area_fraction": 0.0029799989875580937,
+        "facet_bound_mm": 0.01971661403433552,
+        "bound_confirmed": true,
+        "condition_number": 2331.1261335012036,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 1.6125533920443104e-06,
+        "angle_degrees": 354.99999588043295,
+        "axial_span_mm": 0.12011672730151597,
+        "radius_change_mm": 0.28998754366358787
+      },
+      "degeneracies": [
+        "ambiguous_cylinder",
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:b1c943422834c4df89ca604853e63da730392aa0a5c4f4c10e71c6a939b225a6",
+      "area_mm2": 56.405322420068416,
+      "bounds_mm": [
+        [
+          11.426437377929688,
+          9.782012939453125,
+          11.426437377929688
+        ],
+        [
+          68.99037170410156,
+          9.90211296081543,
+          68.99037170410156
+        ]
+      ],
+      "alternatives": [
+        "sphere"
+      ],
+      "supporting_faces": 144
+    },
+    {
+      "kind": "sphere",
+      "region_id": "surface:d81f3ebb3ae1eec6f06bff0fd5ab8e39b1a2e1232591822fb16d3725d678d909",
+      "parameters": {
+        "center_mm": [
+          40.208402973105926,
+          55.976231892012386,
+          40.20840297310593
+        ],
+        "radius_mm": 54.27431246419276
+      },
+      "used_points": 144,
+      "rms_mm": 7.515572077304597e-07,
+      "max_residual_mm": 1.8569354149146422e-06,
+      "coverage": {
+        "area_fraction": 0.0029513428858517782,
+        "facet_bound_mm": 0.014345603296639808,
+        "bound_confirmed": true,
+        "condition_number": 1143.2045857988728,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 1.8569354149146422e-06,
+        "direction_spread": [
+          2.2980373258054123e-06,
+          0.1374597427355568,
+          0.13745974273555686
+        ]
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:d81f3ebb3ae1eec6f06bff0fd5ab8e39b1a2e1232591822fb16d3725d678d909",
+      "area_mm2": 55.86292067335793,
+      "bounds_mm": [
+        [
+          11.716384887695312,
+          9.618033409118652,
+          11.716384887695312
+        ],
+        [
+          68.70042419433594,
+          9.782012939453125,
+          68.70042419433594
+        ]
+      ],
+      "alternatives": [
+        "cone"
+      ],
+      "supporting_faces": 144
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:3e86e929b2ab48745ab9211b217303544b23a88df1950c7560c2f57d959c58ef",
+      "parameters": {
+        "origin_mm": [
+          40.20837366388553,
+          -14.487829457536012,
+          40.20837366438901
+        ],
+        "axis": [
+          5.106575215918588e-07,
+          0.9999999999997393,
+          5.106523910790973e-07
+        ],
+        "half_angle_degrees": 49.50009076003426
+      },
+      "used_points": 144,
+      "rms_mm": 9.198163368690118e-07,
+      "max_residual_mm": 2.708319927803487e-06,
+      "coverage": {
+        "area_fraction": 0.002925418394626584,
+        "facet_bound_mm": 0.019709229569010504,
+        "bound_confirmed": true,
+        "condition_number": 734.0898159231041,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 2.708319927803487e-06,
+        "angle_degrees": 354.9999934009787,
+        "axial_span_mm": 0.2038608221976901,
+        "radius_change_mm": 0.23869112084543306
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:3e86e929b2ab48745ab9211b217303544b23a88df1950c7560c2f57d959c58ef",
+      "area_mm2": 55.37222275962087,
+      "bounds_mm": [
+        [
+          11.983973503112793,
+          9.414213180541992,
+          11.983973503112793
+        ],
+        [
+          68.43283081054688,
+          9.618033409118652,
+          68.43283081054688
+        ]
+      ],
+      "alternatives": [
+        "sphere"
+      ],
+      "supporting_faces": 144
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:affbfc710a8111de74b63ca6514d41c9c9c5b841ecaebbde9ad99b6e003057b2",
+      "parameters": {
+        "origin_mm": [
+          40.2084801150061,
+          -23.35293996757266,
+          40.2084801151404
+        ],
+        "axis": [
+          -1.3678018178923445e-06,
+          0.9999999999981292,
+          -1.3678034625909797e-06
+        ],
+        "half_angle_degrees": 40.49999332502619
+      },
+      "used_points": 144,
+      "rms_mm": 1.1827633535356802e-06,
+      "max_residual_mm": 3.1946283617516013e-06,
+      "coverage": {
+        "area_fraction": 0.002902815790441407,
+        "facet_bound_mm": 0.02250176807950891,
+        "bound_confirmed": true,
+        "condition_number": 587.498513913661,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 3.1946283617516013e-06,
+        "angle_degrees": 354.9999901667812,
+        "axial_span_mm": 0.23875056776149337,
+        "radius_change_mm": 0.2039122004646297
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:affbfc710a8111de74b63ca6514d41c9c9c5b841ecaebbde9ad99b6e003057b2",
+      "area_mm2": 54.944401414069745,
+      "bounds_mm": [
+        [
+          12.222616195678711,
+          9.175570487976074,
+          12.222616195678711
+        ],
+        [
+          68.1941909790039,
+          9.414213180541992,
+          68.1941909790039
+        ]
+      ],
+      "alternatives": [
+        "sphere"
+      ],
+      "supporting_faces": 144
+    },
+    {
+      "kind": "sphere",
+      "region_id": "surface:e20148e943936b6d5743d1398e0e282f2d5801dad873b1c62a289cc8b1a8fcb0",
+      "parameters": {
+        "center_mm": [
+          40.20840328219189,
+          26.016276849155517,
+          40.20840328219189
+        ],
+        "radius_mm": 32.4876441585607
+      },
+      "used_points": 144,
+      "rms_mm": 1.2442045623195452e-06,
+      "max_residual_mm": 3.727013446851739e-06,
+      "coverage": {
+        "area_fraction": 0.0028840819459149485,
+        "facet_bound_mm": 0.022869514815020864,
+        "bound_confirmed": true,
+        "condition_number": 309.10611501022953,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 3.727013446851739e-06,
+        "direction_spread": [
+          1.707923382924167e-05,
+          0.36603501563402746,
+          0.3660350156340276
+        ]
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:e20148e943936b6d5743d1398e0e282f2d5801dad873b1c62a289cc8b1a8fcb0",
+      "area_mm2": 54.589807823570496,
+      "bounds_mm": [
+        [
+          12.426437377929688,
+          8.907980918884277,
+          12.426437377929688
+        ],
+        [
+          67.99037170410156,
+          9.175570487976074,
+          67.99037170410156
+        ]
+      ],
+      "alternatives": [
+        "cone"
+      ],
+      "supporting_faces": 144
+    },
+    {
+      "kind": "sphere",
+      "region_id": "surface:89d3df0e56f662f6e251573714e334c8e2d21aab8fdcdf1434891345901acf52",
+      "parameters": {
+        "center_mm": [
+          40.20840333086966,
+          20.177884574007066,
+          40.20840333086966
+        ],
+        "radius_mm": 29.82891150766092
+      },
+      "used_points": 144,
+      "rms_mm": 1.145541694791507e-06,
+      "max_residual_mm": 2.7846523368288087e-06,
+      "coverage": {
+        "area_fraction": 0.002869646162026554,
+        "facet_bound_mm": 0.02465198067889318,
+        "bound_confirmed": true,
+        "condition_number": 235.8856384183171,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 2.7846523368288087e-06,
+        "direction_spread": [
+          2.3786493123329164e-05,
+          0.4297512288544632,
+          0.4297512288544634
+        ]
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:89d3df0e56f662f6e251573714e334c8e2d21aab8fdcdf1434891345901acf52",
+      "area_mm2": 54.316567782882245,
+      "bounds_mm": [
+        [
+          12.590415954589844,
+          8.618033409118652,
+          12.590415954589844
+        ],
+        [
+          67.8263931274414,
+          8.907980918884277,
+          67.8263931274414
+        ]
+      ],
+      "alternatives": [
+        "cone"
+      ],
+      "supporting_faces": 144
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:2d5d3037a2c6fbdef15ee71c808b2d9337e674994afc8d033beb649217e95824",
+      "parameters": {
+        "origin_mm": [
+          40.20831196305741,
+          -105.91810036340601,
+          40.20831195499365
+        ],
+        "axis": [
+          7.536982035617186e-07,
+          0.999999999999432,
+          7.5372541077623e-07
+        ],
+        "half_angle_degrees": 13.500091936125958
+      },
+      "used_points": 144,
+      "rms_mm": 1.0773073892047165e-06,
+      "max_residual_mm": 3.7116862177173025e-06,
+      "coverage": {
+        "area_fraction": 0.0028598179131560926,
+        "facet_bound_mm": 0.034316395302705346,
+        "bound_confirmed": false,
+        "condition_number": 6580.9174218311655,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 3.7116862177173025e-06,
+        "angle_degrees": 354.99999593973956,
+        "axial_span_mm": 0.30522287957718575,
+        "radius_change_mm": 0.07327804815747145
+      },
+      "degeneracies": [
+        "ambiguous_cylinder",
+        "facet_error"
+      ],
+      "usable": false,
+      "surface_id": "surface:2d5d3037a2c6fbdef15ee71c808b2d9337e674994afc8d033beb649217e95824",
+      "area_mm2": 54.130539012846555,
+      "bounds_mm": [
+        [
+          12.710515022277832,
+          8.31286907196045,
+          12.710515022277832
+        ],
+        [
+          67.70629119873047,
+          8.618033409118652,
+          67.70629119873047
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 144
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:3a5512c97b292cdc4fd9783d07729e153e33be52c89745ae12459c17b2a01693",
+      "parameters": {
+        "origin_mm": [
+          40.2082913825404,
+          -85.72689342529938,
+          40.20827210230186
+        ],
+        "axis": [
+          9.887603329529464e-07,
+          0.9999999999988389,
+          1.1595610702082504e-06
+        ],
+        "half_angle_degrees": 22.500091182408763
+      },
+      "used_points": 336,
+      "rms_mm": 0.012273528734894281,
+      "max_residual_mm": 0.012277597594416495,
+      "coverage": {
+        "area_fraction": 0.0062350633493440475,
+        "facet_bound_mm": 0.047455810756746326,
+        "bound_confirmed": false,
+        "condition_number": 1947.6994063007369,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.012277597594416495,
+        "angle_degrees": 355.71428402369366,
+        "axial_span_mm": 0.43147224344718393,
+        "radius_change_mm": 0.17872245949528182
+      },
+      "degeneracies": [
+        "ambiguous_cylinder",
+        "facet_error"
+      ],
+      "usable": false,
+      "surface_id": "surface:3a5512c97b292cdc4fd9783d07729e153e33be52c89745ae12459c17b2a01693",
+      "area_mm2": 118.01707315930643,
+      "bounds_mm": [
+        [
+          0.22071599960327148,
+          10.412214279174805,
+          0.22071599960327148
+        ],
+        [
+          80.19609069824219,
+          10.843564987182617,
+          80.19609069824219
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 504
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:3399173d3ed35b4bde38c75b7b169881dd5627c5a4ad4a6bf1bcebb23ab72d2a",
+      "parameters": {
+        "origin_mm": [
+          40.20841810475833,
+          -29.40173058456257,
+          40.20841893498531
+        ],
+        "axis": [
+          -1.9139027911468694e-07,
+          0.9999999999999614,
+          -2.018463718147633e-07
+        ],
+        "half_angle_degrees": 45.000017612006026
+      },
+      "used_points": 252,
+      "rms_mm": 0.0058348783876011135,
+      "max_residual_mm": 0.008812451765991571,
+      "coverage": {
+        "area_fraction": 0.004133769706916373,
+        "facet_bound_mm": 0.023768120766863358,
+        "bound_confirmed": true,
+        "condition_number": 1005.3280227173436,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.008812451765991571,
+        "angle_degrees": 355.71428339333994,
+        "axial_span_mm": 0.22125354418078735,
+        "radius_change_mm": 0.2212536802019737
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:3399173d3ed35b4bde38c75b7b169881dd5627c5a4ad4a6bf1bcebb23ab72d2a",
+      "area_mm2": 78.24385649204328,
+      "bounds_mm": [
+        [
+          0.39938464760780334,
+          10.190982818603516,
+          0.39938464760780334
+        ],
+        [
+          80.01741790771484,
+          10.412214279174805,
+          80.01741790771484
+        ]
+      ],
+      "alternatives": [
+        "sphere"
+      ],
+      "supporting_faces": 336
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:7348aaa7a8cdde36c5013c4f0399f8ca42c3720dd43581c91d95311f22dfea05",
+      "parameters": {
+        "origin_mm": [
+          40.208362402283186,
+          -9.983886797072348,
+          40.20835661107762
+        ],
+        "axis": [
+          4.147332209342607e-07,
+          0.9999999999998017,
+          4.7411437948122997e-07
+        ],
+        "half_angle_degrees": 63.00005154122601
+      },
+      "used_points": 252,
+      "rms_mm": 0.005834953547658636,
+      "max_residual_mm": 0.00881138126940056,
+      "coverage": {
+        "area_fraction": 0.00410674870135509,
+        "facet_bound_mm": 0.019151064338560893,
+        "bound_confirmed": true,
+        "condition_number": 2488.4480877502165,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.00881138126940056,
+        "angle_degrees": 355.7142791150566,
+        "axial_span_mm": 0.14208897564561965,
+        "radius_change_mm": 0.27886593647282065
+      },
+      "degeneracies": [
+        "ambiguous_cylinder",
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:7348aaa7a8cdde36c5013c4f0399f8ca42c3720dd43581c91d95311f22dfea05",
+      "area_mm2": 77.73240379116584,
+      "bounds_mm": [
+        [
+          0.620618462562561,
+          10.048943519592285,
+          0.620618462562561
+        ],
+        [
+          79.79618835449219,
+          10.190982818603516,
+          79.79618835449219
+        ]
+      ],
+      "alternatives": [
+        "sphere",
+        "torus"
+      ],
+      "supporting_faces": 336
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:7a9b383cc3b853bd7f9b88d0307aa9a9a1701530cddaedc033d3168f51778ba1",
+      "parameters": {
+        "origin_mm": [
+          40.208404541015625,
+          10.030627250670666,
+          40.208404541015625
+        ],
+        "normal": [
+          -6.68751230099558e-12,
+          -1.0,
+          -6.68751230099558e-12
+        ]
+      },
+      "used_points": 168,
+      "rms_mm": 0.018316268920898438,
+      "max_residual_mm": 0.018316269293127282,
+      "coverage": {
+        "area_fraction": 0.002041779541938187,
+        "facet_bound_mm": 0.018316269293127282,
+        "bound_confirmed": true,
+        "condition_number": 2.8339218137385003,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.018316269293127282
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:7a9b383cc3b853bd7f9b88d0307aa9a9a1701530cddaedc033d3168f51778ba1",
+      "area_mm2": 38.64673573869055,
+      "bounds_mm": [
+        [
+          0.8993856906890869,
+          10.012310981750488,
+          0.8993856906890869
+        ],
+        [
+          79.51741790771484,
+          10.048943519592285,
+          79.51741790771484
+        ]
+      ],
+      "alternatives": [
+        "cone",
+        "sphere",
+        "torus"
+      ],
+      "supporting_faces": 168
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:96a634f165509d225f91fac4d2a0f22baf4c8597869bfc7ca573a1a28112419d",
+      "parameters": {
+        "origin_mm": [
+          40.208404541015625,
+          9.98684024810791,
+          20.509998321533203
+        ],
+        "normal": [
+          1.2338873851832237e-10,
+          -0.9999998919095701,
+          0.0004649525225048925
+        ]
+      },
+      "used_points": 34,
+      "rms_mm": 0.005329981462207415,
+      "max_residual_mm": 0.013243715208169164,
+      "coverage": {
+        "area_fraction": 0.0018495072645506672,
+        "facet_bound_mm": 0.013243715208169164,
+        "bound_confirmed": true,
+        "condition_number": 5.297984994124658,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.013243715208169164
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:96a634f165509d225f91fac4d2a0f22baf4c8597869bfc7ca573a1a28112419d",
+      "area_mm2": 35.007412422218295,
+      "bounds_mm": [
+        [
+          36.76414108276367,
+          9.98684024810791,
+          20.16866683959961
+        ],
+        [
+          43.65266418457031,
+          10.0,
+          30.08877944946289
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 38
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:ce827f1291d4d4455931f231d2697dc4fa64c52532d35448a8dccfc454726f1c",
+      "parameters": {
+        "origin_mm": [
+          40.208404541015625,
+          9.98684024810791,
+          59.90680694580078
+        ],
+        "normal": [
+          -1.2338872259573997e-10,
+          0.9999998919095708,
+          0.0004649525210107542
+        ]
+      },
+      "used_points": 34,
+      "rms_mm": 0.005329981591645748,
+      "max_residual_mm": 0.013243715207899352,
+      "coverage": {
+        "area_fraction": 0.001849507095550036,
+        "facet_bound_mm": 0.013243715207899352,
+        "bound_confirmed": true,
+        "condition_number": 5.2979845361129705,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.013243715207899352
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:ce827f1291d4d4455931f231d2697dc4fa64c52532d35448a8dccfc454726f1c",
+      "area_mm2": 35.00740922337993,
+      "bounds_mm": [
+        [
+          36.76414108276367,
+          9.98684024810791,
+          50.328025817871094
+        ],
+        [
+          43.65266418457031,
+          10.0,
+          60.248138427734375
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 38
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:00cfa9236bba7f9da0c6e5ed39c11fb57941bcff22203a5921898265bc9a4f68",
+      "parameters": {
+        "origin_mm": [
+          57.04881174145751,
+          9.988571918725242,
+          49.45193145158715
+        ],
+        "normal": [
+          -0.00045193069231633866,
+          -0.99999986383913,
+          -0.00026092215526310166
+        ]
+      },
+      "used_points": 34,
+      "rms_mm": 0.004934644080967603,
+      "max_residual_mm": 0.011779283947455343,
+      "coverage": {
+        "area_fraction": 0.0018495065812949591,
+        "facet_bound_mm": 0.011779283947455343,
+        "bound_confirmed": true,
+        "condition_number": 5.398926135355638,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.011779283947455343
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:00cfa9236bba7f9da0c6e5ed39c11fb57941bcff22203a5921898265bc9a4f68",
+      "area_mm2": 35.00739948957682,
+      "bounds_mm": [
+        [
+          48.97225570678711,
+          9.98684024810791,
+          45.26821517944336
+        ],
+        [
+          58.990665435791016,
+          10.0,
+          53.01552963256836
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 38
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:bb3b7f1c9becc2bd258411d5f3e9e18932da89d3a9193c3270c221f6033f9c4c",
+      "parameters": {
+        "origin_mm": [
+          57.04881174145814,
+          9.988571919110214,
+          30.96487476942027
+        ],
+        "normal": [
+          0.0004519309532645146,
+          0.9999998638388943,
+          -0.00026092260661850474
+        ]
+      },
+      "used_points": 34,
+      "rms_mm": 0.004934643890758134,
+      "max_residual_mm": 0.011779283725707837,
+      "coverage": {
+        "area_fraction": 0.001849506408188194,
+        "facet_bound_mm": 0.011779283725707837,
+        "bound_confirmed": true,
+        "condition_number": 5.398926398645897,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.011779283725707837
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:bb3b7f1c9becc2bd258411d5f3e9e18932da89d3a9193c3270c221f6033f9c4c",
+      "area_mm2": 35.007396213017685,
+      "bounds_mm": [
+        [
+          48.97225570678711,
+          9.98684024810791,
+          27.401275634765625
+        ],
+        [
+          58.990665435791016,
+          10.0,
+          35.148590087890625
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 38
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:324100dea8fec8390b580b054826960e92e87e28d8dfecbb73f29fdd59e99398",
+      "parameters": {
+        "origin_mm": [
+          23.367993525876095,
+          9.988571918409786,
+          49.45193145158723
+        ],
+        "normal": [
+          0.00045193099224360213,
+          -0.9999998638389703,
+          -0.0002609222473538459
+        ]
+      },
+      "used_points": 34,
+      "rms_mm": 0.004934643964431729,
+      "max_residual_mm": 0.01177928443956432,
+      "coverage": {
+        "area_fraction": 0.0018495061916815646,
+        "facet_bound_mm": 0.01177928443956432,
+        "bound_confirmed": true,
+        "condition_number": 5.398926607739115,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.01177928443956432
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:324100dea8fec8390b580b054826960e92e87e28d8dfecbb73f29fdd59e99398",
+      "area_mm2": 35.007392114987354,
+      "bounds_mm": [
+        [
+          21.42613983154297,
+          9.98684024810791,
+          45.26821517944336
+        ],
+        [
+          31.444549560546875,
+          10.0,
+          53.01552963256836
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 38
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:9c6f330bbd2f28b0c8d357392cd4cdf998131de14dfb477a3b7e375a4abaeae9",
+      "parameters": {
+        "origin_mm": [
+          23.36799352587547,
+          9.988571918794884,
+          30.96487476942019
+        ],
+        "normal": [
+          -0.0004519312533993653,
+          0.9999998638387345,
+          -0.0002609226988763352
+        ]
+      },
+      "used_points": 34,
+      "rms_mm": 0.004934643774222581,
+      "max_residual_mm": 0.01177928421788646,
+      "coverage": {
+        "area_fraction": 0.0018495060185698081,
+        "facet_bound_mm": 0.01177928421788646,
+        "bound_confirmed": true,
+        "condition_number": 5.398926871130432,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 0.01177928421788646
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:9c6f330bbd2f28b0c8d357392cd4cdf998131de14dfb477a3b7e375a4abaeae9",
+      "area_mm2": 35.007388838333746,
+      "bounds_mm": [
+        [
+          21.42613983154297,
+          9.98684024810791,
+          27.401275634765625
+        ],
+        [
+          31.444549560546875,
+          10.0,
+          35.148590087890625
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 38
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:a9d60560473c1c9850fafa5cd530e522d6e93289210cc1c9d782d5806843013a",
+      "parameters": {
+        "origin_mm": [
+          40.20839702189685,
+          18.55072212700978,
+          40.20839702187748
+        ],
+        "axis": [
+          9.323619836157712e-08,
+          -0.9999999999999913,
+          9.323647643979675e-08
+        ],
+        "half_angle_degrees": 76.49988522123007
+      },
+      "used_points": 104,
+      "rms_mm": 1.9982116408506271e-07,
+      "max_residual_mm": 5.338205466479305e-07,
+      "coverage": {
+        "area_fraction": 0.0015106571530059164,
+        "facet_bound_mm": 0.015416107118659473,
+        "bound_confirmed": true,
+        "condition_number": 3342.728765643339,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 5.338205466479305e-07,
+        "angle_degrees": 353.0769165751969,
+        "axial_span_mm": 0.07326794795417739,
+        "radius_change_mm": 0.30518027350511934
+      },
+      "degeneracies": [
+        "ambiguous_cylinder",
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:a9d60560473c1c9850fafa5cd530e522d6e93289210cc1c9d782d5806843013a",
+      "area_mm2": 28.59366870164758,
+      "bounds_mm": [
+        [
+          25.521272659301758,
+          15.024622917175293,
+          25.521272659301758
+        ],
+        [
+          54.89553451538086,
+          15.09788703918457,
+          54.89553451538086
+        ]
+      ],
+      "alternatives": [
+        "sphere",
+        "torus"
+      ],
+      "supporting_faces": 104
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:7720b44e80d26309cde6c278b28e3b1dfbaeb0de9dad5397c8229014269554a8",
+      "parameters": {
+        "origin_mm": [
+          40.20841267694646,
+          21.055090296604174,
+          40.20841267694196
+        ],
+        "axis": [
+          -2.3963200984574124e-07,
+          -0.9999999999999427,
+          -2.396318981350504e-07
+        ],
+        "half_angle_degrees": 67.5000075728749
+      },
+      "used_points": 104,
+      "rms_mm": 3.424409569275115e-07,
+      "max_residual_mm": 8.750709357059922e-07,
+      "coverage": {
+        "area_fraction": 0.0014799830720903838,
+        "facet_bound_mm": 0.018995973380827084,
+        "bound_confirmed": true,
+        "condition_number": 1164.7474386880942,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 8.750709357059922e-07,
+        "angle_degrees": 353.0769182349805,
+        "axial_span_mm": 0.1201096533276153,
+        "radius_change_mm": 0.28997046243735647
+      },
+      "degeneracies": [
+        "ambiguous_cylinder",
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:7720b44e80d26309cde6c278b28e3b1dfbaeb0de9dad5397c8229014269554a8",
+      "area_mm2": 28.013070711110124,
+      "bounds_mm": [
+        [
+          25.82643699645996,
+          15.09788703918457,
+          25.82643699645996
+        ],
+        [
+          54.590370178222656,
+          15.217987060546875,
+          54.590370178222656
+        ]
+      ],
+      "alternatives": [
+        "sphere",
+        "torus"
+      ],
+      "supporting_faces": 104
+    },
+    {
+      "kind": "sphere",
+      "region_id": "surface:5f5509eef38d7365f238a25bfc38bb7c9a8eea2c1ac13517fd4fb80500bd54b4",
+      "parameters": {
+        "center_mm": [
+          40.20840298717176,
+          -7.477891239603654,
+          40.208402987171816
+        ],
+        "radius_mm": 26.714937640961928
+      },
+      "used_points": 104,
+      "rms_mm": 4.2879848710336284e-07,
+      "max_residual_mm": 8.459344537132182e-07,
+      "coverage": {
+        "area_fraction": 0.0014513400619406104,
+        "facet_bound_mm": 0.013793800514307009,
+        "bound_confirmed": true,
+        "condition_number": 562.7080832923682,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 8.459344537132182e-07,
+        "direction_spread": [
+          9.51047084422867e-06,
+          0.13783452662646975,
+          0.13783452662646983
+        ]
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:5f5509eef38d7365f238a25bfc38bb7c9a8eea2c1ac13517fd4fb80500bd54b4",
+      "area_mm2": 27.470916760949507,
+      "bounds_mm": [
+        [
+          26.116384506225586,
+          15.217987060546875,
+          26.116384506225586
+        ],
+        [
+          54.30042266845703,
+          15.381965637207031,
+          54.30042266845703
+        ]
+      ],
+      "alternatives": [
+        "cone",
+        "torus"
+      ],
+      "supporting_faces": 104
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:dedafdc2f6dfb3c8938b846561e857944eb3d77a9b3b3a78f2435ca0162b4170",
+      "parameters": {
+        "origin_mm": [
+          40.208398130047385,
+          27.18916420976418,
+          40.2083981300295
+        ],
+        "axis": [
+          1.6836951925865498e-07,
+          -0.9999999999999716,
+          1.6837011523774318e-07
+        ],
+        "half_angle_degrees": 49.49995017853906
+      },
+      "used_points": 104,
+      "rms_mm": 4.7207522013872404e-07,
+      "max_residual_mm": 9.396475949197022e-07,
+      "coverage": {
+        "area_fraction": 0.0014254052010756867,
+        "facet_bound_mm": 0.024955908149341607,
+        "bound_confirmed": true,
+        "condition_number": 359.1894011963852,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 9.396475949197022e-07,
+        "angle_degrees": 353.07691853880414,
+        "axial_span_mm": 0.2038267433403702,
+        "radius_change_mm": 0.23865003379284877
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:dedafdc2f6dfb3c8938b846561e857944eb3d77a9b3b3a78f2435ca0162b4170",
+      "area_mm2": 26.980022571014107,
+      "bounds_mm": [
+        [
+          26.383974075317383,
+          15.381965637207031,
+          26.383974075317383
+        ],
+        [
+          54.032833099365234,
+          15.585785865783691,
+          54.032833099365234
+        ]
+      ],
+      "alternatives": [
+        "sphere",
+        "torus"
+      ],
+      "supporting_faces": 104
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:e365e2b67e8aa365b4f8ac0c54f1d0b56eb9028bb2524190fbea1004d3637c1e",
+      "parameters": {
+        "origin_mm": [
+          40.208429258312655,
+          31.492727908970842,
+          40.208429258326326
+        ],
+        "axis": [
+          -9.63144534150112e-07,
+          -0.9999999999990724,
+          -9.63145034776863e-07
+        ],
+        "half_angle_degrees": 40.499947128634474
+      },
+      "used_points": 104,
+      "rms_mm": 6.203770028991378e-07,
+      "max_residual_mm": 1.413797729073136e-06,
+      "coverage": {
+        "area_fraction": 0.0014028017510918352,
+        "facet_bound_mm": 0.02096832336030709,
+        "bound_confirmed": true,
+        "condition_number": 284.50173630332193,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 1.413797729073136e-06,
+        "angle_degrees": 353.07691296080475,
+        "axial_span_mm": 0.2386803117954751,
+        "radius_change_mm": 0.20385186339426078
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:e365e2b67e8aa365b4f8ac0c54f1d0b56eb9028bb2524190fbea1004d3637c1e",
+      "area_mm2": 26.552185216213605,
+      "bounds_mm": [
+        [
+          26.622615814208984,
+          15.585785865783691,
+          26.622615814208984
+        ],
+        [
+          53.794189453125,
+          15.824429512023926,
+          53.794189453125
+        ]
+      ],
+      "alternatives": [
+        "sphere"
+      ],
+      "supporting_faces": 104
+    },
+    {
+      "kind": "sphere",
+      "region_id": "surface:8fff7dcc3a5418d8d98c2ec189f6f169f4d60dded3a7cf4990d2c63f0c16635a",
+      "parameters": {
+        "center_mm": [
+          40.20840297908819,
+          7.807960631548269,
+          40.20840297908814
+        ],
+        "radius_mm": 15.59938422297533
+      },
+      "used_points": 104,
+      "rms_mm": 8.702341775214961e-07,
+      "max_residual_mm": 1.832191697334461e-06,
+      "coverage": {
+        "area_fraction": 0.0013840397351939397,
+        "facet_bound_mm": 0.021495508220311876,
+        "bound_confirmed": true,
+        "condition_number": 148.42131612348376,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 1.832191697334461e-06,
+        "direction_spread": [
+          7.42773631252221e-05,
+          0.3670028694890631,
+          0.36700286948906335
+        ]
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:8fff7dcc3a5418d8d98c2ec189f6f169f4d60dded3a7cf4990d2c63f0c16635a",
+      "area_mm2": 26.19705839892618,
+      "bounds_mm": [
+        [
+          26.82643699645996,
+          15.824429512023926,
+          26.82643699645996
+        ],
+        [
+          53.590370178222656,
+          16.092018127441406,
+          53.590370178222656
+        ]
+      ],
+      "alternatives": [
+        "cone"
+      ],
+      "supporting_faces": 104
+    },
+    {
+      "kind": "sphere",
+      "region_id": "surface:920dfc596490e6a6eb28782b7cb8a07bc3326747d30f30c42ba26ac35f3d77c5",
+      "parameters": {
+        "center_mm": [
+          40.20840298369785,
+          10.786812169445408,
+          40.20840298369788
+        ],
+        "radius_mm": 14.242906648492536
+      },
+      "used_points": 104,
+      "rms_mm": 8.672747537045774e-07,
+      "max_residual_mm": 2.0109713740728707e-06,
+      "coverage": {
+        "area_fraction": 0.0013695798618791845,
+        "facet_bound_mm": 0.023053253035872245,
+        "bound_confirmed": true,
+        "condition_number": 112.63181070344349,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 2.0109713740728707e-06,
+        "direction_spread": [
+          0.00010461106750381255,
+          0.4308772037017486,
+          0.4308772037017493
+        ]
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:920dfc596490e6a6eb28782b7cb8a07bc3326747d30f30c42ba26ac35f3d77c5",
+      "area_mm2": 25.923362394371345,
+      "bounds_mm": [
+        [
+          26.990415573120117,
+          16.092018127441406,
+          26.990415573120117
+        ],
+        [
+          53.426387786865234,
+          16.38196563720703,
+          53.426387786865234
+        ]
+      ],
+      "alternatives": [
+        "cone"
+      ],
+      "supporting_faces": 104
+    },
+    {
+      "kind": "sphere",
+      "region_id": "surface:c1d8504fdf5a8a1cc823076de00d335c3d6dbb19c717a2f9db9be0935e00bcb0",
+      "parameters": {
+        "center_mm": [
+          40.208403140240954,
+          13.398828352554398,
+          40.20840314024096
+        ],
+        "radius_mm": 13.433307691296134
+      },
+      "used_points": 104,
+      "rms_mm": 8.079823825963799e-07,
+      "max_residual_mm": 1.9654663986238334e-06,
+      "coverage": {
+        "area_fraction": 0.0013597477500806826,
+        "facet_bound_mm": 0.02409231441376214,
+        "bound_confirmed": true,
+        "condition_number": 92.8370401237601,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 1.9654663986238334e-06,
+        "direction_spread": [
+          0.00013026963150972488,
+          0.47728023060369534,
+          0.4772802306036955
+        ]
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:c1d8504fdf5a8a1cc823076de00d335c3d6dbb19c717a2f9db9be0935e00bcb0",
+      "area_mm2": 25.737260506961277,
+      "bounds_mm": [
+        [
+          27.110515594482422,
+          16.38196563720703,
+          27.110515594482422
+        ],
+        [
+          53.30628967285156,
+          16.687131881713867,
+          53.30628967285156
+        ]
+      ],
+      "alternatives": [
+        "cone"
+      ],
+      "supporting_faces": 104
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:9808377a0ed2af37e6525263183bc35720389eeecc5e300dc6179f1f732af300",
+      "parameters": {
+        "origin_mm": [
+          40.2084231798452,
+          59.766359332335,
+          40.20842317981507
+        ],
+        "axis": [
+          -5.485296907167679e-07,
+          -0.9999999999996992,
+          -5.48528261466833e-07
+        ],
+        "half_angle_degrees": 22.500085389523072
+      },
+      "used_points": 96,
+      "rms_mm": 7.713833568382695e-07,
+      "max_residual_mm": 1.8422199617087197e-06,
+      "coverage": {
+        "area_fraction": 0.0013364907772309242,
+        "facet_bound_mm": 0.035018233661992755,
+        "bound_confirmed": false,
+        "condition_number": 694.0567719382583,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 1.8422199617087197e-06,
+        "angle_degrees": 352.49999498566183,
+        "axial_span_mm": 0.2899655265459572,
+        "radius_change_mm": 0.12010816000430169
+      },
+      "degeneracies": [
+        "ambiguous_cylinder",
+        "facet_error"
+      ],
+      "usable": false,
+      "surface_id": "surface:9808377a0ed2af37e6525263183bc35720389eeecc5e300dc6179f1f732af300",
+      "area_mm2": 25.29705329293791,
+      "bounds_mm": [
+        [
+          27.306289672851562,
+          28.61803436279297,
+          27.306289672851562
+        ],
+        [
+          53.11051559448242,
+          28.90797996520996,
+          53.11051559448242
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 96
+    },
+    {
+      "kind": "sphere",
+      "region_id": "surface:14f5ef7f14e6afa917873cb741f97575d327583e8d9b31bb76ca62a3b36d7b9b",
+      "parameters": {
+        "center_mm": [
+          40.208403216342255,
+          21.25919312331899,
+          40.20840321634227
+        ],
+        "radius_mm": 14.895764489112185
+      },
+      "used_points": 96,
+      "rms_mm": 7.413606133451159e-07,
+      "max_residual_mm": 1.829508895152353e-06,
+      "coverage": {
+        "area_fraction": 0.0013213562942107362,
+        "facet_bound_mm": 0.02403268375361378,
+        "bound_confirmed": true,
+        "condition_number": 141.7258659850018,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 1.829508895152353e-06,
+        "direction_spread": [
+          8.152680114897892e-05,
+          0.36729853340839574,
+          0.3672985334083962
+        ]
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:14f5ef7f14e6afa917873cb741f97575d327583e8d9b31bb76ca62a3b36d7b9b",
+      "area_mm2": 25.01058829815807,
+      "bounds_mm": [
+        [
+          27.426389694213867,
+          28.90797996520996,
+          27.426389694213867
+        ],
+        [
+          52.99041748046875,
+          29.175569534301758,
+          52.99041748046875
+        ]
+      ],
+      "alternatives": [
+        "cone"
+      ],
+      "supporting_faces": 96
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:67f01eb88ad1c91796ce0c8623f15643b3507a746a5b0cc234e37b3206984c2e",
+      "parameters": {
+        "origin_mm": [
+          40.208384506021204,
+          43.94949944102008,
+          40.208384505987425
+        ],
+        "axis": [
+          7.269584194469105e-07,
+          -0.9999999999994715,
+          7.269598101146563e-07
+        ],
+        "half_angle_degrees": 40.49978900034677
+      },
+      "used_points": 96,
+      "rms_mm": 7.100015991945777e-07,
+      "max_residual_mm": 1.781760803704214e-06,
+      "coverage": {
+        "area_fraction": 0.001301817095943436,
+        "facet_bound_mm": 0.02285228208404403,
+        "bound_confirmed": true,
+        "condition_number": 264.13754003777314,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 1.781760803704214e-06,
+        "angle_degrees": 352.499986921093,
+        "axial_span_mm": 0.23867128862470324,
+        "radius_change_mm": 0.20384301770747637
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:67f01eb88ad1c91796ce0c8623f15643b3507a746a5b0cc234e37b3206984c2e",
+      "area_mm2": 24.640750998649516,
+      "bounds_mm": [
+        [
+          27.590368270874023,
+          29.175569534301758,
+          27.590368270874023
+        ],
+        [
+          52.826438903808594,
+          29.414215087890625,
+          52.826438903808594
+        ]
+      ],
+      "alternatives": [
+        "sphere"
+      ],
+      "supporting_faces": 96
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:5b4e4927d6934887d37151576a3349dc07b90556363d9b8122960f42f8a40d0e",
+      "parameters": {
+        "origin_mm": [
+          40.208428811710135,
+          40.01691616389516,
+          40.20842881171185
+        ],
+        "axis": [
+          -1.0355444996671742e-06,
+          -0.9999999999989276,
+          -1.0355445473083177e-06
+        ],
+        "half_angle_degrees": 49.50010278324234
+      },
+      "used_points": 96,
+      "rms_mm": 6.808820631878747e-07,
+      "max_residual_mm": 1.5217583440661773e-06,
+      "coverage": {
+        "area_fraction": 0.001278363900667673,
+        "facet_bound_mm": 0.019531315103456143,
+        "bound_confirmed": true,
+        "condition_number": 322.47768892916616,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 1.5217583440661773e-06,
+        "angle_degrees": 352.4999824936598,
+        "axial_span_mm": 0.20385528617782545,
+        "radius_change_mm": 0.23868474040028428
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:5b4e4927d6934887d37151576a3349dc07b90556363d9b8122960f42f8a40d0e",
+      "area_mm2": 24.196829693027112,
+      "bounds_mm": [
+        [
+          27.794189453125,
+          29.414215087890625,
+          27.794189453125
+        ],
+        [
+          52.622615814208984,
+          29.61803436279297,
+          52.622615814208984
+        ]
+      ],
+      "alternatives": [
+        "sphere",
+        "torus"
+      ],
+      "supporting_faces": 96
+    },
+    {
+      "kind": "sphere",
+      "region_id": "surface:2b313a57da2178da6a7863db8bfd85c9e39e346dd601f35e3174c486e106af7d",
+      "parameters": {
+        "center_mm": [
+          40.20840299287406,
+          10.04955807629291,
+          40.20840299287408
+        ],
+        "radius_mm": 23.047120872670224
+      },
+      "used_points": 96,
+      "rms_mm": 6.086998642141005e-07,
+      "max_residual_mm": 1.1857189564315723e-06,
+      "coverage": {
+        "area_fraction": 0.0012516508096208484,
+        "facet_bound_mm": 0.014037696283857315,
+        "bound_confirmed": true,
+        "condition_number": 485.44924259432844,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 1.1857189564315723e-06,
+        "direction_spread": [
+          1.2788761911103341e-05,
+          0.13794912329220171,
+          0.1379491232922018
+        ]
+      },
+      "degeneracies": [
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:2b313a57da2178da6a7863db8bfd85c9e39e346dd601f35e3174c486e106af7d",
+      "area_mm2": 23.69120518791026,
+      "bounds_mm": [
+        [
+          28.032833099365234,
+          29.61803436279297,
+          28.032833099365234
+        ],
+        [
+          52.38397216796875,
+          29.782012939453125,
+          52.38397216796875
+        ]
+      ],
+      "alternatives": [
+        "cone",
+        "torus"
+      ],
+      "supporting_faces": 96
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:bebcf9c15d555dee94f14de9a642264917355062e84d319b276269c0784ab53b",
+      "parameters": {
+        "origin_mm": [
+          40.20841498404512,
+          34.71446996903683,
+          40.20841498404558
+        ],
+        "axis": [
+          -3.6495712707903343e-07,
+          -0.9999999999998668,
+          -3.6495714068641825e-07
+        ],
+        "half_angle_degrees": 67.49995933510891
+      },
+      "used_points": 96,
+      "rms_mm": 4.0350697838679123e-07,
+      "max_residual_mm": 8.910380580773185e-07,
+      "coverage": {
+        "area_fraction": 0.0012223415110748585,
+        "facet_bound_mm": 0.01850997904303859,
+        "bound_confirmed": true,
+        "condition_number": 964.3561775036758,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 8.910380580773185e-07,
+        "angle_degrees": 352.49998371247267,
+        "axial_span_mm": 0.1201121637828386,
+        "radius_change_mm": 0.28997583270205346
+      },
+      "degeneracies": [
+        "ambiguous_cylinder",
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:bebcf9c15d555dee94f14de9a642264917355062e84d319b276269c0784ab53b",
+      "area_mm2": 23.13643975299067,
+      "bounds_mm": [
+        [
+          28.30042266845703,
+          29.782012939453125,
+          28.30042266845703
+        ],
+        [
+          52.11638259887695,
+          29.90211296081543,
+          52.11638259887695
+        ]
+      ],
+      "alternatives": [
+        "sphere",
+        "torus"
+      ],
+      "supporting_faces": 96
+    },
+    {
+      "kind": "cone",
+      "region_id": "surface:cd38c1489b48ae6765602022aa17d80e0081ac4a8b18134ab72f4d4a421008e6",
+      "parameters": {
+        "origin_mm": [
+          40.20840480619514,
+          32.69133850152818,
+          40.20840480619143
+        ],
+        "axis": [
+          -3.545966140619975e-08,
+          -0.9999999999999989,
+          -3.545948693318849e-08
+        ],
+        "half_angle_degrees": 76.50008253781449
+      },
+      "used_points": 96,
+      "rms_mm": 2.2838369675861208e-07,
+      "max_residual_mm": 5.435459276461077e-07,
+      "coverage": {
+        "area_fraction": 0.0011911871140021248,
+        "facet_bound_mm": 0.014394103816559393,
+        "bound_confirmed": true,
+        "condition_number": 2644.278271056239,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 5.435459276461077e-07,
+        "angle_degrees": 352.499990152165,
+        "axial_span_mm": 0.0732643182604199,
+        "radius_change_mm": 0.3051697846729226
+      },
+      "degeneracies": [
+        "ambiguous_cylinder",
+        "ambiguous_models"
+      ],
+      "usable": false,
+      "surface_id": "surface:cd38c1489b48ae6765602022aa17d80e0081ac4a8b18134ab72f4d4a421008e6",
+      "area_mm2": 22.546750354092467,
+      "bounds_mm": [
+        [
+          28.590368270874023,
+          29.90211296081543,
+          28.590368270874023
+        ],
+        [
+          51.826438903808594,
+          29.97537612915039,
+          51.826438903808594
+        ]
+      ],
+      "alternatives": [
+        "sphere"
+      ],
+      "supporting_faces": 96
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:2005294bfc8a1c5d5a617a2decffbf005a7e95a166d0a89fa5c2a2b04a0a35fe",
+      "parameters": {
+        "origin_mm": [
+          44.10453796386719,
+          10.0,
+          41.0480842590332
+        ],
+        "normal": [
+          -0.9775548872194654,
+          2.775557561562892e-17,
+          -0.2106809020137762
+        ]
+      },
+      "used_points": 4,
+      "rms_mm": 3.376760198429927e-15,
+      "max_residual_mm": 3.642889653398141e-15,
+      "coverage": {
+        "area_fraction": 0.0007168769691632428,
+        "facet_bound_mm": 3.642889653398141e-15,
+        "bound_confirmed": true,
+        "condition_number": 58.95781628436403,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 3.642889653398141e-15
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:2005294bfc8a1c5d5a617a2decffbf005a7e95a166d0a89fa5c2a2b04a0a35fe",
+      "area_mm2": 13.56902359698734,
+      "bounds_mm": [
+        [
+          44.0330696105957,
+          0.0,
+          40.71647262573242
+        ],
+        [
+          44.17600631713867,
+          20.0,
+          41.379695892333984
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 2
+    },
+    {
+      "kind": "plane",
+      "region_id": "surface:7956d5585aa906313ffb9582ea9106967f04aedcf693951f047855a6adc43c88",
+      "parameters": {
+        "origin_mm": [
+          36.31226921081543,
+          10.0,
+          41.0480842590332
+        ],
+        "normal": [
+          -0.977556045204036,
+          2.775557561562892e-17,
+          0.21067552891839292
+        ]
+      },
+      "used_points": 4,
+      "rms_mm": 3.38062649719324e-15,
+      "max_residual_mm": 3.646769064296566e-15,
+      "coverage": {
+        "area_fraction": 0.0007168761199715535,
+        "facet_bound_mm": 3.646769064296566e-15,
+        "bound_confirmed": true,
+        "condition_number": 58.95788598422985,
+        "excluded_points": 0,
+        "excluded_faces": 0,
+        "excluded_area_fraction": 0.0,
+        "max_before_exclusion_mm": 3.646769064296566e-15
+      },
+      "degeneracies": [],
+      "usable": true,
+      "surface_id": "surface:7956d5585aa906313ffb9582ea9106967f04aedcf693951f047855a6adc43c88",
+      "area_mm2": 13.569007523515088,
+      "bounds_mm": [
+        [
+          36.24080276489258,
+          0.0,
+          40.71647262573242
+        ],
+        [
+          36.38373565673828,
+          20.0,
+          41.379695892333984
+        ]
+      ],
+      "alternatives": [],
+      "supporting_faces": 2
+    }
+  ],
+  "identity_comparison": {
+    "method": "stratified_triangle_surface_v2",
+    "status": "pass",
+    "coverage": {
+      "reference_to_cad": {
+        "total_faces": 28654,
+        "checked_faces": 28654,
+        "partitions": 512,
+        "complete": true
+      },
+      "cad_to_reference": {
+        "total_faces": 28654,
+        "checked_faces": 28654,
+        "partitions": 512,
+        "complete": true
+      }
+    },
+    "reference_to_cad": {
+      "samples": 50000,
+      "rms_mm": 6.197761888791585e-12,
+      "p95_mm": 3.499017183300205e-14,
+      "sampled_max_mm": 8.837986815490732e-10,
+      "fraction_within_tolerance": 1.0
+    },
+    "cad_to_reference": {
+      "samples": 50000,
+      "rms_mm": 1.838794655398172e-12,
+      "p95_mm": 3.552713678800501e-14,
+      "sampled_max_mm": 2.0110908622992017e-10,
+      "fraction_within_tolerance": 1.0
+    }
+  }
+}
