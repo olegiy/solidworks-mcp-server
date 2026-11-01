@@ -125,9 +125,14 @@ def _obj(raw, limits):
 
 def load_mesh(path: Path, *, format: str, units: str, limits: MeshLimits | None = None) -> MeshData:
     limits = limits or MeshLimits()
-    scale = input_scale(format, units)
     with Path(path).open("rb") as stream:
         raw = stream.read(limits.max_bytes + 1)
+    return load_mesh_bytes(raw, format=format, units=units, limits=limits)
+
+
+def load_mesh_bytes(raw: bytes, *, format: str, units: str, limits: MeshLimits | None = None) -> MeshData:
+    limits = limits or MeshLimits()
+    scale = input_scale(format, units)
     if not raw:
         raise _invalid()
     if len(raw) > limits.max_bytes:

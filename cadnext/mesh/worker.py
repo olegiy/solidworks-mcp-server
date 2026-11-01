@@ -4,32 +4,25 @@ import json
 import sys
 from dataclasses import asdict
 
+from cadnext.mesh.transport import ResultTransport
+
 IPC_LIMIT = 1024 * 1024
 
 
-def dispatch(operation, payload):
+def dispatch(operation, payload, cache=None):
     # Wait for the parent to install its Job Object before loading native libraries.
     from cadnext.mesh.analysis import fit_region, inspect_mesh
     from cadnext.mesh.contracts import MeshError
-    from cadnext.mesh.loader import load_mesh
+    from cadnext.mesh.prepared import MeshCache
 
     if operation not in {"inspect", "fit", "section", "compare"}:
         raise MeshError("unknown_operation", "Неизвестная операция анализа сетки.")
-    mesh = load_mesh(payload["path"], format=payload["format"], units=payload["units"])
-    if mesh.sha256 != payload["sha256"]:
-        raise MeshError("hash_mismatch", "Исходный файл эталона изменился.")
-    if "source_to_cad" in payload:
-        import numpy as np
-
-        from cadnext.mesh.contracts import MeshData, MeshReference
-
-        reference = MeshReference("internal", mesh.sha256, payload["format"], payload["units"],
-                                  payload["tolerance_mm"], payload["source_to_cad"])
-        transform = np.asarray(reference.source_to_cad)
-        mesh = MeshData(mesh.vertices @ transform[:3, :3].T+transform[:3, 3],
-                        mesh.faces, mesh.sha256, mesh.units, mesh.scale_to_mm)
+    cache = cache or MeshCache()
+    mesh = cache.get(payload)
     if operation == "inspect":
-        summary = asdict(inspect_mesh(mesh))
+        if "summary" not in cache.derived:
+            cache.derived["summary"] = asdict(inspect_mesh(mesh))
+        summary = dict(cache.derived["summary"])
         offset = payload.get("offset", 0)
         if type(offset) is not int or not 0 <= offset <= 1000000:
             raise MeshError("invalid_offset", "Некорректная страница областей сетки.")
@@ -74,6 +67,8 @@ def dispatch(operation, payload):
 
 
 def main():
+    cache = None
+    transport = ResultTransport()
     while raw := sys.stdin.buffer.readline(IPC_LIMIT+1):
         if len(raw) > IPC_LIMIT:
             return 2
@@ -85,18 +80,25 @@ def main():
         except (KeyError, TypeError, ValueError):
             return 2
         try:
-            response.update(dispatch(request["operation"], payload))
+            if request["operation"] == "result_page":
+                response.update(transport.page(payload))
+            elif request["operation"] == "forget":
+                if cache is not None:
+                    cache.clear(payload.get("owner"))
+                transport.result = None
+                response["forgotten"] = True
+            else:
+                if cache is None:
+                    from cadnext.mesh.prepared import MeshCache
+                    cache = MeshCache()
+                response.update(dispatch(request["operation"], payload, cache))
         except Exception as exc:
             from cadnext.mesh.contracts import MeshError
 
             response["error"] = {"code": exc.code if isinstance(exc, MeshError) else "analysis_failed",
                                  "message": str(exc) if isinstance(exc, MeshError) else
                                  "Не удалось обработать геометрию сетки."}
-        encoded = json.dumps(response, allow_nan=False, ensure_ascii=True).encode()+b"\n"
-        if len(encoded) > IPC_LIMIT:
-            response = {key: response[key] for key in ("request_id", "sha256", "frame_id")}
-            response["error"] = {"code": "ipc_limit", "message": "Результат анализа слишком велик."}
-            encoded = json.dumps(response).encode()+b"\n"
+        encoded = transport.encode(response)
         sys.stdout.buffer.write(encoded)
         sys.stdout.buffer.flush()
     return 0

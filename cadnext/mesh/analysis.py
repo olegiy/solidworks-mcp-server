@@ -11,6 +11,8 @@ from cadnext.mesh.contracts import FitResult, MeshError, MeshSummary, validate_t
 
 
 def face_geometry(mesh):
+    if hasattr(mesh, "geometry"):
+        return mesh.geometry
     triangles = mesh.vertices[mesh.faces]
     cross = np.cross(triangles[:, 1]-triangles[:, 0], triangles[:, 2]-triangles[:, 0])
     lengths = np.linalg.norm(cross, axis=1)
@@ -20,6 +22,8 @@ def face_geometry(mesh):
 
 
 def adjacency(mesh):
+    if hasattr(mesh, "topology"):
+        return mesh.topology
     edges = mesh.faces[:, [[0, 1], [1, 2], [2, 0]]].reshape((-1, 2))
     keys = np.sort(edges, axis=1)
     _, inverse, counts = np.unique(keys, axis=0, return_inverse=True, return_counts=True)

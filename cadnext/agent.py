@@ -615,6 +615,8 @@ class Agent:
         if self._active is not None and self._active.session_id == session_id:
             self._active = None
         self._history.pop(session_id, None)
+        if self.mesh_tools is not None:
+            await self.mesh_tools.invalidate(session_id)
         self._documents.pop(session_id, None)
         self._restored_documents.discard(session_id)
         self._python_approved = {key for key in self._python_approved if key[0] != session_id}

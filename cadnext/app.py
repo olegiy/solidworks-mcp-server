@@ -595,8 +595,9 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     async def prepare_mesh(session_id, asset, stop):
         mesh_tools = agent().mesh_tools
         try:
+            await mesh_tools.invalidate(session_id)
             response = await mesh_tools.worker.request("inspect", {
-                "path": str(mesh_tools.store.path_for(session_id, asset.asset_id)),
+                "owner": session_id, "path": str(mesh_tools.store.path_for(session_id, asset.asset_id)),
                 "format": asset.format, "units": asset.units, "sha256": asset.sha256,
                 "frame_id": "source-mm"}, stop=stop)
             if stop.is_set():
@@ -637,6 +638,7 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
                 task, stop = job
                 stop.set()
                 await task
+            await agent().mesh_tools.invalidate(session_id)
             agent().mesh_tools.store.remove(session_id)
             app.state.mesh_states.pop(session_id, None)
         await project_operation(remove)

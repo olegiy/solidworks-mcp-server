@@ -126,7 +126,7 @@ class MeshTools:
                 raise MeshError("unknown_section", "Сечение отсутствует в текущем запуске.")
             section = binding.sections[section_id]
         else:
-            data = {"path": str(self.store.path_for(binding.session_id, reference.asset_id)),
+            data = {"owner": binding.session_id, "path": str(self.store.path_for(binding.session_id, reference.asset_id)),
                     "format": reference.format, "units": reference.units, "sha256": reference.sha256,
                     "frame_id": reference.frame_id, "source_to_cad": reference.source_to_cad,
                     "tolerance_mm": reference.tolerance_mm, **arguments}
@@ -163,9 +163,12 @@ class MeshTools:
     async def aclose(self):
         await self.worker.aclose()
 
+    async def invalidate(self, session_id):
+        await self.worker.forget(session_id)
+
     async def compare(self, binding, snapshot, *, stop, cad_checks_passed):
         reference = binding.reference
-        data = {"path": str(self.store.path_for(binding.session_id, reference.asset_id)),
+        data = {"owner": binding.session_id, "path": str(self.store.path_for(binding.session_id, reference.asset_id)),
                 "format": reference.format, "units": reference.units, "sha256": reference.sha256,
                 "frame_id": reference.frame_id, "source_to_cad": reference.source_to_cad,
                 "tolerance_mm": reference.tolerance_mm, "cad_path": snapshot["path"],
