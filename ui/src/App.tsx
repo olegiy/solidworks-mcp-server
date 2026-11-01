@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, DragEvent, FormEvent, ReactNode, RefObject } from 'react';
 import { api, remember, stored, terminal } from './api';
-import type { AppSettings, Attachment, Confirmation, GoalOptions, LoadedConversation, ModelCatalog, Profile, ReasoningMetadata, Run, RunEvent, SaveResult } from './api';
+import type { AppSettings, Attachment, Confirmation, GoalOptions, LoadedConversation, MeshSelection, ModelCatalog, Profile, ReasoningMetadata, Run, RunEvent, SaveResult } from './api';
 import { imageTypes, readImages, type DraftAttachment } from './attachments';
 import ModelPicker from './ModelPicker';
 import useReasoning from './useReasoning';
@@ -11,6 +11,8 @@ import ActivityIndicator from './ActivityIndicator';
 import GoalEvaluationCard from './GoalEvaluation';
 import Clarification from './Clarification';
 import ConstructionPlan from './ConstructionPlan';
+import MeshReference from './MeshReference';
+import MeshVerification from './MeshVerification';
 import { applyRunEvent } from './runEvents';
 import { incompleteGoalKey } from './runPresentation';
 import type { PendingActivity, RunContact } from './ActivityIndicator';
@@ -441,6 +443,7 @@ function RunView({ run, onReply }: { run: Run; onReply?: () => void }) {
       return <p key={event.seq} className="error">{String(event.data.message)}</p>;
     })}
     <GoalEvaluationCard run={run} />
+    <MeshVerification value={run.mesh_verification} />
     <div className="run-meta"><span className={`badge ${incomplete ? 'needs_attention' : run.status}`} data-testid="run-status">{incomplete ? t(incomplete) : statusKeys[run.status] ? t(statusKeys[run.status]) : run.status}</span>
       <span>{t('callsCount', { count: run.call_count })}</span>
       {run.verification === 'unverified' ? <strong className="warning">{t('resultNeedsReview')}</strong> : null}
@@ -476,6 +479,8 @@ export default function App() {
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState('');
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
+  const [mesh, setMesh] = useState<MeshSelection | null>(null);
+  const [meshBusy, setMeshBusy] = useState(false);
   const [readingImages, setReadingImages] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const dragDepth = useRef(0);
@@ -506,11 +511,12 @@ export default function App() {
   const currentReasoningValue = selectedReasoning(currentReasoning, currentProfile?.reasoning_effort, t);
   const routing = appSettings?.vision_routing_approved === true
     ? profiles.find(profile => profile.id === appSettings.vision_profile_id && profile.vision) : undefined;
-  const effectiveProfile = goalOptions.enabled && currentProfile && !currentProfile.vision
+  const effectiveProfile = goalOptions.enabled && !mesh && currentProfile && !currentProfile.vision
     ? routing : currentProfile;
-  const routingMissing = goalOptions.enabled && !!currentProfile && !currentProfile.vision && !routing;
+  const routingMissing = goalOptions.enabled && !mesh && !!currentProfile && !currentProfile.vision && !routing;
   const imagesAllowed = effectiveProfile?.vision === true;
   const canSend = !loading && !foreignRunId && !sending && !savingProject && !active && !!currentProfile && !uncertain && !readingImages && !savingProfile
+    && !meshBusy && (!mesh || Number.isFinite(mesh.tolerance_mm) && mesh.tolerance_mm > 0 && mesh.tolerance_mm <= 10)
     && !routingMissing
     && !(lookup.loading && !currentReasoning)
     && (!!message.trim() || attachments.length > 0) && (!attachments.length || imagesAllowed);
@@ -721,6 +727,9 @@ export default function App() {
     if (!event.dataTransfer.types.includes('Files')) return;
     event.preventDefault();
     dragDepth.current = 0; setDraggingFiles(false);
+    if (Array.from(event.dataTransfer.files).some(file => /\.(stl|obj)$/i.test(file.name))) {
+      setError('Для STL/OBJ используйте «Эталон STL/OBJ» и укажите единицы.'); return;
+    }
     if (!imagesAllowed) { setError(t('imagesUnsupported')); return; }
     void attach(Array.from(event.dataTransfer.files));
   }
@@ -739,6 +748,7 @@ export default function App() {
       const run = await api<Run>('/runs', { method: 'POST', body: JSON.stringify({
         session_id: sessionId, profile_id: selected, message, max_calls: maxCalls, language,
         evaluation: goalOptions,
+        ...(mesh ? { mesh_reference: mesh } : {}),
         attachments: attachments.map(({ name, mimeType, data }) => ({ name, mimeType, data })),
         request_id: pendingRequest.current,
       }) });
@@ -790,6 +800,7 @@ export default function App() {
       const result = await api<LoadedConversation>('/conversations/open', { method: 'POST',
         body: JSON.stringify({ conversation }) });
       setSessionId(result.session_id); remember('session', result.session_id);
+      setMesh(null); setMeshBusy(false);
       setRuns(result.runs); setStreamId(''); setRunContact(null); setSaveNotice(null);
       setMessage(''); setAttachments([]); setPendingActivity(null); draftRevision.current++;
       if (result.profile_id && profiles.some(profile => profile.id === result.profile_id)) {
@@ -802,6 +813,7 @@ export default function App() {
   }
   function resetProject() {
     const id = crypto.randomUUID(); setSessionId(id); remember('session', id);
+    setMesh(null); setMeshBusy(false);
     setStreamId(''); setRuns([]); setError(''); setNotice(''); setSaveNotice(null);
     draftRevision.current++; setAttachments([]); setMessage(''); setPendingActivity(null); setRunContact(null);
     pendingRequest.current = ''; dragDepth.current = 0; setDraggingFiles(false);
@@ -891,6 +903,8 @@ export default function App() {
       </section>
       <ActivityIndicator run={active ?? runs.at(-1)} pending={pendingActivity} contact={runContact} />
       <form className="composer" aria-label={t('messageForm')} onSubmit={send}>
+        <MeshReference key={sessionId} sessionId={sessionId} disabled={loading || sending || !!active || savingProject}
+          onChange={setMesh} onBusy={setMeshBusy} />
         {attachments.length ? <div className="attachment-previews" role="region" aria-label={t('attachmentsRegion')}>
           {attachments.map((image, index) => <div className="attachment-preview" key={index}>
             <img src={`data:${image.mimeType};base64,${image.data}`} alt={image.name} />

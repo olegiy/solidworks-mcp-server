@@ -103,6 +103,26 @@ export interface Run {
   metrics?: Record<string, number | null>;
   construction_plan?: ConstructionStage[];
   construction_plan_history?: Record<string, unknown>[];
+  mesh_reference?: MeshSelection & { sha256: string; units: string; frame_id: string } | null;
+  mesh_verification?: MeshVerificationData | null;
+}
+export interface MeshSelection { asset_id: string; tolerance_mm: number }
+export interface MeshAssetState {
+  state: 'empty' | 'uploading' | 'processing' | 'ready' | 'error';
+  asset_id?: string; sha256?: string; units?: string; format?: string; error?: string;
+  summary?: { bounds_mm: number[][]; watertight: boolean; winding_consistent: boolean;
+    triangles: number; boundary_edges: number; vertices: number };
+  current?: { asset_id: string; units: string; format: string } | null;
+}
+export interface MeshStatistics {
+  samples: number; rms_mm: number; p95_mm: number; sampled_max_mm: number;
+  fraction_within_tolerance: number;
+}
+export interface MeshVerificationData {
+  status: 'pass' | 'fail' | 'unknown'; reasons: string[];
+  comparison?: { tolerance_mm: number; chord_tolerance_mm: number;
+    reference_to_cad: MeshStatistics; cad_to_reference: MeshStatistics;
+    seed: number; method: string; measured_regions?: number; violating_regions: string[] };
 }
 export interface ConstructionStage {
   id: string; title: string; expected_result: string;
@@ -126,6 +146,32 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     throw new Error(message);
   }
   return response.status === 204 ? undefined as T : response.json();
+}
+
+export function uploadBinary<T>(path: string, file: File, signal: AbortSignal,
+  progress: (fraction: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    const cleanup = () => signal.removeEventListener('abort', abort);
+    xhr.open('POST', `/api${path}`);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    xhr.setRequestHeader('Accept-Language', acceptLanguage(detectLanguage()));
+    xhr.upload.onprogress = event => { if (event.lengthComputable) progress(event.loaded / event.total); };
+    xhr.onload = () => {
+      cleanup();
+      try {
+        const body = JSON.parse(xhr.responseText);
+        if (xhr.status < 200 || xhr.status >= 300) throw new Error(body.detail ?? 'Ошибка загрузки файла.');
+        resolve(body as T);
+      } catch (error) { reject(error); }
+    };
+    xhr.onerror = () => { cleanup(); reject(new Error('Не удалось загрузить файл.')); };
+    xhr.onabort = () => { cleanup(); reject(new DOMException('Загрузка отменена.', 'AbortError')); };
+    signal.addEventListener('abort', abort, { once: true });
+    if (signal.aborted) { cleanup(); reject(new DOMException('Загрузка отменена.', 'AbortError')); return; }
+    xhr.send(file);
+  });
 }
 
 export function stored(key: string, fallback: string) {

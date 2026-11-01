@@ -164,6 +164,13 @@ class Backend:
             original = request_texts[-1] if request_texts else ""
 
             scenario = original.lower()
+            if scenario == "mesh-inspect" and "mesh_inspect" in tool_names:
+                if last_tool_name == "mesh_inspect":
+                    return httpx.Response(200, json={"choices": [{"message": {
+                        "role": "assistant", "content": "Сетка измерена. Соответствие CAD пока не подтверждено."},
+                        "finish_reason": "stop"}]})
+                if "cadnext_define_goal" not in tool_names or define is not None:
+                    return self.tool_response("mesh_inspect", {})
 
             def image_echo():
                 for message in reversed(messages):

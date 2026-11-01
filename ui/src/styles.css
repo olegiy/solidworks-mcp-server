@@ -274,3 +274,15 @@ figcaption { font-size: 11px; color: var(--muted); margin-top: 6px; }
 .construction-checks { padding-left: 1rem; }
 .construction-plan summary { cursor: pointer; padding: .25rem 0; }
 .check-passed { color: #227148; }
+.mesh-reference { margin: .5rem 0; padding: .5rem; border: 1px solid var(--border, #ddd); border-radius: 10px; }
+.mesh-reference summary { cursor: pointer; }
+.mesh-controls { display: flex; flex-wrap: wrap; gap: .65rem; align-items: end; padding-top: .6rem; }
+.mesh-controls label { display: flex; flex-direction: column; gap: .25rem; font-size: .85rem; min-width: 0; }
+.mesh-controls input, .mesh-controls select { max-width: 100%; padding: .35rem; }
+.mesh-controls input[type=number] { width: 8rem; }
+.mesh-file { flex: 1 1 12rem; }
+.mesh-file input { width: 100%; }
+.mesh-reference p { font-size: .85rem; margin: .5rem 0 0; }
+.mesh-verification { margin: .75rem 0; padding: 1rem; overflow-x: auto; }
+.mesh-verification table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+.mesh-verification th, .mesh-verification td { padding: .4rem; text-align: left; border-bottom: 1px solid var(--border, #ddd); }

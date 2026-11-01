@@ -7,8 +7,17 @@ export function applyRunEvent(run: Run, event: RunEvent): Run {
   }
   if (event.seq <= last) return run;
   if (event.seq !== last + 1) throw new Error('Run event gap');
-  const { goal: compactStateGoal, ...state } = event.state ?? {};
+  const { goal: compactStateGoal, mesh_verification: compactMesh, ...state } = event.state ?? {};
   const next: Run = { ...run, ...state, events: [...run.events, event] };
+  if (compactMesh) next.mesh_verification = {
+    ...(run.mesh_verification?.status === compactMesh.status
+      && run.mesh_verification.reasons.join() === compactMesh.reasons.join() ? run.mesh_verification : {}),
+    ...compactMesh,
+  };
+  if (event.type === 'mesh_verification') next.mesh_verification = {
+    status: event.data.status as 'pass' | 'fail' | 'unknown', reasons: event.data.reasons as string[],
+    comparison: event.data as unknown as NonNullable<Run['mesh_verification']>['comparison'],
+  };
   if (next.goal) {
     let goal = next.goal;
     if (compactStateGoal) {

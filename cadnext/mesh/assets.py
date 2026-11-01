@@ -112,3 +112,23 @@ class MeshAssetStore:
         self.path_for(session_id, asset_id).unlink(missing_ok=True)
         del self._assets[asset_id]
         del self._pending[session_id]
+
+    def remove(self, session_id):
+        self._session(session_id)
+        for asset_id in (self._pending.pop(session_id, None), self._current.pop(session_id, None)):
+            if asset_id is not None:
+                self.path_for(session_id, asset_id).unlink(missing_ok=True)
+                del self._assets[asset_id]
+
+    def close(self):
+        sessions = {asset.session_id for asset in self._assets.values()}
+        for session in sessions:
+            self.remove(session)
+            try:
+                (self.root / session).rmdir()
+            except OSError:
+                pass
+        try:
+            self.root.rmdir()
+        except OSError:
+            pass

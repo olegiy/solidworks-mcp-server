@@ -24,6 +24,9 @@ from cadnext.debug import DebugLog, DebugMcp, debug_scope
 from cadnext.evaluation import EvaluationOptions
 from cadnext.i18n import get_language, language_from_header, set_language, t
 from cadnext.mcp import ROOT, SolidWorksMcp
+from cadnext.mesh.assets import MeshAssetStore
+from cadnext.mesh.contracts import MeshError
+from cadnext.mesh.tools import MeshTools
 from cadnext.privacy import PrivacyContext
 from cadnext.provider import Provider, ProviderError
 from cadnext.reasoning import ReasoningCatalog
@@ -69,6 +72,12 @@ class EvaluationOptionsBody(BaseModel):
                                  max_no_progress=self.max_no_progress)
 
 
+class MeshReferenceBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    asset_id: str = Field(min_length=1, max_length=100)
+    tolerance_mm: float = Field(gt=0, le=10, allow_inf_nan=False)
+
+
 class RunBody(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     session_id: str = Field(min_length=1, max_length=100, pattern=r"^[A-Za-z0-9_-]+$")
@@ -81,6 +90,7 @@ class RunBody(BaseModel):
     request_id: str | None = Field(default=None, min_length=1, max_length=100,
                                    pattern=r"^[A-Za-z0-9_-]+$")
     language: Literal["ru", "en"] | None = None
+    mesh_reference: MeshReferenceBody | None = None
 
 
 class ModelListBody(BaseModel):
@@ -134,15 +144,24 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         app.state.stopped_requests = set()
         app.state.project_lock = asyncio.Lock()
         app.state.reasoning = ReasoningCatalog(public_model_catalog)
+        mesh_store = MeshAssetStore(app.state.settings.path.parent / "mesh" / uuid4().hex)
+        app.state.mesh_states = {}
+        app.state.mesh_jobs = {}
         async with mcp_factory() as mcp:
             app.state.agent = Agent(DebugMcp(mcp, app.state.debug), settings=app.state.settings,
-                                    debug=app.state.debug)
+                                    debug=app.state.debug, mesh_tools=MeshTools(mesh_store))
             try:
                 yield
             finally:
+                for task, stop in app.state.mesh_jobs.values():
+                    stop.set()
+                if app.state.mesh_jobs:
+                    await asyncio.gather(*(task for task, _ in list(app.state.mesh_jobs.values())),
+                                         return_exceptions=True)
                 await app.state.agent.aclose()
                 if app.state.cleanups:
                     await asyncio.gather(*app.state.cleanups, return_exceptions=True)
+                mesh_store.close()
                 app.state.debug.write("application_stop")
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
@@ -202,6 +221,11 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     @app.exception_handler(AttachmentError)
     async def invalid_attachment(request, error):
         return JSONResponse({"detail": str(error)}, status_code=422)
+
+    @app.exception_handler(MeshError)
+    async def invalid_mesh(request, error):
+        code = 413 if error.code == "byte_limit" else 409 if error.code == "asset_busy" else 422
+        return JSONResponse({"detail": str(error)}, status_code=code)
 
     @app.exception_handler(KeyError)
     async def missing(request, error):
@@ -288,7 +312,16 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
 
     @app.post("/api/projects/{session_id}/close", status_code=204)
     async def close_project(session_id: str):
-        await project_operation(agent().close_conversation, session_id)
+        async def close():
+            await agent().close_conversation(session_id)
+            job = app.state.mesh_jobs.get(session_id)
+            if job:
+                task, stop = job
+                stop.set()
+                await task
+            agent().mesh_tools.store.remove(session_id)
+            app.state.mesh_states.pop(session_id, None)
+        await project_operation(close)
         app.state.contexts = {key: value for key, value in app.state.contexts.items()
                               if key[0] != session_id}
 
@@ -478,6 +511,71 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
     async def start_run(body: RunBody):
         return await project_operation(start_run_locked, body)
 
+    def assert_mesh_mutable(session_id):
+        agent().mesh_tools.store._session(session_id)
+        if session_id in agent()._closed_conversations:
+            raise HTTPException(status_code=409, detail="Проект закрыт.")
+        active = agent()._active
+        if active is not None and active.session_id == session_id and (
+                not active.done or active._task is not None and not active._task.done()):
+            raise HTTPException(status_code=409, detail="Эталон закреплён за выполняющимся запросом.")
+
+    def mesh_state(session_id):
+        mesh_store = agent().mesh_tools.store
+        current = mesh_store.current(session_id)
+        state = dict(app.state.mesh_states.get(session_id, {"state": "empty"}))
+        state["current"] = asdict(current) if current is not None else None
+        return state
+
+    async def prepare_mesh(session_id, asset, stop):
+        mesh_tools = agent().mesh_tools
+        try:
+            response = await mesh_tools.worker.request("inspect", {
+                "path": str(mesh_tools.store.path_for(session_id, asset.asset_id)),
+                "format": asset.format, "units": asset.units, "sha256": asset.sha256,
+                "frame_id": "source-mm"}, stop=stop)
+            if stop.is_set():
+                raise MeshError("stopped", "Обработка сетки остановлена.")
+            mesh_tools.store.accept(session_id, asset.asset_id)
+            app.state.mesh_states[session_id] = {**asdict(asset), "state": "ready",
+                                                 "summary": response["summary"]}
+        except (MeshError, OSError) as error:
+            mesh_tools.store.reject(session_id, asset.asset_id)
+            app.state.mesh_states[session_id] = {"asset_id": asset.asset_id, "state": "error",
+                "error": str(error) if isinstance(error, MeshError) else "Не удалось сохранить эталон сетки."}
+        finally:
+            app.state.mesh_jobs.pop(session_id, None)
+
+    @app.post("/api/projects/{session_id}/mesh", status_code=202)
+    async def upload_mesh(session_id: str, request: Request, format: Literal["stl", "obj"],
+                          units: Literal["mm", "in"]):
+        async def receive():
+            assert_mesh_mutable(session_id)
+            asset = await agent().mesh_tools.store.receive(session_id, request.stream(), format=format, units=units)
+            app.state.mesh_states[session_id] = asdict(asset)
+            stop = asyncio.Event()
+            task = asyncio.create_task(prepare_mesh(session_id, asset, stop))
+            app.state.mesh_jobs[session_id] = (task, stop)
+            return asdict(asset)
+        return await project_operation(receive)
+
+    @app.get("/api/projects/{session_id}/mesh")
+    async def get_mesh(session_id: str):
+        return mesh_state(session_id)
+
+    @app.delete("/api/projects/{session_id}/mesh", status_code=204)
+    async def remove_mesh(session_id: str):
+        async def remove():
+            assert_mesh_mutable(session_id)
+            job = app.state.mesh_jobs.get(session_id)
+            if job:
+                task, stop = job
+                stop.set()
+                await task
+            agent().mesh_tools.store.remove(session_id)
+            app.state.mesh_states.pop(session_id, None)
+        await project_operation(remove)
+
     async def start_run_locked(body):
         if body.request_id and (body.request_id in app.state.stopped_requests
                                 or body.request_id in app.state.request_runs):
@@ -488,9 +586,12 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         except (AgentBusy, RuntimeError) as error:
             raise HTTPException(status_code=409, detail=str(error)) from None
         requested = store().get(body.profile_id)
+        mesh_spec = body.mesh_reference.model_dump() if body.mesh_reference is not None else None
+        if mesh_spec is not None:
+            agent().mesh_tools.bind(body.session_id, mesh_spec, run_id="validation")
         options = body.evaluation.options()
         profile = requested
-        if options.enabled and not requested.vision:
+        if options.enabled and not requested.vision and mesh_spec is None:
             routing = store().vision_routing
             if routing is None:
                 raise HTTPException(status_code=422, detail=t(
@@ -522,7 +623,7 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
             run = agent().start(session_id=body.session_id, provider=provider,
                                 message=body.message, attachments=[item.model_dump() for item in body.attachments],
                                 max_calls=body.max_calls, language=body.language or get_language(),
-                                requested_profile_id=requested.id, evaluation=options)
+                                requested_profile_id=requested.id, evaluation=options, mesh_reference=mesh_spec)
         except (AgentBusy, RuntimeError) as error:
             await provider.aclose()
             raise HTTPException(status_code=409, detail=str(error)) from None
