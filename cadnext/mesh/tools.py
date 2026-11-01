@@ -15,7 +15,8 @@ from cadnext.mesh.worker_client import MeshWorkerClient
 
 NAMES = frozenset({"mesh_inspect", "mesh_fit", "mesh_section", "mesh_compare"})
 GUIDANCE = (
-    " Исходник — сетка STL/OBJ. Сначала mesh_inspect(catalog='surfaces'), затем выбери базы и поверхности, "
+    " Исходник — сетка STL/OBJ. В каждом новом Run сначала mesh_inspect(catalog='surfaces'), "
+    "даже если эталон уже читался в предыдущем Run; затем выбери базы и поверхности, "
     "измерь mesh_fit/mesh_section. Система координат исходника задана приложением; не меняй "
     "масштаб и не выбирай симметричные базы наугад. До построения задай set_construction_plan. "
     "Создавай редактируемые эскизы и операции через существующие Python-этапы, проверяй "

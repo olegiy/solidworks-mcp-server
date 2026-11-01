@@ -693,7 +693,7 @@ async def test_remote_python_confirmation_and_mcp_use_identical_restored_code():
         payloads.append(data)
         if len(payloads) == 1:
             token = data["messages"][-1]["content"]
-            expected_code.append(f'result = "{path}"')
+            expected_code.append(f'result = {path!r}')
             response = reply(("py", "execute_python", {"code": f'result = "{token}"'}))
         else:
             response = reply(content="Выполнено")

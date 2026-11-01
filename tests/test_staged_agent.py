@@ -428,22 +428,25 @@ async def test_native_document_creation_does_not_complete_planned_python_profile
     assert json.loads(result["content"])["construction_stage"]["id"] == native["id"]
 
 
-async def test_plan_cannot_rewrite_started_stage_and_no_followup_is_sent():
+async def test_plan_cannot_rewrite_started_stage_and_no_queued_cad_is_sent():
     changed = deepcopy(STAGES)
     changed[0]["title"] = "Переписанный профиль"
     provider = ScriptedProvider([
         reply(("plan", "set_construction_plan", {"stages": STAGES})),
         reply(("py", "execute_python", {"code": "build()", "stage_id": "profile"})),
         reply(("rewrite", "set_construction_plan", {"stages": changed}),
-              ("next", "execute_python", {"code": "must_not_run()"}))])
+              ("next", "execute_python", {"code": "must_not_run()"})),
+        reply(content="Остановлено: план требует исправления")])
     mcp = staged_mcp([("execute_python", ok({}))])
     agent = trusted_agent(mcp, provider)
     run = agent.start(session_id="s", provider=provider, message="Построй")
     await settle(agent, run)
-    assert run.status == "failed"
+    assert run.status == "completed"
     assert mcp.calls == [("execute_python", {"code": "build()"})]
     assert run.snapshot()["construction_plan"][0]["title"] == "Профиль"
     assert len(run.snapshot()["construction_plan_history"]) == 1
+    result = next(m for m in run.messages if m.get("tool_call_id") == "rewrite")
+    assert json.loads(result["content"])["error_code"] == "invalid_construction_plan"
 
 
 @pytest.mark.parametrize("max_calls,value,expected_status,expected_calls", [

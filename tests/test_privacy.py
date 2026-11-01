@@ -1,5 +1,122 @@
 import pytest
 
+from cadnext.privacy import PrivacyContext
+
+
+@pytest.mark.parametrize('quote', ["'", '"', "'''", 'r"'])
+@pytest.mark.parametrize('path', [
+    r'C:\Users\olegiy\Documents\part.SLDPRT',
+    "C:\\Users\\O'Brien\\Документы\\part.SLDPRT",
+    'C:\\Users\\olegiy\\Documents\\',
+])
+def test_path_token_from_prose_restores_as_a_python_string_value(quote, path):
+    import ast
+
+    context = PrivacyContext(local=False, consent=True)
+    token = context._token(path)
+    closing = '"' if quote == 'r"' else quote
+    restored = context.restore_python('target = ' + quote + token + closing)
+    tree = ast.parse(restored)
+    assert ast.literal_eval(tree.body[0].value) == path
+
+
+@pytest.mark.parametrize('literal', [
+    r"r'C:\Users\olegiy\part.SLDPRT'",
+    r"'C:\\Users\\olegiy\\part.SLDPRT'",
+    r"'C:/Users/olegiy/part.SLDPRT'",
+    '"C:\\\\Users\\\\O\'Brien\\\\Документы\\\\part.SLDPRT"',
+])
+def test_python_tool_history_masks_and_restores_path_semantics(literal):
+    import ast
+    import json
+
+    context = PrivacyContext(local=False, consent=True)
+    code = 'target = ' + literal
+    messages = [{'role': 'assistant', 'content': None, 'tool_calls': [{
+        'id': 'python', 'type': 'function', 'function': {
+            'name': 'execute_python', 'arguments': json.dumps({'code': code})}}]}]
+    outgoing = context.outgoing_messages(messages)
+    masked = json.loads(outgoing[0]['tool_calls'][0]['function']['arguments'])['code']
+    assert 'olegiy' not in masked and 'Users' not in masked
+    restored = context.restore_python(masked)
+    assert ast.literal_eval(ast.parse(restored).body[0].value) == ast.literal_eval(
+        ast.parse(code).body[0].value)
+
+
+def test_python_path_restoration_cannot_inject_statements():
+    import ast
+
+    context = PrivacyContext(local=False, consent=True)
+    original = "C:\\Users\\owner\\part'); raise RuntimeError('injected') #.SLDPRT"
+    token = context._token(original)
+    restored = context.restore_python("target = '" + token + "'")
+    tree = ast.parse(restored)
+    assert len(tree.body) == 1
+    assert ast.literal_eval(tree.body[0].value) == original
+
+
+def test_agent_prepares_python_path_token_as_a_literal_and_regular_tool_path_as_data():
+    import ast
+    import json
+
+    from cadnext.agent import Agent
+    from tests.fake_mcp import CATALOG
+    from tests.test_agent import ScriptedProvider, reply
+
+    provider = ScriptedProvider([])
+    path = r'C:\Users\olegiy\Documents\part.SLDPRT'
+    token = provider.privacy._token(path)
+    response = reply(('python', 'execute_python', {'code': "target = '" + token + "'"}),
+                     ('save', 'save_document', {'save_as_path': token}))
+    message, calls = Agent._prepare(response, provider, Agent._catalog(CATALOG), set())
+    assert ast.literal_eval(ast.parse(calls[0][2]['code']).body[0].value) == path
+    assert calls[1][2]['save_as_path'] == path
+    assert json.loads(message['tool_calls'][0]['function']['arguments']) == calls[0][2]
+
+
+def test_python_restoration_leaves_unmasked_code_unchanged():
+    context = PrivacyContext(local=True)
+    code = "result = 'plain text'\n# unrelated comment\n"
+    assert context.restore_python(code) == code
+
+
+def test_python_restoration_preserves_adjacent_literals_and_masked_comments():
+    import ast
+
+    context = PrivacyContext(local=False, consent=True)
+    path = 'C:\\Users\\owner\\'
+    token = context._token(path)
+    code = f"# {token}\ntarget = '{token}' 'part.SLDPRT'\n"
+    restored = context.restore_python(code)
+    assert restored.startswith(f'# {token}\n')
+    assert ast.literal_eval(ast.parse(restored).body[0].value) == path + 'part.SLDPRT'
+
+
+def test_python_restoration_rejects_masked_fstring_before_execution():
+    context = PrivacyContext(local=False, consent=True)
+    token = context._token(r'C:\Users\owner\part.SLDPRT')
+    with pytest.raises(ValueError, match='f-string'):
+        context.restore_python(f"target = f'{token}'")
+
+
+@pytest.mark.parametrize('separator', ['\v', '\f', '\x85', '\u2028', '\r'])
+def test_python_path_offsets_follow_tokenizer_lines(separator):
+    import ast
+    import json
+
+    context = PrivacyContext(local=False, consent=True)
+    path = r'C:\Users\owner\part.SLDPRT'
+    code = f"a = '''x{separator}y'''\ntarget = {path!r}\n"
+    messages = [{'role': 'assistant', 'tool_calls': [{
+        'id': 'py', 'type': 'function', 'function': {
+            'name': 'execute_python', 'arguments': json.dumps({'code': code})}}]}]
+    masked = json.loads(context.outgoing_messages(messages)[0]['tool_calls'][0][
+        'function']['arguments'])['code']
+    assert 'owner' not in masked
+    restored = context.restore_python(masked)
+    tree = ast.parse(restored)
+    assert ast.literal_eval(tree.body[1].value) == path
+
 
 def test_paths_are_masked_and_restored():
     from cadnext.privacy import PrivacyContext

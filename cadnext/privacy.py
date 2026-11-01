@@ -1,7 +1,10 @@
 """Per-dialogue consent, reversible text filtering and a separate image gate."""
 
+import ast
+import io
 import json
 import re
+import tokenize
 from uuid import uuid4
 
 from cadnext.i18n import t
@@ -144,6 +147,61 @@ class PrivacyContext:
             return [self._argument_values(item) for item in value]
         return self.outgoing(value)
 
+    def _python_literals(self, code: str, *, restore: bool) -> str:
+        # Paths are data inside Python literals, never fragments of Python source.
+        # Decode before masking and quote after restoring so backslashes, quotes
+        # and newlines retain their value without introducing executable syntax.
+        if restore and not any(token in code for token in self._tokens.values()):
+            return code
+        lines = io.StringIO(code).readlines()
+        offsets = [0]
+        for line in lines:
+            offsets.append(offsets[-1] + len(line))
+        edits = []
+        try:
+            for token in tokenize.generate_tokens(io.StringIO(code).readline):
+                if (restore and token.type not in {tokenize.STRING, tokenize.COMMENT}
+                        and any(value in token.string for value in self._tokens.values())):
+                    raise ValueError(t(
+                        "Скрытые значения в Python передавай обычной строкой, без f-string.",
+                        "Use an ordinary Python string for hidden values, without an f-string."))
+                if token.type != tokenize.STRING:
+                    continue
+                if restore and not any(value in token.string for value in self._tokens.values()):
+                    continue
+                try:
+                    literal = ast.literal_eval(token.string)
+                except (SyntaxError, ValueError):
+                    if restore:
+                        raise ValueError(t(
+                            "Скрытые значения в Python передавай обычной строкой, без f-string.",
+                            "Use an ordinary Python string for hidden values, without an f-string.")) from None
+                    continue
+                if not isinstance(literal, str):
+                    continue
+                if restore:
+                    changed = self.restore(literal)
+                else:
+                    # A decoded path literal has an unambiguous boundary, even
+                    # when its filename contains quotes or prose punctuation.
+                    changed = (self._token(literal) if re.match(_START, literal)
+                               else self.outgoing(literal))
+                if changed != literal:
+                    start = offsets[token.start[0] - 1] + token.start[1]
+                    end = offsets[token.end[0] - 1] + token.end[1]
+                    edits.append((start, end, repr(changed)))
+        except (tokenize.TokenError, IndentationError):
+            # Invalid outgoing code still needs masking in the diagnostic history.
+            # Incoming invalid code remains invalid and is rejected before COM.
+            if restore:
+                return code
+        for start, end, replacement in reversed(edits):
+            code = code[:start] + replacement + code[end:]
+        return code if restore else self.outgoing(code)
+
+    def restore_python(self, code: str) -> str:
+        return self._python_literals(code, restore=True)
+
     def outgoing_messages(self, messages: list[dict]) -> list[dict]:
         self.outgoing(None)
         result = []
@@ -173,7 +231,15 @@ class PrivacyContext:
                 filtered["tool_calls"] = []
                 for call in message["tool_calls"]:
                     function = call["function"]
-                    arguments = self._argument_values(json.loads(function["arguments"]))
+                    source = json.loads(function["arguments"])
+                    python_call = (function["name"] == "execute_python" and isinstance(source, dict)
+                                   and isinstance(source.get("code"), str))
+                    arguments = self._argument_values(
+                        {key: value for key, value in source.items() if key != "code"}
+                        if python_call else source)
+                    if python_call:
+                        arguments["code"] = (source["code"] if self.local else
+                                             self._python_literals(source["code"], restore=False))
                     filtered["tool_calls"].append({**call, "function": {
                         **function, "arguments": json.dumps(arguments, ensure_ascii=False)}})
             result.append(filtered)

@@ -1,0 +1,992 @@
+{
+  "run_id": "2a7dd1d744ef4fec8e0b48ef68f49df2",
+  "status": "completed",
+  "verification": "unverified",
+  "call_count": 24,
+  "mesh_verification": {
+    "status": "unknown",
+    "reasons": [
+      "cad_checks_unconfirmed",
+      "unknown_or_insufficient_cad_precision"
+    ]
+  },
+  "events": [
+    {
+      "seq": 29,
+      "type": "tool_result",
+      "at": 1793563584.2198982,
+      "data": {
+        "tool_call_id": "call_f8036b271550419fb48ed37435f3796f",
+        "name": "get_mass_properties",
+        "result": {
+          "ok": true,
+          "value": {
+            "mass_kg": 0.031544,
+            "volume_m3": 4.044099111843076e-06,
+            "surface_area_m2": 0.004364099111843075,
+            "center_of_mass_mm": [
+              20.0,
+              20.0,
+              1.522
+            ],
+            "status": "ok"
+          },
+          "error": null,
+          "uncertain": false
+        },
+        "verification": false
+      },
+      "state": {
+        "status": "running",
+        "call_count": 5,
+        "max_calls": 180,
+        "verification": "unverified",
+        "stop_requested": false,
+        "confirmation": null,
+        "repair_attempts": 0,
+        "repairing": false,
+        "metrics": {
+          "model_calls": 5,
+          "model_seconds": 27.424084500060417,
+          "cad_calls": 4,
+          "cad_seconds": 12.754132699978072,
+          "verification_calls": 0,
+          "verification_seconds": 0.0,
+          "request_bytes": 1716725,
+          "image_count": 5,
+          "input_tokens": 422555,
+          "output_tokens": 224,
+          "cached_tokens": 341376,
+          "cost": null
+        },
+        "requested_profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "evaluation": {
+          "enabled": false,
+          "target_similarity": 100.0,
+          "max_evaluations": 10,
+          "max_no_progress": 3
+        },
+        "mesh_verification": {
+          "status": "unknown",
+          "reasons": [
+            "not_compared"
+          ]
+        }
+      }
+    },
+    {
+      "seq": 61,
+      "type": "tool_result",
+      "at": 1793563658.0800712,
+      "data": {
+        "tool_call_id": "call_9f905fa3bc4a448a95cebf0e2cd05011",
+        "name": "save_document",
+        "result": {
+          "ok": true,
+          "value": {
+            "saved": "C:\\Users\\olegiy\\CAD-Agent-Next\\artifacts\\live-krishka-2026-11-01\\krishka_korob_rebuilt.SLDPRT",
+            "errors": 0,
+            "warnings": 0,
+            "status": "ok"
+          },
+          "error": null,
+          "uncertain": false
+        },
+        "verification": false
+      },
+      "state": {
+        "status": "running",
+        "call_count": 12,
+        "max_calls": 180,
+        "verification": "unverified",
+        "stop_requested": false,
+        "confirmation": null,
+        "repair_attempts": 0,
+        "repairing": false,
+        "metrics": {
+          "model_calls": 9,
+          "model_seconds": 66.60984550003195,
+          "cad_calls": 7,
+          "cad_seconds": 14.324875099933706,
+          "verification_calls": 2,
+          "verification_seconds": 8.795360899996012,
+          "request_bytes": 3154851,
+          "image_count": 9,
+          "input_tokens": 781226,
+          "output_tokens": 1403,
+          "cached_tokens": 607104,
+          "cost": null
+        },
+        "requested_profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "evaluation": {
+          "enabled": false,
+          "target_similarity": 100.0,
+          "max_evaluations": 10,
+          "max_no_progress": 3
+        },
+        "mesh_verification": {
+          "status": "unknown",
+          "reasons": [
+            "cad_changed"
+          ]
+        }
+      }
+    },
+    {
+      "seq": 68,
+      "type": "tool_result",
+      "at": 1793563663.1953962,
+      "data": {
+        "tool_call_id": "call_860e4ad8205d442ea8b5ba52c6f95a05",
+        "name": "list_open_documents",
+        "result": {
+          "ok": true,
+          "value": {
+            "documents": [
+              {
+                "title": "krishka_korob_rebuilt.SLDPRT",
+                "path": "C:\\Users\\olegiy\\CAD-Agent-Next\\artifacts\\live-krishka-2026-11-01\\krishka_korob_rebuilt.SLDPRT",
+                "document_id": "c402c28f2bd14967bc622ec0b7f44c9a",
+                "type": "part"
+              }
+            ],
+            "status": "ok"
+          },
+          "error": null,
+          "uncertain": false
+        },
+        "verification": false
+      },
+      "state": {
+        "status": "running",
+        "call_count": 13,
+        "max_calls": 180,
+        "verification": "unverified",
+        "stop_requested": false,
+        "confirmation": null,
+        "repair_attempts": 0,
+        "repairing": false,
+        "metrics": {
+          "model_calls": 10,
+          "model_seconds": 71.35108769999351,
+          "cad_calls": 8,
+          "cad_seconds": 14.681483799882699,
+          "verification_calls": 2,
+          "verification_seconds": 8.795360899996012,
+          "request_bytes": 3539975,
+          "image_count": 10,
+          "input_tokens": 878864,
+          "output_tokens": 1418,
+          "cached_tokens": 704384,
+          "cost": null
+        },
+        "requested_profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "evaluation": {
+          "enabled": false,
+          "target_similarity": 100.0,
+          "max_evaluations": 10,
+          "max_no_progress": 3
+        },
+        "mesh_verification": {
+          "status": "unknown",
+          "reasons": [
+            "cad_changed"
+          ]
+        }
+      }
+    },
+    {
+      "seq": 74,
+      "type": "tool_result",
+      "at": 1793563669.5693867,
+      "data": {
+        "tool_call_id": "call_10a30adb2b094d89b849b36dde88a88d",
+        "name": "execute_python",
+        "result": {
+          "ok": true,
+          "value": {
+            "stdout": "",
+            "result": "{'final_path_matches': True, 'file_exists': True, 'size_bytes': 90573}",
+            "status": "ok"
+          },
+          "error": null,
+          "uncertain": false
+        },
+        "verification": false
+      },
+      "state": {
+        "status": "running",
+        "call_count": 14,
+        "max_calls": 180,
+        "verification": "unverified",
+        "stop_requested": false,
+        "confirmation": null,
+        "repair_attempts": 0,
+        "repairing": false,
+        "metrics": {
+          "model_calls": 11,
+          "model_seconds": 77.4740249000024,
+          "cad_calls": 9,
+          "cad_seconds": 14.898680299869739,
+          "verification_calls": 2,
+          "verification_seconds": 8.795360899996012,
+          "request_bytes": 3925646,
+          "image_count": 11,
+          "input_tokens": 976632,
+          "output_tokens": 1553,
+          "cached_tokens": 801920,
+          "cost": null
+        },
+        "requested_profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "evaluation": {
+          "enabled": false,
+          "target_similarity": 100.0,
+          "max_evaluations": 10,
+          "max_no_progress": 3
+        },
+        "mesh_verification": {
+          "status": "unknown",
+          "reasons": [
+            "cad_changed"
+          ]
+        }
+      }
+    },
+    {
+      "seq": 82,
+      "type": "tool_result",
+      "at": 1793563674.5829213,
+      "data": {
+        "tool_call_id": "call_8f6797baba7f4565aeb8b5c163cd567f",
+        "name": "close_document",
+        "result": {
+          "ok": true,
+          "value": {
+            "closed": "krishka_korob_rebuilt.SLDPRT",
+            "status": "ok"
+          },
+          "error": null,
+          "uncertain": false
+        },
+        "verification": false
+      },
+      "state": {
+        "status": "running",
+        "call_count": 15,
+        "max_calls": 180,
+        "verification": "unverified",
+        "stop_requested": false,
+        "confirmation": null,
+        "repair_attempts": 0,
+        "repairing": false,
+        "metrics": {
+          "model_calls": 12,
+          "model_seconds": 82.27727690001484,
+          "cad_calls": 10,
+          "cad_seconds": 15.069980799860787,
+          "verification_calls": 2,
+          "verification_seconds": 8.795360899996012,
+          "request_bytes": 4312384,
+          "image_count": 12,
+          "input_tokens": 1074629,
+          "output_tokens": 1582,
+          "cached_tokens": 899712,
+          "cost": null
+        },
+        "requested_profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "evaluation": {
+          "enabled": false,
+          "target_similarity": 100.0,
+          "max_evaluations": 10,
+          "max_no_progress": 3
+        },
+        "mesh_verification": {
+          "status": "unknown",
+          "reasons": [
+            "cad_changed"
+          ]
+        }
+      }
+    },
+    {
+      "seq": 90,
+      "type": "tool_result",
+      "at": 1793563681.3883646,
+      "data": {
+        "tool_call_id": "call_765f5be63be64891b921fbef8d344fe4",
+        "name": "open_document",
+        "result": {
+          "ok": true,
+          "value": {
+            "opened": "krishka_korob_rebuilt.SLDPRT",
+            "errors": 0,
+            "warnings": 0,
+            "activation_status": 0,
+            "status": "ok"
+          },
+          "error": null,
+          "uncertain": false
+        },
+        "verification": false
+      },
+      "state": {
+        "status": "running",
+        "call_count": 16,
+        "max_calls": 180,
+        "verification": "unverified",
+        "stop_requested": false,
+        "confirmation": null,
+        "repair_attempts": 0,
+        "repairing": false,
+        "metrics": {
+          "model_calls": 13,
+          "model_seconds": 87.92686310003046,
+          "cad_calls": 11,
+          "cad_seconds": 16.185634999827016,
+          "verification_calls": 2,
+          "verification_seconds": 8.795360899996012,
+          "request_bytes": 4699962,
+          "image_count": 13,
+          "input_tokens": 1172814,
+          "output_tokens": 1621,
+          "cached_tokens": 997632,
+          "cost": null
+        },
+        "requested_profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "evaluation": {
+          "enabled": false,
+          "target_similarity": 100.0,
+          "max_evaluations": 10,
+          "max_no_progress": 3
+        },
+        "mesh_verification": {
+          "status": "unknown",
+          "reasons": [
+            "cad_changed"
+          ]
+        }
+      }
+    },
+    {
+      "seq": 94,
+      "type": "tool_result",
+      "at": 1793563681.7356176,
+      "data": {
+        "tool_call_id": "call_765f5be63be64891b921fbef8d344fe4:check:2",
+        "name": "list_open_documents",
+        "result": {
+          "ok": true,
+          "value": {
+            "documents": [
+              {
+                "title": "krishka_korob_rebuilt.SLDPRT",
+                "path": "C:\\Users\\olegiy\\CAD-Agent-Next\\artifacts\\live-krishka-2026-11-01\\krishka_korob_rebuilt.SLDPRT",
+                "document_id": "432523dbc9374c8fa58d2b7889d08c96",
+                "type": "part"
+              }
+            ],
+            "status": "ok"
+          },
+          "error": null,
+          "uncertain": false
+        },
+        "verification": true
+      },
+      "state": {
+        "status": "running",
+        "call_count": 18,
+        "max_calls": 180,
+        "verification": "unverified",
+        "stop_requested": false,
+        "confirmation": null,
+        "repair_attempts": 0,
+        "repairing": false,
+        "metrics": {
+          "model_calls": 13,
+          "model_seconds": 87.92686310003046,
+          "cad_calls": 11,
+          "cad_seconds": 16.185634999827016,
+          "verification_calls": 4,
+          "verification_seconds": 9.140760999987833,
+          "request_bytes": 4699962,
+          "image_count": 13,
+          "input_tokens": 1172814,
+          "output_tokens": 1621,
+          "cached_tokens": 997632,
+          "cost": null
+        },
+        "requested_profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "evaluation": {
+          "enabled": false,
+          "target_similarity": 100.0,
+          "max_evaluations": 10,
+          "max_no_progress": 3
+        },
+        "mesh_verification": {
+          "status": "unknown",
+          "reasons": [
+            "cad_changed"
+          ]
+        }
+      }
+    },
+    {
+      "seq": 101,
+      "type": "tool_result",
+      "at": 1793563698.7522333,
+      "data": {
+        "tool_call_id": "call_aa89ce08f90b4acd8309abf13fbd3080",
+        "name": "inspect_cad",
+        "result": {
+          "ok": true,
+          "value": {
+            "document": "krishka_korob_rebuilt.SLDPRT",
+            "document_type": 1,
+            "truncated": false,
+            "features": [
+              {
+                "name": "Favorites",
+                "type": "FavoriteFolder"
+              },
+              {
+                "name": "History",
+                "type": "HistoryFolder"
+              },
+              {
+                "name": "Selection Sets",
+                "type": "SelectionSetFolder"
+              },
+              {
+                "name": "Связь проектов",
+                "type": "DocsFolder"
+              },
+              {
+                "name": "Примечания",
+                "type": "DetailCabinet"
+              },
+              {
+                "name": "Notes",
+                "type": "NotesAreaFtrFolder"
+              },
+              {
+                "name": "Notes Area",
+                "type": "AnnotationViewFeat"
+              },
+              {
+                "name": "Notes1___EndTag___",
+                "type": "FtrFolder"
+              },
+              {
+                "name": "Исправления",
+                "type": "InkMarkupFolder"
+              },
+              {
+                "name": "Источники света и камеры",
+                "type": "EnvFolder"
+              },
+              {
+                "name": "Рассеянный",
+                "type": "AmbientLight"
+              },
+              {
+                "name": "Направленный1",
+                "type": "DirectionLight"
+              },
+              {
+                "name": "Твердые тела",
+                "type": "SolidBodyFolder"
+              },
+              {
+                "name": "Тела поверхности",
+                "type": "SurfaceBodyFolder"
+              },
+              {
+                "name": "Датчики",
+                "type": "SensorFolder"
+              },
+              {
+                "name": "Заметки",
+                "type": "CommentsFolder"
+              },
+              {
+                "name": "Уравнения",
+                "type": "EqnFolder"
+              },
+              {
+                "name": "Материал <не указан>",
+                "type": "MaterialFolder"
+              },
+              {
+                "name": "Спереди",
+                "type": "RefPlane"
+              },
+              {
+                "name": "Сверху",
+                "type": "RefPlane"
+              },
+              {
+                "name": "Справа",
+                "type": "RefPlane"
+              },
+              {
+                "name": "Исходная точка",
+                "type": "OriginProfileFeature"
+              },
+              {
+                "name": "BaseProfile",
+                "type": "ProfileFeature"
+              },
+              {
+                "name": "BaseSolid",
+                "type": "Extrusion"
+              },
+              {
+                "name": "RimProfile",
+                "type": "ProfileFeature"
+              },
+              {
+                "name": "RimSolid",
+                "type": "Boss"
+              }
+            ],
+            "dimensions": [
+              {
+                "name": "BaseSide@BaseProfile@krishka_korob_rebuilt.Part",
+                "value": 40.0,
+                "unit": "mm",
+                "driving": true
+              },
+              {
+                "name": "BaseThickness@BaseSolid@krishka_korob_rebuilt.Part",
+                "value": 2.0,
+                "unit": "mm",
+                "driving": true
+              },
+              {
+                "name": "CornerRadius@RimProfile@krishka_korob_rebuilt.Part",
+                "value": 2.0000000000000018,
+                "unit": "mm",
+                "driving": true
+              },
+              {
+                "name": "OuterSide@RimProfile@krishka_korob_rebuilt.Part",
+                "value": 37.599999999999994,
+                "unit": "mm",
+                "driving": true
+              },
+              {
+                "name": "OuterInsetX@RimProfile@krishka_korob_rebuilt.Part",
+                "value": 1.2,
+                "unit": "mm",
+                "driving": true
+              },
+              {
+                "name": "OuterInsetY@RimProfile@krishka_korob_rebuilt.Part",
+                "value": 1.2,
+                "unit": "mm",
+                "driving": true
+              },
+              {
+                "name": "D1@RimProfile@krishka_korob_rebuilt.Part",
+                "value": 33.599999999999994,
+                "unit": "mm",
+                "driving": false
+              },
+              {
+                "name": "InnerSide@RimProfile@krishka_korob_rebuilt.Part",
+                "value": 33.6,
+                "unit": "mm",
+                "driving": true
+              },
+              {
+                "name": "InnerInsetX@RimProfile@krishka_korob_rebuilt.Part",
+                "value": 3.2,
+                "unit": "mm",
+                "driving": true
+              },
+              {
+                "name": "InnerInsetY@RimProfile@krishka_korob_rebuilt.Part",
+                "value": 3.2,
+                "unit": "mm",
+                "driving": true
+              },
+              {
+                "name": "RimHeight@RimSolid@krishka_korob_rebuilt.Part",
+                "value": 3.0,
+                "unit": "mm",
+                "driving": true
+              }
+            ],
+            "bodies": [
+              {
+                "index": 0,
+                "sheet_metal": false,
+                "bbox_mm": [
+                  0.0,
+                  0.0,
+                  0.0,
+                  40.0,
+                  40.0,
+                  5.0
+                ],
+                "bbox_approximate": true
+              }
+            ],
+            "surfaces": [
+              {
+                "body": 0,
+                "face": 0,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 1,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 2,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 3,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 4,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 5,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 6,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 7,
+                "kind": "cylinder",
+                "axis_point_mm": [
+                  3.200000000000002,
+                  3.200000000000002,
+                  5.0
+                ],
+                "axis_direction": [
+                  -0.0,
+                  -0.0,
+                  -1.0
+                ],
+                "radius_mm": 2.0000000000000018
+              },
+              {
+                "body": 0,
+                "face": 8,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 9,
+                "kind": "cylinder",
+                "axis_point_mm": [
+                  36.79999999999999,
+                  3.2000000000000024,
+                  5.0
+                ],
+                "axis_direction": [
+                  -0.0,
+                  -0.0,
+                  -1.0
+                ],
+                "radius_mm": 2.000000000000002
+              },
+              {
+                "body": 0,
+                "face": 10,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 11,
+                "kind": "cylinder",
+                "axis_point_mm": [
+                  36.79999999999999,
+                  36.79999999999999,
+                  5.0
+                ],
+                "axis_direction": [
+                  -0.0,
+                  -0.0,
+                  -1.0
+                ],
+                "radius_mm": 2.0000000000000018
+              },
+              {
+                "body": 0,
+                "face": 12,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 13,
+                "kind": "cylinder",
+                "axis_point_mm": [
+                  3.2000000000000024,
+                  36.79999999999999,
+                  5.0
+                ],
+                "axis_direction": [
+                  -0.0,
+                  -0.0,
+                  -1.0
+                ],
+                "radius_mm": 2.000000000000002
+              },
+              {
+                "body": 0,
+                "face": 14,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 15,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 16,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 17,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 18,
+                "kind": "other"
+              },
+              {
+                "body": 0,
+                "face": 19,
+                "kind": "other"
+              }
+            ],
+            "status": "ok"
+          },
+          "error": null,
+          "uncertain": false
+        },
+        "verification": false
+      },
+      "state": {
+        "status": "running",
+        "call_count": 19,
+        "max_calls": 180,
+        "verification": "unverified",
+        "stop_requested": false,
+        "confirmation": null,
+        "repair_attempts": 0,
+        "repairing": false,
+        "metrics": {
+          "model_calls": 14,
+          "model_seconds": 92.97731120005483,
+          "cad_calls": 12,
+          "cad_seconds": 28.135704599844757,
+          "verification_calls": 4,
+          "verification_seconds": 9.140760999987833,
+          "request_bytes": 5088990,
+          "image_count": 14,
+          "input_tokens": 1271407,
+          "output_tokens": 1649,
+          "cached_tokens": 1095808,
+          "cost": null
+        },
+        "requested_profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "evaluation": {
+          "enabled": false,
+          "target_similarity": 100.0,
+          "max_evaluations": 10,
+          "max_no_progress": 3
+        },
+        "mesh_verification": {
+          "status": "unknown",
+          "reasons": [
+            "cad_changed"
+          ]
+        }
+      }
+    },
+    {
+      "seq": 106,
+      "type": "tool_result",
+      "at": 1793563704.2029247,
+      "data": {
+        "tool_call_id": "call_6bac58bf33ad4eb4bf0f88915700bd8f",
+        "name": "get_mass_properties",
+        "result": {
+          "ok": true,
+          "value": {
+            "mass_kg": 0.031544,
+            "volume_m3": 4.044099111843076e-06,
+            "surface_area_m2": 0.004364099111843075,
+            "center_of_mass_mm": [
+              20.0,
+              20.0,
+              1.522
+            ],
+            "status": "ok"
+          },
+          "error": null,
+          "uncertain": false
+        },
+        "verification": false
+      },
+      "state": {
+        "status": "running",
+        "call_count": 20,
+        "max_calls": 180,
+        "verification": "unverified",
+        "stop_requested": false,
+        "confirmation": null,
+        "repair_attempts": 0,
+        "repairing": false,
+        "metrics": {
+          "model_calls": 15,
+          "model_seconds": 98.09063400002196,
+          "cad_calls": 13,
+          "cad_seconds": 28.461928799864836,
+          "verification_calls": 4,
+          "verification_seconds": 9.140760999987833,
+          "request_bytes": 5481650,
+          "image_count": 15,
+          "input_tokens": 1371259,
+          "output_tokens": 1664,
+          "cached_tokens": 1194368,
+          "cost": null
+        },
+        "requested_profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "evaluation": {
+          "enabled": false,
+          "target_similarity": 100.0,
+          "max_evaluations": 10,
+          "max_no_progress": 3
+        },
+        "mesh_verification": {
+          "status": "unknown",
+          "reasons": [
+            "cad_changed"
+          ]
+        }
+      }
+    },
+    {
+      "seq": 118,
+      "type": "tool_result",
+      "at": 1793563739.3529968,
+      "data": {
+        "tool_call_id": "mesh:5:fresh",
+        "name": "connect_solidworks",
+        "result": {
+          "ok": true,
+          "value": {
+            "revision": "33.5.0",
+            "hint": "Revision 31=SW2023, 32=SW2024, 33=SW2025",
+            "active_document": "krishka_korob_rebuilt.SLDPRT",
+            "document_id": "432523dbc9374c8fa58d2b7889d08c96",
+            "document_update_stamp": 167,
+            "status": "ok"
+          },
+          "error": null,
+          "uncertain": false
+        },
+        "verification": true
+      },
+      "state": {
+        "status": "running",
+        "call_count": 24,
+        "max_calls": 180,
+        "verification": "unverified",
+        "stop_requested": false,
+        "confirmation": null,
+        "repair_attempts": 0,
+        "repairing": false,
+        "metrics": {
+          "model_calls": 17,
+          "model_seconds": 107.72435109998332,
+          "cad_calls": 14,
+          "cad_seconds": 29.235747099854052,
+          "verification_calls": 5,
+          "verification_seconds": 9.376655799977016,
+          "request_bytes": 6268387,
+          "image_count": 17,
+          "input_tokens": 1571272,
+          "output_tokens": 1705,
+          "cached_tokens": 1380992,
+          "cost": null
+        },
+        "requested_profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "profile_id": "44d7017e42f24ef9befebbc648cc050e",
+        "evaluation": {
+          "enabled": false,
+          "target_similarity": 100.0,
+          "max_evaluations": 10,
+          "max_no_progress": 3
+        },
+        "mesh_verification": {
+          "status": "unknown",
+          "reasons": [
+            "cad_changed"
+          ]
+        }
+      }
+    }
+  ],
+  "files": {
+    "cad": {
+      "path": "C:\\Users\\olegiy\\CAD-Agent-Next\\artifacts\\live-krishka-2026-11-01\\krishka_korob_rebuilt.SLDPRT",
+      "size_bytes": 90662,
+      "sha256": "5464be1455d8d6c5acdbb39756d1fa816296addae7034bab10821640c7dce236"
+    },
+    "conversation": {
+      "path": "C:\\Users\\olegiy\\CAD-Agent-Next\\artifacts\\live-krishka-2026-11-01\\krishka_korob_rebuilt.cadnext.json",
+      "size_bytes": 2985084,
+      "sha256": "354d0323ef01b8206af65d53051f0a9b8cc9739e1db80e211bf8b764ddb172c3"
+    },
+    "source": {
+      "path": "C:\\Users\\olegiy\\CAD-Agent-Next\\docs\\Задание для теста\\krishka_korob.STL",
+      "size_bytes": 147084,
+      "sha256": "6da1c9d31edc979f6b5beb7d4e070c4b9a283f58157e0e668b105a3906bb1598"
+    },
+    "portable_source": {
+      "path": "C:\\Users\\olegiy\\CAD-Agent-Next\\artifacts\\live-krishka-2026-11-01\\krishka_korob_rebuilt.SLDPRT.cadnext.assets\\6da1c9d31edc979f6b5beb7d4e070c4b9a283f58157e0e668b105a3906bb1598.stl",
+      "size_bytes": 147084,
+      "sha256": "6da1c9d31edc979f6b5beb7d4e070c4b9a283f58157e0e668b105a3906bb1598"
+    }
+  },
+  "save_response": {
+    "ok": true,
+    "saved": "C:\\Users\\olegiy\\CAD-Agent-Next\\artifacts\\live-krishka-2026-11-01\\krishka_korob_rebuilt.SLDPRT",
+    "conversation": "C:\\Users\\olegiy\\CAD-Agent-Next\\artifacts\\live-krishka-2026-11-01\\krishka_korob_rebuilt.cadnext.json"
+  },
+  "final_health": {
+    "ok": true,
+    "active_run_id": null,
+    "uncertain": false
+  }
+}
