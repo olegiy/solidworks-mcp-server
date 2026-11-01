@@ -29,7 +29,14 @@ def dispatch(operation, payload):
         mesh = MeshData(mesh.vertices @ transform[:3, :3].T+transform[:3, 3],
                         mesh.faces, mesh.sha256, mesh.units, mesh.scale_to_mm)
     if operation == "inspect":
-        return {"summary": asdict(inspect_mesh(mesh))}
+        summary = asdict(inspect_mesh(mesh))
+        offset = payload.get("offset", 0)
+        if type(offset) is not int or not 0 <= offset <= 1000000:
+            raise MeshError("invalid_offset", "Некорректная страница областей сетки.")
+        summary["regions_total"] = len(summary["regions"])
+        summary["regions_offset"] = offset
+        summary["regions"] = summary["regions"][offset:offset+100]
+        return {"summary": summary}
     if operation == "fit":
         return {"fit": asdict(fit_region(mesh, payload["region"], payload["kind"],
                                          tolerance_mm=payload["tolerance_mm"]))}

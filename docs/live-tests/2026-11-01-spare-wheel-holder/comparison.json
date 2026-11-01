@@ -1,0 +1,55 @@
+{
+  "reference_sha256": "1cd05e0095736357f0a0763d913b8776e3be05793d76596ffb976d3e02c58ae7",
+  "cad_sha256": "a16cd4f6131a0f2f772cfaaa4daa226e2b1e6466d0e9a2c773dd7e421dd99efd",
+  "frame_id": "eba91ea447c2a18c1510229bb460a99bcd030ed6bde4091c466992e0dbafb3d1",
+  "document_identity": "01a1be86d9e34f9e825c04c901005584",
+  "revision": 147,
+  "run_id": "cce8279d512f4db281e2fb3399dc59f8",
+  "tolerance_mm": 0.1,
+  "chord_tolerance_mm": 0.01,
+  "method": "area_weighted_triangle_surface_v1",
+  "seed": 20261101,
+  "reference_to_cad": {
+    "samples": 50000,
+    "rms_mm": 16.580531796155153,
+    "p95_mm": 29.2044624587969,
+    "sampled_max_mm": 31.55491061697087,
+    "fraction_within_tolerance": 0.05144
+  },
+  "cad_to_reference": {
+    "samples": 50000,
+    "rms_mm": 6.9662761016707275,
+    "p95_mm": 10.596259050754442,
+    "sampled_max_mm": 11.848853954409902,
+    "fraction_within_tolerance": 0.15566
+  },
+  "status": "unknown",
+  "reasons": [
+    "cad_checks_unconfirmed",
+    "region_limit",
+    "unknown_or_insufficient_cad_precision"
+  ],
+  "measured_regions": 631,
+  "violating_regions": [
+    "reference_to_cad",
+    "reference_to_cad:1cd05e0095736357:181b42d08432082e",
+    "reference_to_cad:1cd05e0095736357:d172f88686d5674c",
+    "reference_to_cad:1cd05e0095736357:2c7aa8589b8a8a82",
+    "reference_to_cad:1cd05e0095736357:291a0f17f66b0059",
+    "reference_to_cad:1cd05e0095736357:5b54075592611dfe",
+    "reference_to_cad:1cd05e0095736357:4e5a2ef6e571bf1a",
+    "reference_to_cad:1cd05e0095736357:67e1fe8a6d4779ad",
+    "reference_to_cad:1cd05e0095736357:985647565cc6cadd",
+    "reference_to_cad:1cd05e0095736357:eecb96b51d6d053f",
+    "reference_to_cad:1cd05e0095736357:06da9b50af61a7b3",
+    "reference_to_cad:1cd05e0095736357:30b421dc55cdccab",
+    "reference_to_cad:1cd05e0095736357:d767d0bb98015369",
+    "reference_to_cad:1cd05e0095736357:a9b8749c1bfc3d09",
+    "reference_to_cad:1cd05e0095736357:889f99f13858bb2e",
+    "reference_to_cad:1cd05e0095736357:e3cdbc8f2cfbb30c",
+    "reference_to_cad:1cd05e0095736357:4273edf6025d4245",
+    "reference_to_cad:1cd05e0095736357:b6b5f2a262d7edad",
+    "reference_to_cad:1cd05e0095736357:d4b721770a9adda1",
+    "reference_to_cad:1cd05e0095736357:87ca081ba03a9793"
+  ]
+}

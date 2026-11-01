@@ -1,0 +1,169 @@
+{
+  "run_id": "67b6b4f5484c4d2fb87374bcc0239abb",
+  "status": "failed",
+  "verification": "failed",
+  "call_count": 29,
+  "cad_readback": {
+    "document": "Деталь1",
+    "document_type": 1,
+    "truncated": false,
+    "features": [
+      {
+        "name": "Favorites",
+        "type": "FavoriteFolder"
+      },
+      {
+        "name": "History",
+        "type": "HistoryFolder"
+      },
+      {
+        "name": "Selection Sets",
+        "type": "SelectionSetFolder"
+      },
+      {
+        "name": "Связь проектов",
+        "type": "DocsFolder"
+      },
+      {
+        "name": "Примечания",
+        "type": "DetailCabinet"
+      },
+      {
+        "name": "Notes",
+        "type": "NotesAreaFtrFolder"
+      },
+      {
+        "name": "Notes Area",
+        "type": "AnnotationViewFeat"
+      },
+      {
+        "name": "Notes1___EndTag___",
+        "type": "FtrFolder"
+      },
+      {
+        "name": "Исправления",
+        "type": "InkMarkupFolder"
+      },
+      {
+        "name": "Источники света и камеры",
+        "type": "EnvFolder"
+      },
+      {
+        "name": "Рассеянный",
+        "type": "AmbientLight"
+      },
+      {
+        "name": "Направленный1",
+        "type": "DirectionLight"
+      },
+      {
+        "name": "Твердые тела",
+        "type": "SolidBodyFolder"
+      },
+      {
+        "name": "Тела поверхности",
+        "type": "SurfaceBodyFolder"
+      },
+      {
+        "name": "Датчики",
+        "type": "SensorFolder"
+      },
+      {
+        "name": "Заметки",
+        "type": "CommentsFolder"
+      },
+      {
+        "name": "Уравнения",
+        "type": "EqnFolder"
+      },
+      {
+        "name": "Материал <не указан>",
+        "type": "MaterialFolder"
+      },
+      {
+        "name": "Спереди",
+        "type": "RefPlane"
+      },
+      {
+        "name": "Сверху",
+        "type": "RefPlane"
+      },
+      {
+        "name": "Справа",
+        "type": "RefPlane"
+      },
+      {
+        "name": "Исходная точка",
+        "type": "OriginProfileFeature"
+      },
+      {
+        "name": "LowerBaseSketch",
+        "type": "ProfileFeature"
+      },
+      {
+        "name": "LowerBase",
+        "type": "Extrusion"
+      }
+    ],
+    "dimensions": [
+      {
+        "name": "LowerDiameter@LowerBaseSketch",
+        "value": 54.79999999999999,
+        "unit": "mm",
+        "driving": true
+      },
+      {
+        "name": "CenterX@LowerBaseSketch",
+        "value": 40.2084033,
+        "unit": "mm",
+        "driving": true
+      },
+      {
+        "name": "CenterZ@LowerBaseSketch",
+        "value": 40.2084033,
+        "unit": "mm",
+        "driving": true
+      }
+    ],
+    "bodies": [
+      {
+        "index": 0,
+        "sheet_metal": false,
+        "bbox_mm": [
+          12.808403300000007,
+          -10.0,
+          12.808403300000007,
+          67.60840329999999,
+          0.0,
+          67.60840329999999
+        ],
+        "bbox_approximate": true
+      }
+    ],
+    "status": "ok"
+  },
+  "failed_checks": [
+    {
+      "expected": {
+        "kind": "feature",
+        "name": "LowerBase",
+        "type": "ICE"
+      },
+      "passed": false
+    }
+  ],
+  "metrics": {
+    "model_calls": 25,
+    "model_seconds": 206.74794729991117,
+    "cad_calls": 21,
+    "cad_seconds": 8.456597899843473,
+    "verification_calls": 4,
+    "verification_seconds": 7.458007299923338,
+    "request_bytes": 17990276,
+    "image_count": 0,
+    "input_tokens": 7044918,
+    "output_tokens": 5412,
+    "cached_tokens": 6991488,
+    "cost": null
+  }
+}

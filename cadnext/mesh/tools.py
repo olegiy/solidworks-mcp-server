@@ -130,7 +130,14 @@ class MeshTools:
                 binding.inspected = True
                 summary = deepcopy(response["summary"])
                 regions = summary.pop("regions", [])
-                return self._page(regions, offset, {"summary": summary}, key="regions", limit=100)
+                page_offset = summary.pop("regions_offset", None)
+                total = summary.pop("regions_total", len(regions))
+                result = self._page(regions, offset if page_offset is None else 0,
+                                    {"summary": summary}, key="regions", limit=100)
+                if page_offset is not None:
+                    end = offset+len(result["regions"])
+                    result.update(total=total, next_offset=end if end < total else None)
+                return result
             if name == "mesh_fit":
                 return {"fit": deepcopy(response["fit"])}
             section = response["section"]

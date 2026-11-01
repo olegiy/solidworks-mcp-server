@@ -146,3 +146,30 @@ async def test_stopped_request_can_be_followed_by_fresh_process(tmp_path):
         assert client.process is not first
     finally:
         await client.aclose()
+
+
+async def test_dense_curved_source_inspection_pages_regions_within_ipc_limit(tmp_path):
+    import hashlib
+    import json
+
+    import trimesh
+
+    from cadnext.mesh.worker_client import MeshWorkerClient
+
+    source = tmp_path / 'curved.stl'
+    source.write_bytes(trimesh.creation.icosphere(subdivisions=4).export(file_type='stl'))
+    data = {'path': str(source), 'format': 'stl', 'units': 'mm',
+            'sha256': hashlib.sha256(source.read_bytes()).hexdigest(), 'frame_id': 'source-mm'}
+    client = MeshWorkerClient()
+    try:
+        first = await client.request('inspect', data, stop=asyncio.Event())
+        second = await client.request('inspect', {**data, 'offset': 100}, stop=asyncio.Event())
+        assert first['summary']['watertight']
+        assert first['summary']['regions_total'] > 1000
+        assert len(first['summary']['regions']) == 100
+        assert second['summary']['regions_offset'] == 100
+        assert not ({r['region_id'] for r in first['summary']['regions']} &
+                    {r['region_id'] for r in second['summary']['regions']})
+        assert len(json.dumps(first).encode()) < 1024*1024
+    finally:
+        await client.aclose()

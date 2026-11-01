@@ -20,6 +20,25 @@ async def ready_tools(tmp_path):
     return tools, asset
 
 
+async def test_inspection_later_pages_preserve_global_count_and_offset(tmp_path):
+    import trimesh
+
+    tools, _ = await ready_tools(tmp_path)
+    raw = trimesh.creation.icosphere(subdivisions=4).export(file_type='stl')
+    asset = await tools.store.receive('s', chunks(raw), format='stl', units='mm')
+    tools.store.accept('s', asset.asset_id)
+    binding = tools.bind('s', {'asset_id': asset.asset_id, 'tolerance_mm': .1}, run_id='run')
+    try:
+        first = await tools.dispatch(binding, 'mesh_inspect', {}, stop=asyncio.Event())
+        second = await tools.dispatch(binding, 'mesh_inspect', {'offset': 100}, stop=asyncio.Event())
+        assert first['next_offset'] == 100 and second['next_offset'] == 200
+        assert second['total'] == first['total'] > 1000
+        assert len(second['regions']) == 100
+        assert not ({r['region_id'] for r in first['regions']} & {r['region_id'] for r in second['regions']})
+    finally:
+        await tools.aclose()
+
+
 async def test_tools_measure_without_leaking_paths_points_or_obj_metadata(tmp_path):
     tools, asset = await ready_tools(tmp_path)
     binding = tools.bind("s", {"asset_id": asset.asset_id, "tolerance_mm": .1}, run_id="run")

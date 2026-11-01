@@ -1,0 +1,15 @@
+{
+  "status_code": 200,
+  "version": 2,
+  "runs": 4,
+  "restored_session_id": "d38c008951ba4bb18edd8ef8ff80db36",
+  "mesh_missing": false,
+  "mesh": {
+    "state": "ready",
+    "sha256": "1cd05e0095736357f0a0763d913b8776e3be05793d76596ffb976d3e02c58ae7",
+    "units": "mm",
+    "tolerance_mm": 0.1
+  },
+  "sidecar_bytes": 2942225,
+  "portable_asset_bytes": 1432784
+}

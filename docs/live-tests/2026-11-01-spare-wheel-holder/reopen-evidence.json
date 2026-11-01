@@ -1,0 +1,155 @@
+{
+  "run_id": "fb22c3b9e3e6499ab6c5faad0be752b5",
+  "status": "completed",
+  "verification": "unverified",
+  "cad_readback": {
+    "ok": true,
+    "value": {
+      "document": "Деталь1.SLDPRT",
+      "document_type": 1,
+      "truncated": false,
+      "features": [
+        {
+          "name": "Favorites",
+          "type": "FavoriteFolder"
+        },
+        {
+          "name": "History",
+          "type": "HistoryFolder"
+        },
+        {
+          "name": "Selection Sets",
+          "type": "SelectionSetFolder"
+        },
+        {
+          "name": "Связь проектов",
+          "type": "DocsFolder"
+        },
+        {
+          "name": "Примечания",
+          "type": "DetailCabinet"
+        },
+        {
+          "name": "Notes",
+          "type": "NotesAreaFtrFolder"
+        },
+        {
+          "name": "Notes Area",
+          "type": "AnnotationViewFeat"
+        },
+        {
+          "name": "Notes1___EndTag___",
+          "type": "FtrFolder"
+        },
+        {
+          "name": "Исправления",
+          "type": "InkMarkupFolder"
+        },
+        {
+          "name": "Источники света и камеры",
+          "type": "EnvFolder"
+        },
+        {
+          "name": "Рассеянный",
+          "type": "AmbientLight"
+        },
+        {
+          "name": "Направленный1",
+          "type": "DirectionLight"
+        },
+        {
+          "name": "Твердые тела",
+          "type": "SolidBodyFolder"
+        },
+        {
+          "name": "Тела поверхности",
+          "type": "SurfaceBodyFolder"
+        },
+        {
+          "name": "Датчики",
+          "type": "SensorFolder"
+        },
+        {
+          "name": "Заметки",
+          "type": "CommentsFolder"
+        },
+        {
+          "name": "Уравнения",
+          "type": "EqnFolder"
+        },
+        {
+          "name": "Материал <не указан>",
+          "type": "MaterialFolder"
+        },
+        {
+          "name": "Спереди",
+          "type": "RefPlane"
+        },
+        {
+          "name": "Сверху",
+          "type": "RefPlane"
+        },
+        {
+          "name": "Справа",
+          "type": "RefPlane"
+        },
+        {
+          "name": "Исходная точка",
+          "type": "OriginProfileFeature"
+        },
+        {
+          "name": "LowerBaseSketch",
+          "type": "ProfileFeature"
+        },
+        {
+          "name": "LowerBase",
+          "type": "Extrusion"
+        }
+      ],
+      "dimensions": [
+        {
+          "name": "LowerDiameter@LowerBaseSketch",
+          "value": 54.79999999999999,
+          "unit": "mm",
+          "driving": true
+        },
+        {
+          "name": "CenterX@LowerBaseSketch",
+          "value": 40.2084033,
+          "unit": "mm",
+          "driving": true
+        },
+        {
+          "name": "CenterZ@LowerBaseSketch",
+          "value": 40.2084033,
+          "unit": "mm",
+          "driving": true
+        },
+        {
+          "name": "D1@LowerBase",
+          "value": 10.0,
+          "unit": "mm",
+          "driving": true
+        }
+      ],
+      "bodies": [
+        {
+          "index": 0,
+          "sheet_metal": false,
+          "bbox_mm": [
+            12.808403300000007,
+            -10.0,
+            12.808403300000007,
+            67.60840329999999,
+            0.0,
+            67.60840329999999
+          ],
+          "bbox_approximate": true
+        }
+      ],
+      "status": "ok"
+    },
+    "error": null,
+    "uncertain": false
+  }
+}

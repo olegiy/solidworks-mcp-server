@@ -1,0 +1,10 @@
+# Полные локальные свидетельства сохраняются на диске, вне истории Git.
+*.json
+!cad-evidence.json
+!comparison.json
+!save.json
+!reopen-evidence.json
+!sidecar-evidence.json
+*-run-id.txt
+prior-sessions/
+phase*-image-*.png
