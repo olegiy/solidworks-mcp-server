@@ -1,4 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 const mesh = { name: 'эталон.obj', mimeType: 'text/plain', buffer: Buffer.from(
   'v 0 0 0\nv 10 0 0\nv 0 10 0\nv 0 0 10\nf 1 3 2\nf 1 2 4\nf 1 4 3\nf 2 3 4\n') };
@@ -89,4 +91,29 @@ test('отмена обработки сохраняет черновик и о�
   await expect(page.getByTestId('mesh-state')).toContainText('Эталон не выбран');
   await expect(page.getByLabel('Сообщение', { exact: true })).toHaveValue('Черновик после отмены');
   await expect(page.getByRole('button', { name: 'Отправить', exact: true })).toBeEnabled();
+});
+
+test('сохранённый проект переносит STL/OBJ через явный выбор исходника', async ({ page }) => {
+  await prepare(page);
+  await page.getByLabel('Единицы сетки').selectOption('mm');
+  await page.getByLabel('Файл STL или OBJ').setInputFiles(mesh);
+  await expect(page.getByTestId('mesh-state')).toContainText('Готов');
+  await page.getByLabel('Сообщение', { exact: true }).fill('mesh-inspect');
+  await page.getByRole('button', { name: 'Отправить', exact: true }).click();
+  await expect(page.getByText('Сетка измерена. Соответствие CAD пока не подтверждено.', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Сохранить проект', exact: true }).click();
+  const notice = page.getByTestId('save-notice');
+  await expect(notice).toContainText('Переписка:');
+  const sidecarPath = (await notice.textContent())!.match(/Переписка: (.+)$/)![1];
+  const data = JSON.parse(readFileSync(sidecarPath, 'utf8'));
+  expect(data.version).toBe(2);
+  const sourcePath = resolve(dirname(sidecarPath), data.mesh.relative_path);
+  await page.getByRole('button', { name: 'Новый проект', exact: true }).click();
+  await page.getByTestId('open-conversation-input').setInputFiles(sidecarPath);
+  await expect(page.getByRole('dialog', { name: 'Исходник сетки проекта' })).toBeVisible();
+  await page.getByLabel('Связанный STL/OBJ').setInputFiles(sourcePath);
+  await expect(page.getByRole('dialog', { name: 'Исходник сетки проекта' })).toHaveCount(0);
+  await page.getByText('Эталон STL/OBJ', { exact: false }).click();
+  await expect(page.getByTestId('mesh-state')).toContainText('Готов');
+  await expect(page.getByRole('region', { name: 'Соответствие сетке' })).toContainText('Не подтверждено');
 });

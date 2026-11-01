@@ -140,7 +140,7 @@ class MeshReference:
         validate_tolerance(self.tolerance_mm)
         try:
             matrix = np.asarray(self.source_to_cad, dtype=float)
-            rotation = matrix[:3, :3]
+            rotation = matrix[:3, :3] if matrix.shape == (4, 4) else None
             valid = (matrix.shape == (4, 4) and np.isfinite(matrix).all() and
                      np.allclose(matrix[3], [0, 0, 0, 1], atol=1e-10, rtol=0) and
                      np.allclose(rotation @ rotation.T, np.eye(3), atol=1e-10, rtol=0) and

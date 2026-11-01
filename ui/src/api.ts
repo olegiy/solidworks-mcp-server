@@ -91,6 +91,7 @@ export interface SaveResult {
 export interface LoadedConversation {
   session_id: string; profile_id?: string; language?: string;
   document?: { path?: string }; runs: Run[];
+  mesh_missing?: boolean;
 }
 
 export interface Run {
@@ -110,6 +111,7 @@ export interface MeshSelection { asset_id: string; tolerance_mm: number }
 export interface MeshAssetState {
   state: 'empty' | 'uploading' | 'processing' | 'ready' | 'error';
   asset_id?: string; sha256?: string; units?: string; format?: string; error?: string;
+  tolerance_mm?: number;
   summary?: { bounds_mm: number[][]; watertight: boolean; winding_consistent: boolean;
     triangles: number; boundary_edges: number; vertices: number };
   current?: { asset_id: string; units: string; format: string } | null;
@@ -149,18 +151,19 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
 }
 
 export function uploadBinary<T>(path: string, file: File, signal: AbortSignal,
-  progress: (fraction: number) => void): Promise<T> {
+  progress: (fraction: number) => void, method = 'POST'): Promise<T> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const abort = () => xhr.abort();
     const cleanup = () => signal.removeEventListener('abort', abort);
-    xhr.open('POST', `/api${path}`);
+    xhr.open(method, `/api${path}`);
     xhr.setRequestHeader('Content-Type', 'application/octet-stream');
     xhr.setRequestHeader('Accept-Language', acceptLanguage(detectLanguage()));
     xhr.upload.onprogress = event => { if (event.lengthComputable) progress(event.loaded / event.total); };
     xhr.onload = () => {
       cleanup();
       try {
+        if (xhr.status === 204) { resolve(undefined as T); return; }
         const body = JSON.parse(xhr.responseText);
         if (xhr.status < 200 || xhr.status >= 300) throw new Error(body.detail ?? 'Ошибка загрузки файла.');
         resolve(body as T);

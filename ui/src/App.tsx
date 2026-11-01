@@ -13,6 +13,8 @@ import Clarification from './Clarification';
 import ConstructionPlan from './ConstructionPlan';
 import MeshReference from './MeshReference';
 import MeshVerification from './MeshVerification';
+import MeshImportDialog from './MeshImportDialog';
+import type { PortableMesh } from './MeshImportDialog';
 import { applyRunEvent } from './runEvents';
 import { incompleteGoalKey } from './runPresentation';
 import type { PendingActivity, RunContact } from './ActivityIndicator';
@@ -481,6 +483,7 @@ export default function App() {
   const [attachments, setAttachments] = useState<DraftAttachment[]>([]);
   const [mesh, setMesh] = useState<MeshSelection | null>(null);
   const [meshBusy, setMeshBusy] = useState(false);
+  const [pendingConversation, setPendingConversation] = useState<{ conversation: unknown; mesh: PortableMesh } | null>(null);
   const [readingImages, setReadingImages] = useState(false);
   const [draggingFiles, setDraggingFiles] = useState(false);
   const dragDepth = useRef(0);
@@ -797,8 +800,17 @@ export default function App() {
       let conversation: unknown;
       try { conversation = JSON.parse(await file.text()); }
       catch { throw new Error(t('conversationInvalid')); }
+      const portable = conversation as { version?: number; mesh?: PortableMesh } | null;
+      if (portable?.version === 2 && portable.mesh?.reference?.sha256) {
+        setPendingConversation({ conversation, mesh: portable.mesh }); return;
+      }
+      await loadConversation(conversation);
+    } catch (error) { setError(errorText(error, t)); }
+  }
+  async function loadConversation(conversation: unknown, meshImportId?: string) {
       const result = await api<LoadedConversation>('/conversations/open', { method: 'POST',
-        body: JSON.stringify({ conversation }) });
+        body: JSON.stringify({ conversation, mesh_import_id: meshImportId }) });
+      setPendingConversation(null);
       setSessionId(result.session_id); remember('session', result.session_id);
       setMesh(null); setMeshBusy(false);
       setRuns(result.runs); setStreamId(''); setRunContact(null); setSaveNotice(null);
@@ -808,8 +820,8 @@ export default function App() {
       }
       const path = result.document?.path ?? '';
       setNotice(path ? t('conversationLoaded', { path }) : t('conversationLoadedNoDocument'));
+      if (result.mesh_missing) setNotice('История загружена. Для продолжения выберите исходник STL/OBJ.');
       input.current?.focus();
-    } catch (error) { setError(errorText(error, t)); }
   }
   function resetProject() {
     const id = crypto.randomUUID(); setSessionId(id); remember('session', id);
@@ -960,6 +972,9 @@ export default function App() {
           {currentProfile ? ` · ${lookup.hint}` : ''}</p>
       </form>
     </main>
+    {pendingConversation ? <MeshImportDialog mesh={pendingConversation.mesh}
+      onOpen={importId => loadConversation(pendingConversation.conversation, importId)}
+      onClose={() => setPendingConversation(null)} /> : null}
     {settings ? <SettingsDialog onClose={() => setSettings(false)} returnFocusTo={settingsOpener} fallbackFocusTo={settingsButton}>
       <Connections profiles={profiles} selected={selected} profileCatalog={catalogs[selected] ?? null}
       onCatalog={rememberCatalog} onSaved={reloadProfiles}

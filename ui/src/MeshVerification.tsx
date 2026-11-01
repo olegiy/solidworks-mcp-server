@@ -1,6 +1,7 @@
 import type { MeshVerificationData } from './api';
 
 const reasons: Record<string, string> = {
+  restored_history: 'Сохранённые доказательства исторические. Для продолжения нужна новая проверка CAD.',
   not_compared: 'Сравнение ещё не выполнено.', cad_changed: 'CAD изменён; нужна новая проверка.',
   cad_export_unavailable: 'Экспорт CAD-сетки недоступен.', cad_export_failed: 'Не удалось получить CAD-сетку.',
   comparison_unavailable: 'Сравнение недоступно.', stale_cad_snapshot: 'Документ или ревизия CAD изменились.',

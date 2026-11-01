@@ -31,6 +31,7 @@ class MeshAssetStore:
         self._current: dict[str, str] = {}
         self._pending: dict[str, str] = {}
         self._receiving: set[str] = set()
+        self.references: dict[str, dict] = {}
 
     @staticmethod
     def _session(session_id):
@@ -89,6 +90,7 @@ class MeshAssetStore:
         except BaseException:
             temporary.unlink(missing_ok=True)
             final.unlink(missing_ok=True)
+            self._remove_empty_folder(session_id)
             raise
         finally:
             self._receiving.discard(session_id)
@@ -101,6 +103,7 @@ class MeshAssetStore:
         if previous:
             self.path_for(session_id, previous).unlink(missing_ok=True)
             self._assets.pop(previous)
+            self.references.pop(previous, None)
         self._assets[asset_id] = replace(asset, state="ready")
         self._current[session_id] = asset_id
         del self._pending[session_id]
@@ -112,6 +115,7 @@ class MeshAssetStore:
         self.path_for(session_id, asset_id).unlink(missing_ok=True)
         del self._assets[asset_id]
         del self._pending[session_id]
+        self._remove_empty_folder(session_id)
 
     def remove(self, session_id):
         self._session(session_id)
@@ -119,6 +123,33 @@ class MeshAssetStore:
             if asset_id is not None:
                 self.path_for(session_id, asset_id).unlink(missing_ok=True)
                 del self._assets[asset_id]
+                self.references.pop(asset_id, None)
+        self._remove_empty_folder(session_id)
+
+    def _remove_empty_folder(self, session_id):
+        try:
+            (self.root / session_id).rmdir()
+        except OSError:
+            pass
+
+    def import_ready(self, session_id, source, manifest):
+        from cadnext.mesh.persistence import copy_verified, validate_manifest
+
+        self._session(session_id)
+        manifest = validate_manifest(manifest)
+        reference = manifest["reference"]
+        asset_id = uuid4().hex
+        destination = self.root / session_id / f'{asset_id}.{reference["format"]}'
+        size = copy_verified(source, destination, reference, expected_size=manifest["size_bytes"])
+        previous = self.current(session_id)
+        if previous is not None:
+            self.remove(session_id)
+        asset = MeshAsset(asset_id, session_id, reference["sha256"], reference["format"],
+                          reference["units"], size, "ready")
+        self._assets[asset_id] = asset
+        self._current[session_id] = asset_id
+        self.references[asset_id] = {**reference, "asset_id": asset_id}
+        return asset
 
     def close(self):
         sessions = {asset.session_id for asset in self._assets.values()}

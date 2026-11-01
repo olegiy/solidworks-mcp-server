@@ -491,6 +491,7 @@ class Agent:
         self.settings = settings
         self.debug = debug
         self.mesh_tools = mesh_tools
+        self._mesh_required: set[str] = set()
         self.runs: dict[str, Run] = {}
         self._history: dict[str, list[dict]] = {}
         self._closed_conversations: set[str] = set()
@@ -525,6 +526,7 @@ class Agent:
             set_language(language)
         language = get_language()
         self.assert_startable()
+        self.validate_mesh_continuation(session_id, mesh_reference)
         if session_id in self._closed_conversations:
             raise RuntimeError(t("Проект закрыт. Начните новый проект.",
                                  "The project is closed. Start a new project."))
@@ -780,7 +782,7 @@ class Agent:
         for run in runs:
             run["messages"] = []
         latest = runs[-1]
-        return {
+        result = {
             "schema": _CONVERSATION_SCHEMA,
             "version": _CONVERSATION_VERSION,
             "session_id": session_id,
@@ -790,6 +792,28 @@ class Agent:
             "messages": messages,
             "runs": runs,
         }
+        mesh_runs = [run for run in runs if run.get("mesh_reference")]
+        if mesh_runs:
+            result["version"] = 2
+            reference = deepcopy(mesh_runs[-1]["mesh_reference"])
+            current = self.mesh_tools.store.current(session_id) if self.mesh_tools is not None else None
+            if current is not None:
+                matching = [run for run in mesh_runs if run["mesh_reference"]["sha256"] == current.sha256]
+                saved_reference = self.mesh_tools.store.references.get(current.asset_id)
+                if matching:
+                    reference = {**deepcopy(matching[-1]["mesh_reference"]), "asset_id": current.asset_id}
+                elif saved_reference:
+                    reference = deepcopy(saved_reference)
+                else:
+                    from cadnext.mesh.contracts import MeshReference
+                    reference = MeshReference(current.asset_id, current.sha256, current.format, current.units, .1).snapshot()
+            result["mesh"] = {"reference": reference,
+                              "relative_path": None, "size_bytes": None}
+        return result
+
+    def validate_mesh_continuation(self, session_id, spec):
+        if session_id in self._mesh_required and spec is None:
+            raise MeshError("missing_reference", "Для продолжения проекта выберите исходник STL/OBJ и допуск.")
 
     @staticmethod
     def _validated_goal(raw):
@@ -994,7 +1018,7 @@ class Agent:
         result["options"] = options.as_dict()
         return result
 
-    def load_conversation(self, data: dict) -> dict:
+    def load_conversation(self, data: dict, *, mesh_import=None) -> dict:
         if self._closed:
             raise RuntimeError(t("Агент завершает работу.", "The agent is shutting down."))
         if self.uncertain:
@@ -1010,9 +1034,15 @@ class Agent:
         if len(_json(data).encode("utf-8")) > _CONVERSATION_MAX_BYTES:
             raise ValueError(t("Файл переписки слишком большой.",
                                "The conversation file is too large."))
-        if data.get("schema") != _CONVERSATION_SCHEMA or data.get("version") != _CONVERSATION_VERSION:
+        if data.get("schema") != _CONVERSATION_SCHEMA or type(data.get("version")) is not int \
+                or data.get("version") not in {1, 2}:
             raise ValueError(t("Неподдерживаемый формат переписки.",
                                "Unsupported conversation format."))
+        from cadnext.mesh.persistence import validate_manifest, validated_reference
+
+        manifest = validate_manifest(data.get("mesh")) if data["version"] == 2 else None
+        if mesh_import is not None and (manifest is None or mesh_import[0] != manifest):
+            raise MeshError("invalid_import", "Импорт относится к другому эталону сетки.")
         session_id = data.get("session_id")
         if not isinstance(session_id, str) or not _SESSION_ID.fullmatch(session_id):
             raise ValueError(t("Некорректный ID диалога в файле переписки.",
@@ -1091,6 +1121,18 @@ class Agent:
                       events=deepcopy(events), stop_requested=bool(raw.get("stop_requested")),
                       call_count=call_count, checks=deepcopy(checks))
             run.id = run_id
+            if raw.get("mesh_reference") is not None:
+                if manifest is None:
+                    raise MeshError("invalid_manifest", "Сеточный прогон требует формат переписки v2.")
+                run.mesh_reference = validated_reference(raw["mesh_reference"])
+                evidence = raw.get("mesh_evidence", [])
+                historical = raw.get("mesh_verification")
+                if (not isinstance(evidence, list) or any(not isinstance(item, dict) for item in evidence)
+                        or historical is not None and not isinstance(historical, dict)):
+                    raise MeshError("invalid_manifest", "Некорректные доказательства сетки.")
+                run.mesh_evidence = deepcopy(evidence)
+                run.mesh_verification = {"status": "unknown", "reasons": ["restored_history"],
+                                         "historical": deepcopy(historical)}
             run.construction_plan, run.construction_plan_history = construction.validate_saved_plan(
                 raw.get("construction_plan", []), raw.get("construction_plan_history", []))
             run.repair_attempts = repair_attempts
@@ -1100,6 +1142,13 @@ class Agent:
             loaded.append(run)
         if messages[0].get("role") != "system":
             messages.insert(0, {"role": "system", "content": _system_prompt(loaded[-1].language)})
+        mesh_asset = None
+        if manifest is not None:
+            if mesh_import is not None:
+                if self.mesh_tools is None:
+                    raise MeshError("unavailable", "Хранилище исходников недоступно.")
+                mesh_asset = self.mesh_tools.store.import_ready(session_id, mesh_import[1], manifest)
+            self._mesh_required.add(session_id)
         self._history[session_id] = deepcopy(messages)
         if any(run.status == "uncertain" for run in loaded):
             self._uncertain = True
@@ -1118,6 +1167,7 @@ class Agent:
         latest = loaded[-1]
         return {"session_id": session_id, "profile_id": latest.profile_id,
                 "language": latest.language, "document": deepcopy(document),
+                "mesh_missing": manifest is not None and mesh_asset is None,
                 "runs": [run.snapshot() for run in loaded]}
 
     def get(self, run_id: str) -> Run:

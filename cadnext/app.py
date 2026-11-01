@@ -26,6 +26,7 @@ from cadnext.i18n import get_language, language_from_header, set_language, t
 from cadnext.mcp import ROOT, SolidWorksMcp
 from cadnext.mesh.assets import MeshAssetStore
 from cadnext.mesh.contracts import MeshError
+from cadnext.mesh.persistence import publish_asset, validate_manifest
 from cadnext.mesh.tools import MeshTools
 from cadnext.privacy import PrivacyContext
 from cadnext.provider import Provider, ProviderError
@@ -123,6 +124,13 @@ class SaveBody(BaseModel):
 class ConversationBody(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     conversation: dict
+    mesh_import_id: str | None = Field(default=None, min_length=1, max_length=100,
+                                        pattern=r"^[a-f0-9]+$")
+
+
+class MeshImportBody(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    mesh: dict
 
 
 def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Provider,
@@ -147,6 +155,8 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         mesh_store = MeshAssetStore(app.state.settings.path.parent / "mesh" / uuid4().hex)
         app.state.mesh_states = {}
         app.state.mesh_jobs = {}
+        app.state.mesh_imports = {}
+        app.state.mesh_import_store = MeshAssetStore(mesh_store.root / "imports")
         async with mcp_factory() as mcp:
             app.state.agent = Agent(DebugMcp(mcp, app.state.debug), settings=app.state.settings,
                                     debug=app.state.debug, mesh_tools=MeshTools(mesh_store))
@@ -161,6 +171,7 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
                 await app.state.agent.aclose()
                 if app.state.cleanups:
                     await asyncio.gather(*app.state.cleanups, return_exceptions=True)
+                app.state.mesh_import_store.close()
                 mesh_store.close()
                 app.state.debug.write("application_stop")
 
@@ -283,8 +294,14 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
         if conversation:
             conversation["document"] = {"path": saved}
             try:
+                if conversation.get("version") == 2:
+                    manifest = conversation["mesh"]
+                    current = agent().mesh_tools.store.current(body.session_id)
+                    if current is not None and current.asset_id == manifest["reference"]["asset_id"]:
+                        conversation["mesh"] = publish_asset(saved,
+                            agent().mesh_tools.store.path_for(body.session_id, current.asset_id), manifest["reference"])
                 conversation_path = str(write_sidecar(saved, conversation))
-            except (OSError, ValueError, TypeError):
+            except (OSError, ValueError, TypeError, MeshError):
                 warning = t(
                     "Проект сохранён, но переписку сохранить не удалось.",
                     "The project was saved, but the conversation could not be saved.")
@@ -301,7 +318,20 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
 
     async def open_conversation_locked(body):
         try:
-            result = agent().load_conversation(body.conversation)
+            mesh_import = None
+            if body.mesh_import_id is not None:
+                staged = app.state.mesh_imports.get(body.mesh_import_id)
+                if staged is None or app.state.mesh_import_store.current(body.mesh_import_id) is None:
+                    raise MeshError("missing_import", "Импорт сетки отсутствует или уже использован.")
+                asset = app.state.mesh_import_store.current(body.mesh_import_id)
+                mesh_import = (staged, app.state.mesh_import_store.path_for(body.mesh_import_id, asset.asset_id))
+            result = agent().load_conversation(body.conversation, mesh_import=mesh_import)
+            if mesh_import is not None:
+                app.state.mesh_import_store.remove(body.mesh_import_id)
+                del app.state.mesh_imports[body.mesh_import_id]
+                current = agent().mesh_tools.store.current(result["session_id"])
+                app.state.mesh_states[result["session_id"]] = {**asdict(current), "state": "ready",
+                    "tolerance_mm": mesh_import[0]["reference"]["tolerance_mm"]}
             app.state.debug.write("project_opened", session_id=result["session_id"],
                 run_ids=[run["id"] for run in result["runs"]], document=result.get("document"))
             return result
@@ -309,6 +339,41 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
             raise HTTPException(status_code=409, detail=str(error)) from None
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from None
+
+    @app.post("/api/conversation-imports", status_code=201)
+    async def stage_mesh_import(body: MeshImportBody):
+        manifest = validate_manifest(body.mesh)
+        if manifest["relative_path"] is None:
+            raise MeshError("missing_asset", "В переписке нет переносимого исходника сетки.")
+        if len(app.state.mesh_imports) >= 16:
+            raise HTTPException(status_code=409, detail="Превышен предел временных импортов; перезапустите приложение.")
+        import_id = uuid4().hex
+        app.state.mesh_imports[import_id] = manifest
+        return {"import_id": import_id}
+
+    @app.put("/api/conversation-imports/{import_id}/{sha256}", status_code=204)
+    async def receive_mesh_import(import_id: str, sha256: str, request: Request):
+        async def receive():
+            manifest = app.state.mesh_imports.get(import_id)
+            if manifest is None or manifest["reference"]["sha256"] != sha256:
+                raise MeshError("invalid_import", "Импорт или хеш исходника не совпадает.")
+            if app.state.mesh_import_store.current(import_id) is not None:
+                raise MeshError("invalid_import", "Файл этого импорта уже загружен.")
+            reference = manifest["reference"]
+            asset = await app.state.mesh_import_store.receive(import_id, request.stream(),
+                format=reference["format"], units=reference["units"])
+            try:
+                if asset.sha256 != sha256 or asset.size_bytes != manifest["size_bytes"]:
+                    raise MeshError("asset_changed", "Хеш или размер выбранного исходника не совпал.")
+                await agent().mesh_tools.worker.request("inspect", {
+                    "path": str(app.state.mesh_import_store.path_for(import_id, asset.asset_id)),
+                    "format": asset.format, "units": asset.units, "sha256": asset.sha256,
+                    "frame_id": reference["frame_id"]}, stop=asyncio.Event())
+                app.state.mesh_import_store.accept(import_id, asset.asset_id)
+            except BaseException:
+                app.state.mesh_import_store.reject(import_id, asset.asset_id)
+                raise
+        await project_operation(receive)
 
     @app.post("/api/projects/{session_id}/close", status_code=204)
     async def close_project(session_id: str):
@@ -587,6 +652,7 @@ def create_app(*, settings=None, mcp_factory=SolidWorksMcp, provider_factory=Pro
             raise HTTPException(status_code=409, detail=str(error)) from None
         requested = store().get(body.profile_id)
         mesh_spec = body.mesh_reference.model_dump() if body.mesh_reference is not None else None
+        agent().validate_mesh_continuation(body.session_id, mesh_spec)
         if mesh_spec is not None:
             agent().mesh_tools.bind(body.session_id, mesh_spec, run_id="validation")
         options = body.evaluation.options()

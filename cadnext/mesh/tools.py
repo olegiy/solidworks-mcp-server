@@ -74,7 +74,9 @@ class MeshTools:
         asset = self.store.current(session_id)
         if asset is None or asset.asset_id != spec["asset_id"] or asset.state != "ready":
             raise MeshError("missing_asset", "Готовый эталон не найден в этом диалоге.")
-        reference = MeshReference(asset.asset_id, asset.sha256, asset.format, asset.units, spec["tolerance_mm"])
+        saved = self.store.references.get(asset.asset_id, {})
+        reference = MeshReference(asset.asset_id, asset.sha256, asset.format, asset.units, spec["tolerance_mm"],
+                                  **({"source_to_cad": saved["source_to_cad"]} if saved else {}))
         return MeshBinding(session_id, run_id, reference)
 
     @staticmethod

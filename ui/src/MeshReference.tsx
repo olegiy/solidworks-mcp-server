@@ -35,6 +35,10 @@ export default function MeshReference({ sessionId, disabled, onChange, onBusy }:
       while (!abort.signal.aborted && version.current === current) {
         const value = await api<MeshAssetState>(path, { signal: abort.signal });
         if (version.current !== current) return;
+        if (value.tolerance_mm != null) {
+          toleranceRef.current = String(value.tolerance_mm); setTolerance(toleranceRef.current);
+        }
+        if (value.units) setUnits(value.units);
         publish(value);
         if (!['processing', 'uploading'].includes(value.state)) break;
         await new Promise(resolve => setTimeout(resolve, 250));

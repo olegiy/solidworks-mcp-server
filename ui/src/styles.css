@@ -286,3 +286,8 @@ figcaption { font-size: 11px; color: var(--muted); margin-top: 6px; }
 .mesh-verification { margin: .75rem 0; padding: 1rem; overflow-x: auto; }
 .mesh-verification table { width: 100%; border-collapse: collapse; font-size: .85rem; }
 .mesh-verification th, .mesh-verification td { padding: .4rem; text-align: left; border-bottom: 1px solid var(--border, #ddd); }
+.mesh-import { width: min(36rem, calc(100% - 2rem)); padding: 1.5rem; border: 1px solid var(--border, #ddd); border-radius: 12px; }
+.mesh-import::backdrop { background: #0008; }
+.mesh-import p { overflow-wrap: anywhere; }
+.mesh-import label { display: flex; flex-direction: column; gap: .5rem; }
+.mesh-import .actions { margin-top: 1rem; display: flex; gap: .5rem; flex-wrap: wrap; }
