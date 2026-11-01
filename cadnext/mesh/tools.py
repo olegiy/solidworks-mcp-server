@@ -13,7 +13,7 @@ from cadnext.mesh.worker_client import MeshWorkerClient
 
 NAMES = frozenset({"mesh_inspect", "mesh_fit", "mesh_section", "mesh_compare"})
 GUIDANCE = (
-    " Исходник — сетка STL/OBJ. Сначала mesh_inspect, затем выбери базы и связные области, "
+    " Исходник — сетка STL/OBJ. Сначала mesh_inspect(catalog='surfaces'), затем выбери базы и поверхности, "
     "измерь mesh_fit/mesh_section. Система координат исходника задана приложением; не меняй "
     "масштаб и не выбирай симметричные базы наугад. До построения задай set_construction_plan. "
     "Создавай редактируемые эскизы и операции через существующие Python-этапы, проверяй "
@@ -32,7 +32,13 @@ _FRAME = {"type": "object", "properties": {key: _VECTOR for key in
 _REGION = {"oneOf": [{"type": "string", "maxLength": 100}, {"type": "object", "properties": {
     "bounds_mm": {"type": "array", "items": _VECTOR, "minItems": 2, "maxItems": 2},
     "normal": _VECTOR, "angle_degrees": {"type": "number", "exclusiveMinimum": 0, "maximum": 90}},
-    "required": ["bounds_mm"], "additionalProperties": False}]}
+    "required": ["bounds_mm"], "additionalProperties": False},
+    {"type": "object", "properties": {"surface_id": {"type": "string", "maxLength": 100}},
+     "required": ["surface_id"], "additionalProperties": False},
+    {"type": "object", "properties": {"seed_mm": _VECTOR, "axis": _VECTOR,
+     "side": {"enum": ["inner", "outer"]},
+     "bounds_mm": {"type": "array", "items": _VECTOR, "minItems": 2, "maxItems": 2}},
+     "required": ["seed_mm"], "additionalProperties": False}]}
 
 
 def _tool(name, description, properties, required=()):
@@ -42,7 +48,8 @@ def _tool(name, description, properties, required=()):
 
 
 SCHEMAS = [
-    _tool("mesh_inspect", "Качество, габариты и страницы областей эталона.", {"offset": _OFFSET}),
+    _tool("mesh_inspect", "Качество и страницы областей либо аналитических поверхностей эталона.",
+          {"offset": _OFFSET, "catalog": {"enum": ["regions", "surfaces"]}}),
     _tool("mesh_fit", "Измерить одну связную область, проверить остатки и вырожденность. "
           "region — region_id из mesh_inspect либо бокс bounds_mm [[xmin,ymin,zmin],[xmax,ymax,zmax]] "
           "в мм в системе координат эталона. Бокс выбирает только треугольники, все три вершины "
@@ -54,7 +61,7 @@ SCHEMAS = [
           "region_id либо скорректируй бокс и фильтр normal/angle_degrees; не объединяй "
           "несвязные поверхности автоматически. Простое расширение бокса может добавить другие "
           "поверхности и само по себе не гарантирует usable=true.",
-          {"region": _REGION, "kind": {"enum": ["plane", "circle", "cylinder"]}}, ["region", "kind"]),
+          {"region": _REGION, "kind": {"enum": ["plane", "circle", "cylinder", "cone", "sphere", "torus"]}}, ["region", "kind"]),
     _tool("mesh_section", "Сечение в правой ортонормальной системе; далее страницы по section_id.",
           {"frame": _FRAME, "section_id": {"type": "string", "maxLength": 100}, "offset": _OFFSET}),
     _tool("mesh_compare", "Проверить текущую CAD-форму относительно эталона.", {}),
@@ -139,6 +146,15 @@ class MeshTools:
             if name == "mesh_inspect":
                 binding.inspected = True
                 summary = deepcopy(response["summary"])
+                if arguments.get("catalog") == "surfaces":
+                    records = summary.pop("surfaces")
+                    total = summary.pop("surfaces_total")
+                    summary.pop("surfaces_offset")
+                    records = [{k: v for k, v in r.items() if k != "source_face_ids"} for r in records]
+                    result = self._page(records, 0, {"summary": summary}, key="surfaces", limit=100)
+                    end = offset+len(result["surfaces"])
+                    result.update(total=total, next_offset=end if end < total else None)
+                    return result
                 regions = summary.pop("regions", [])
                 page_offset = summary.pop("regions_offset", None)
                 total = summary.pop("regions_total", len(regions))

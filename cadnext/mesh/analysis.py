@@ -139,8 +139,34 @@ def _circle(xy, tolerance):
     return solution.x[:2], abs(float(solution.x[2])), solution.success
 
 
-def fit_region(mesh, region, kind, *, tolerance_mm) -> FitResult:
+def fit_region(mesh, region, kind, *, tolerance_mm, catalog=None) -> FitResult:
     tolerance = validate_tolerance(tolerance_mm)
+    if kind in {"cone", "sphere", "torus"} or (isinstance(region, dict) and
+                                               ("seed_mm" in region or "surface_id" in region)):
+        from cadnext.mesh.primitives import KINDS
+        from cadnext.mesh.surfaces import measure_surface, select_surface
+
+        if kind not in KINDS:
+            raise MeshError("invalid_fit", "Для выбора поверхности нужен аналитический примитив.")
+        if isinstance(region, dict) and ("seed_mm" in region or "surface_id" in region):
+            indices = select_surface(mesh, region, kind, tolerance, catalog=catalog)
+            return measure_surface(mesh, indices, kind, tolerance)
+        # Preserve strict whole-triangle selection for the legacy forms.
+        _, _, _, selected_id = select_region(mesh, region)
+        triangles, normals, _ = face_geometry(mesh)
+        if region == "all":
+            indices = np.arange(len(mesh.faces))
+        elif isinstance(region, str):
+            indices = next(ids for ids in _regions(mesh, normals, adjacency(mesh)[0])
+                           if _region_id(mesh, ids) == selected_id)
+        else:
+            bounds = np.asarray(region["bounds_mm"])
+            mask = np.all((triangles >= bounds[0]) & (triangles <= bounds[1]), axis=(1, 2))
+            if "normal" in region:
+                normal = np.asarray(region["normal"])
+                mask &= normals @ (normal/np.linalg.norm(normal)) >= np.cos(np.deg2rad(region.get("angle_degrees", 5)))
+            indices = np.flatnonzero(mask)
+        return measure_surface(mesh, indices, kind, tolerance, trim=False)
     if kind not in {"plane", "circle", "cylinder"}:
         raise MeshError("invalid_fit", "Доступна подгонка плоскости, окружности или цилиндра.")
     points, normals, area_fraction, region_id = select_region(mesh, region)

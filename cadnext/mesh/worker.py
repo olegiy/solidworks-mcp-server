@@ -19,7 +19,25 @@ def dispatch(operation, payload, cache=None):
         raise MeshError("unknown_operation", "Неизвестная операция анализа сетки.")
     cache = cache or MeshCache()
     mesh = cache.get(payload)
+
+    def catalog():
+        from cadnext.mesh.surfaces import surface_catalog
+
+        tolerance = payload["tolerance_mm"]
+        key = ("surfaces", tolerance)
+        if key not in cache.derived:
+            cache.derived[key] = surface_catalog(mesh, tolerance)
+        return cache.derived[key]
+
     if operation == "inspect":
+        if payload.get("catalog", "regions") == "surfaces":
+            summary = dict(catalog())
+            offset = payload.get("offset", 0)
+            if type(offset) is not int or not 0 <= offset <= 1000000:
+                raise MeshError("invalid_offset", "Некорректная страница поверхностей.")
+            summary.update(surfaces_total=len(summary["surfaces"]), surfaces_offset=offset)
+            summary["surfaces"] = summary["surfaces"][offset:offset+100]
+            return {"summary": summary}
         if "summary" not in cache.derived:
             cache.derived["summary"] = asdict(inspect_mesh(mesh))
         summary = dict(cache.derived["summary"])
@@ -31,8 +49,10 @@ def dispatch(operation, payload, cache=None):
         summary["regions"] = summary["regions"][offset:offset+100]
         return {"summary": summary}
     if operation == "fit":
+        region = payload["region"]
+        records = catalog() if isinstance(region, dict) and ("surface_id" in region or "seed_mm" in region) else None
         return {"fit": asdict(fit_region(mesh, payload["region"], payload["kind"],
-                                         tolerance_mm=payload["tolerance_mm"]))}
+                                         tolerance_mm=payload["tolerance_mm"], catalog=records))}
     if operation == "section":
         from cadnext.mesh.contracts import PlaneFrame
         from cadnext.mesh.sections import section_mesh

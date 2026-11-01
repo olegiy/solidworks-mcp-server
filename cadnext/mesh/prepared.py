@@ -24,14 +24,15 @@ PREPARATION_VERSION = 1
 class PreparedMesh(MeshData):
     geometry: tuple
     topology: tuple
+    context_id: str = ""
 
 
-def prepare(mesh):
+def prepare(mesh, context_id=""):
     geometry, topology = face_geometry(mesh), adjacency(mesh)
     for array in (*geometry, *topology[:2], mesh.vertices, mesh.faces):
         array.setflags(write=False)
     return PreparedMesh(mesh.vertices, mesh.faces, mesh.sha256, mesh.units, mesh.scale_to_mm,
-                        geometry, topology)
+                        geometry, topology, context_id)
 
 
 class MeshCache:
@@ -67,5 +68,5 @@ class MeshCache:
             matrix = np.asarray(reference.source_to_cad)
             mesh = MeshData(mesh.vertices @ matrix[:3, :3].T+matrix[:3, 3], mesh.faces,
                             digest, mesh.units, mesh.scale_to_mm)
-            self.mesh, self.key = prepare(mesh), key
+            self.mesh, self.key = prepare(mesh, payload["frame_id"]), key
         return self.mesh
