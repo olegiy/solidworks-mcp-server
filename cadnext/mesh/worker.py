@@ -82,7 +82,12 @@ def dispatch(operation, payload, cache=None):
             raise MeshError("invalid_snapshot", "Некорректная геометрия проверочной CAD-сетки.")
         vertices, inverse = np.unique(vertices, axis=0, return_inverse=True)
         cad = MeshData(vertices, inverse[faces.astype(int)], payload["cad_sha256"], "mm", 1.)
-        return {"comparison": asdict(compare_surfaces(mesh, cad, options=payload["options"]))}
+        options = dict(payload["options"])
+        required = options.get("required_region_ids", [])
+        if any(rid.startswith("surface:") for rid in required):
+            options["resolved_regions"] = {r["surface_id"]: r["source_face_ids"] for r in catalog()["surfaces"]
+                                           if r["surface_id"] in required}
+        return {"comparison": asdict(compare_surfaces(mesh, cad, options=options))}
     raise MeshError("unavailable", "Эта операция анализа сетки пока недоступна.")
 
 

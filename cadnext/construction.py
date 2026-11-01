@@ -13,7 +13,9 @@ _ID = {"type": "string", "pattern": "^[A-Za-z0-9_-]{1,64}$"}
 # swCosmeticStandardType_e; Toolbox hole-standard IDs are a different enum.
 _COSMETIC_STANDARDS = [-2, *range(17)]
 STAGE_SCHEMA = {"type": "object", "properties": {
-    "id": _ID, "title": _TEXT, "expected_result": _TEXT},
+    "id": _ID, "title": _TEXT, "expected_result": _TEXT,
+    "mesh_region_ids": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 100},
+                        "maxItems": 128, "uniqueItems": True}},
     "required": ["id", "title", "expected_result"], "additionalProperties": False}
 PLAN_SCHEMA = {"type": "object", "properties": {"stages": {
     "type": "array", "items": STAGE_SCHEMA, "minItems": 1, "maxItems": 32}},
@@ -87,6 +89,8 @@ def set_plan(current, stages):
         raise ValueError("Некорректный план построения.")
     if len({stage["id"] for stage in stages}) != len(stages):
         raise ValueError("ID этапов должны быть уникальны.")
+    if len(mesh_regions(stages)) > 128:
+        raise ValueError("В плане допускается максимум 128 обязательных областей сетки.")
     automatic = {stage["id"]: stage for stage in current if stage.get("application_owned") is True}
     for stage in stages:
         if stage["id"] in automatic and any(stage[key] != automatic[stage["id"]][key]
@@ -100,12 +104,17 @@ def set_plan(current, stages):
     for index, stage in enumerate(current):
         if stage["status"] != "pending":
             if index >= len(stages) or any(stages[index].get(key) != stage[key]
-                                            for key in ("id", "title", "expected_result")):
+                                            for key in ("id", "title", "expected_result")) or (
+                    stages[index].get("mesh_region_ids", []) != stage.get("mesh_region_ids", [])):
                 raise ValueError("Начатый этап нельзя менять, удалять или переставлять.")
     return [deepcopy(previous[stage["id"]]) if stage["id"] in previous and
             previous[stage["id"]]["status"] != "pending" else
             {**stage, "status": "pending", "checks": [], "tool_call_ids": []} for stage in stages
             ] + deepcopy(list(automatic.values()))
+
+
+def mesh_regions(stages):
+    return sorted({rid for stage in stages for rid in stage.get("mesh_region_ids", [])})
 
 
 def validate_saved_plan(stages, history):
@@ -143,6 +152,8 @@ def validate_saved_plan(stages, history):
                     expected = {**expected, "standard": -2}
                 inspection_request([expected])
             clean.append({key: stage.get(key) for key in ("id", "title", "expected_result")})
+            if "mesh_region_ids" in stage:
+                clean[-1]["mesh_region_ids"] = stage["mesh_region_ids"]
         if clean:
             set_plan([], clean)
 

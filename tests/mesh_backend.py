@@ -92,13 +92,17 @@ class MeshBackend(Backend):
             shape = original.split(':')[1]
             latest_user = max(i for i,m in enumerate(messages) if m.get('content') == original)
             count = sum(m['role'] == 'tool' for m in messages[latest_user+1:])
+            inspection = next((json.loads(m['content'])['value'] for m in messages[latest_user+1:]
+                               if m['role'] == 'tool' and '"regions"' in m.get('content', '')), None)
+            required = [inspection['regions'][0]['region_id']] if inspection and inspection['regions'] else []
             dimension_checks = [{'kind': 'dimension', 'name': key, 'value': value, 'unit': 'mm'}
                                 for key,value in DIMENSIONS[shape].items()]
             sequence = [('mesh_inspect', {}),
                         ('mesh_section', {'frame': {'origin_mm': [0,0,1], 'x_axis': [1,0,0],
                                                    'y_axis': [0,1,0], 'normal': [0,0,1]}}),
                         ('set_construction_plan', {'stages': [
-                            {'id': 'profile', 'title': 'Размерный эскиз', 'expected_result': 'Управляющие размеры'},
+                            {'id': 'profile', 'title': 'Размерный эскиз', 'expected_result': 'Управляющие размеры',
+                             'mesh_region_ids': required},
                             {'id': 'body', 'title': 'Операции тела', 'expected_result': 'Одно тело и вырезы'}]}),
                         ('execute_python', {'code': f"result = {{'shape': '{shape}', 'stage': 'profile'}}",
                                             'stage_id': 'profile', 'checks': [

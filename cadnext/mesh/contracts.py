@@ -3,7 +3,7 @@
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -183,3 +183,5 @@ class MeshComparison:
     violating_regions: list
     status: str
     reasons: tuple
+    coverage: dict = field(default_factory=dict)
+    required_regions: list = field(default_factory=list)

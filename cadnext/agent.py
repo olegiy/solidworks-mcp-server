@@ -1404,7 +1404,14 @@ class Agent:
                 transport_arguments["session_id"] = run._python_session
             if name == "set_construction_plan":
                 try:
-                    run.construction_plan = construction.set_plan(run.construction_plan, arguments["stages"])
+                    updated = construction.set_plan(run.construction_plan, arguments["stages"])
+                    ids = construction.mesh_regions(updated)
+                    if ids and run._mesh_binding is None:
+                        raise ValueError("Обязательные области требуют текущего эталона сетки.")
+                    if run._mesh_binding is not None:
+                        await self.mesh_tools.validate_regions(run._mesh_binding, ids)
+                        self._guard(run)
+                    run.construction_plan = updated
                     run.construction_plan_history.append({
                         "revision": len(run.construction_plan_history) + 1,
                         "stages": deepcopy(run.construction_plan)})
@@ -1591,6 +1598,12 @@ class Agent:
         if (run._mesh_binding is not None and name not in _READ_ONLY and
                 not run._mesh_binding.inspected):
             raise _EndRun("failed", "Перед построением нужно выполнить mesh_inspect исходного эталона.")
+        if run._mesh_binding is not None and name not in _READ_ONLY:
+            try:
+                await self.mesh_tools.validate_regions(run._mesh_binding, construction.mesh_regions(run.construction_plan))
+            except (MeshError, OSError) as error:
+                raise _EndRun("failed", str(error)) from None
+            self._guard(run)
         checks = self._verification_calls(name, arguments)
         self._budget(run, 1 + len(checks) + (3 if run._mesh_binding is not None
                                            and name not in _READ_ONLY else 0))
@@ -1942,7 +1955,8 @@ class Agent:
             for stage in run.construction_plan)
         try:
             comparison = await self.mesh_tools.compare(run._mesh_binding, snapshot,
-                                                       stop=run._mesh_stop, cad_checks_passed=checks_passed)
+                                                       stop=run._mesh_stop, cad_checks_passed=checks_passed,
+                                                       required_region_ids=construction.mesh_regions(run.construction_plan))
         except MeshError:
             self._guard(run)
             run.mesh_verification = {"status": "unknown", "reasons": ["comparison_unavailable"]}
@@ -1955,8 +1969,11 @@ class Agent:
         self._success(connection)
         self._guard(run)
         current = connection["value"]
-        status = validate_mesh_evidence(comparison, run.mesh_reference, snapshot)
+        authoritative = {**run.mesh_reference, "required_region_ids": construction.mesh_regions(run.construction_plan)}
+        status = validate_mesh_evidence(comparison, authoritative, snapshot)
         reasons = list(comparison["reasons"])
+        if status == "unknown" and not reasons:
+            reasons.append("incomplete_evidence")
         if (current.get("document_id") != snapshot["document_identity"] or
                 current.get("document_update_stamp") != snapshot["revision"]):
             status = "unknown"

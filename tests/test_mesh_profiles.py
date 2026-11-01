@@ -61,3 +61,10 @@ def test_branch_at_original_vertex_is_not_a_sketch():
     result = section_mesh(mesh, frame(0), tolerance_mm=.1)
     assert not result.usable_for_sketch
     assert "branching_intersection" in result.reasons
+
+
+def test_zero_length_topological_edge_terminates_profile_fitting():
+    from cadnext.mesh.sections import _profile_span
+
+    result, _ = _profile_span(np.zeros((2, 2)), .1)
+    assert result is not None

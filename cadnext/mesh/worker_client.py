@@ -172,6 +172,6 @@ class MeshWorkerClient:
 
     async def forget(self, owner):
         # Reuse the normal lock/deadline and never start a child just to clear it.
-        if self.process is not None:
+        if self.process is not None and self.process.returncode is None:
             await self.request("forget", {"owner": owner, "sha256": "", "frame_id": ""},
                                stop=asyncio.Event())

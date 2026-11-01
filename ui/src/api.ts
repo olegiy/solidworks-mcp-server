@@ -124,10 +124,14 @@ export interface MeshVerificationData {
   status: 'pass' | 'fail' | 'unknown'; reasons: string[];
   comparison?: { tolerance_mm: number; chord_tolerance_mm: number;
     reference_to_cad: MeshStatistics; cad_to_reference: MeshStatistics;
-    seed: number; method: string; measured_regions?: number; violating_regions: string[] };
+    seed: number; method: string; measured_regions?: number; violating_regions: string[];
+    coverage?: Record<'reference_to_cad' | 'cad_to_reference', {
+      total_faces: number; checked_faces: number; partitions: number; complete: boolean }>;
+    required_regions?: { region_id: string; complete: boolean; samples: number }[] };
 }
 export interface ConstructionStage {
   id: string; title: string; expected_result: string;
+  mesh_region_ids?: string[];
   status: 'pending' | 'running' | 'done' | 'error' | 'stopped';
   tool_call_ids: string[];
   checks: { passed: boolean; expected: Record<string, unknown>; observed: unknown }[];

@@ -59,6 +59,9 @@ def test_api_constructs_stages_compares_and_transfers_source(tmp_path, shape):
         assert all(stage['status'] == 'done' and all(check['passed'] for check in stage['checks'])
                    for stage in run['construction_plan'])
         comparison = run['mesh_verification']['comparison']
+        assert comparison['method'] == 'stratified_triangle_surface_v2'
+        assert comparison['coverage']['reference_to_cad']['checked_faces'] == source['summary']['triangles']
+        assert comparison['required_regions'] and all(r['samples'] == 256 for r in comparison['required_regions'])
         assert comparison['reference_to_cad']['samples'] == 50000
         assert comparison['cad_to_reference']['sampled_max_mm'] < .01
         # This double deliberately reports unknown export precision, just like production.
@@ -77,6 +80,10 @@ def test_api_constructs_stages_compares_and_transfers_source(tmp_path, shape):
         opened = client.post('/api/conversations/open', json={'conversation': sidecar,
                              'mesh_import_id': staged['import_id']})
         assert opened.status_code == 200 and not opened.json()['mesh_missing']
+        restored = opened.json()['runs'][-1]
+        assert restored['construction_plan'][0]['mesh_region_ids'] == run['construction_plan'][0]['mesh_region_ids']
+        assert restored['mesh_verification']['status'] == 'unknown'
+        assert restored['mesh_verification']['reasons'] == ['restored_history']
 
 
 def test_incomplete_scan_remains_unknown_and_missing_hole_fails(tmp_path):

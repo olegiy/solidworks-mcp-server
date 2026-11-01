@@ -15,6 +15,7 @@ def box(extents=(40, 30, 5), offset=(0, 0, 2.5)):
 
 def options(**overrides):
     return {"tolerance_mm": .1, "chord_tolerance_mm": .01, "precision_known": True,
+            "method": "area_weighted_triangle_surface_v1",
             "samples": 1000, "region_samples": 128, "seed": 42,
             "frame_id": "frame", "document_identity": "doc", "revision": 7, "run_id": "run",
             "cad_checks_passed": True, **overrides}

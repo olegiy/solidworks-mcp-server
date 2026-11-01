@@ -32,6 +32,9 @@ test('сетка → этапы → независимые размеры → д
   await expect(report).toContainText('Не подтверждено');
   await expect(report).toContainText('Исходник → CAD');
   await expect(report).toContainText('CAD → исходник');
+  await expect(report).toContainText('Исходник: проверено');
+  await expect(report).toContainText('CAD: проверено');
+  await expect(report).toContainText('Покрытие полное');
   const run = await (await page.request.get(`/api/runs/${runId}`)).json();
   expect(run.construction_plan.map((s: { status: string }) => s.status)).toEqual(['done', 'done']);
   expect(run.call_count).toBeLessThan(80);
@@ -39,4 +42,5 @@ test('сетка → этапы → независимые размеры → д
     e.type === 'tool_start' && e.data.name === 'execute_python')).toHaveLength(2);
   await page.reload();
   await expect(page.getByRole('region', { name: 'Соответствие сетке' })).toContainText('Не подтверждено');
+  await expect(page.getByRole('region', { name: 'Соответствие сетке' })).toContainText('Покрытие полное');
 });

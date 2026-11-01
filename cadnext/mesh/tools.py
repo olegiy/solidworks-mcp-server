@@ -1,5 +1,7 @@
 """Application-bound numeric mesh tools, with bounded model-visible projections."""
 
+import asyncio
+import hashlib
 import json
 import re
 from copy import deepcopy
@@ -78,6 +80,7 @@ class MeshBinding:
     evidence: list = field(default_factory=list)
     sections: dict = field(default_factory=dict)
     inspected: bool = False
+    issued_region_ids: set = field(default_factory=set)
 
 
 class MeshTools:
@@ -148,6 +151,7 @@ class MeshTools:
                 summary = deepcopy(response["summary"])
                 if arguments.get("catalog") == "surfaces":
                     records = summary.pop("surfaces")
+                    binding.issued_region_ids.update(r["surface_id"] for r in records)
                     total = summary.pop("surfaces_total")
                     summary.pop("surfaces_offset")
                     records = [{k: v for k, v in r.items() if k != "source_face_ids"} for r in records]
@@ -156,6 +160,7 @@ class MeshTools:
                     result.update(total=total, next_offset=end if end < total else None)
                     return result
                 regions = summary.pop("regions", [])
+                binding.issued_region_ids.update(r["region_id"] for r in regions)
                 page_offset = summary.pop("regions_offset", None)
                 total = summary.pop("regions_total", len(regions))
                 result = self._page(regions, offset if page_offset is None else 0,
@@ -182,7 +187,22 @@ class MeshTools:
     async def invalidate(self, session_id):
         await self.worker.forget(session_id)
 
-    async def compare(self, binding, snapshot, *, stop, cad_checks_passed):
+    async def validate_regions(self, binding, ids):
+        asset = self.store.current(binding.session_id)
+        if (asset is None or asset.asset_id != binding.reference.asset_id or
+                asset.sha256 != binding.reference.sha256 or not set(ids) <= binding.issued_region_ids):
+            raise MeshError("unconfirmed_regions", "Обязательные области не принадлежат текущему эталону.")
+        path = self.store.path_for(binding.session_id, asset.asset_id)
+
+        def verify_bytes():
+            with path.open("rb") as stream:
+                raw = stream.read(100*1024*1024+1)
+            return len(raw) <= 100*1024*1024 and hashlib.sha256(raw).hexdigest() == asset.sha256
+
+        if not await asyncio.to_thread(verify_bytes):
+            raise MeshError("stale_reference", "Исходные байты обязательных областей изменились.")
+
+    async def compare(self, binding, snapshot, *, stop, cad_checks_passed, required_region_ids=()):
         reference = binding.reference
         data = {"owner": binding.session_id, "path": str(self.store.path_for(binding.session_id, reference.asset_id)),
                 "format": reference.format, "units": reference.units, "sha256": reference.sha256,
@@ -192,6 +212,7 @@ class MeshTools:
                     "tolerance_mm": reference.tolerance_mm,
                     "chord_tolerance_mm": snapshot["chord_tolerance_mm"],
                     "precision_known": snapshot["precision_known"], "cad_checks_passed": cad_checks_passed,
+                    "required_region_ids": list(required_region_ids),
                     "frame_id": reference.frame_id, "document_identity": snapshot["document_identity"],
                     "revision": snapshot["revision"], "run_id": binding.run_id}}
         response = await self.worker.request("compare", data, stop=stop)

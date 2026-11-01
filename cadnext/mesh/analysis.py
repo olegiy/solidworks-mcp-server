@@ -1,6 +1,7 @@
 """Measured regions and geometric least-squares fits, without geometry repair."""
 
 import hashlib
+from dataclasses import replace
 
 import numpy as np
 from scipy.optimize import least_squares
@@ -141,7 +142,7 @@ def _circle(xy, tolerance):
 
 def fit_region(mesh, region, kind, *, tolerance_mm, catalog=None) -> FitResult:
     tolerance = validate_tolerance(tolerance_mm)
-    if kind in {"cone", "sphere", "torus"} or (isinstance(region, dict) and
+    if kind in {"cylinder", "cone", "sphere", "torus"} or (isinstance(region, dict) and
                                                ("seed_mm" in region or "surface_id" in region)):
         from cadnext.mesh.primitives import KINDS
         from cadnext.mesh.surfaces import measure_surface, select_surface
@@ -166,9 +167,9 @@ def fit_region(mesh, region, kind, *, tolerance_mm, catalog=None) -> FitResult:
                 normal = np.asarray(region["normal"])
                 mask &= normals @ (normal/np.linalg.norm(normal)) >= np.cos(np.deg2rad(region.get("angle_degrees", 5)))
             indices = np.flatnonzero(mask)
-        return measure_surface(mesh, indices, kind, tolerance, trim=False)
-    if kind not in {"plane", "circle", "cylinder"}:
-        raise MeshError("invalid_fit", "Доступна подгонка плоскости, окружности или цилиндра.")
+        return replace(measure_surface(mesh, indices, kind, tolerance, trim=False), region_id=selected_id)
+    if kind not in {"plane", "circle"}:
+        raise MeshError("invalid_fit", "Выберите плоскость, окружность, цилиндр, конус, сферу или тор.")
     points, normals, area_fraction, region_id = select_region(mesh, region)
     origin = points.mean(axis=0)
     centered = points-origin
@@ -191,38 +192,6 @@ def fit_region(mesh, region, kind, *, tolerance_mm, catalog=None) -> FitResult:
         coverage["angle_degrees"] = _angular_span(xy-center)
         if not converged:
             degeneracies.append("nonconverged")
-    else:
-        _, vectors = np.linalg.eigh(normals.T @ normals)
-        axis = _canonical(vectors[:, 0])
-        perpendicular = np.eye(3)[np.argmin(np.abs(axis))]
-        x_axis = np.cross(axis, perpendicular)
-        x_axis /= np.linalg.norm(x_axis)
-        y_axis = np.cross(axis, x_axis)
-        xy = centered @ np.column_stack((x_axis, y_axis))
-        center, radius, _ = _circle(xy, tolerance)
-        initial_center = center[0]*x_axis+center[1]*y_axis
-
-        def residual(p):
-            a = p[3:6]/max(np.linalg.norm(p[3:6]), 1e-12)
-            delta = centered-p[:3]
-            return np.linalg.norm(delta-np.outer(delta @ a, a), axis=1)-p[6]
-
-        solution = least_squares(residual, [*initial_center, *axis, radius],
-                                 loss="soft_l1", f_scale=tolerance/4, max_nfev=200)
-        axis = _canonical(solution.x[3:6]/np.linalg.norm(solution.x[3:6]))
-        center3 = solution.x[:3]-np.dot(solution.x[:3], axis)*axis
-        delta = centered-center3
-        residuals = residual(solution.x)
-        parameters = {"origin_mm": (origin+center3).tolist(), "axis": axis.tolist(),
-                      "radius_mm": abs(float(solution.x[6])),
-                      "axial_span_mm": float(np.ptp(delta @ axis))}
-        coverage["angle_degrees"] = _angular_span(np.column_stack((delta @ x_axis, delta @ y_axis)))
-        if not solution.success:
-            degeneracies.append("nonconverged")
-        if parameters["axial_span_mm"] <= tolerance:
-            degeneracies.append("insufficient_axial_span")
-        if np.max(np.abs(normals @ axis)) > .25:
-            degeneracies.append("incompatible_normals")
     if coverage.get("angle_degrees", 360) < 30:
         degeneracies.append("insufficient_coverage")
     maximum = float(np.abs(residuals).max())

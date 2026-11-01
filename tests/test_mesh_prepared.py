@@ -40,6 +40,21 @@ def test_preparation_reuses_verified_geometry_and_topology(tmp_path, monkeypatch
     assert not first.faces.flags.writeable
 
 
+async def test_invalidation_does_not_restart_an_exited_child():
+    from types import SimpleNamespace
+
+    from cadnext.mesh.worker_client import MeshWorkerClient
+
+    client = MeshWorkerClient()
+    client.process = SimpleNamespace(returncode=0)
+
+    async def unexpected(*args, **kwargs):
+        pytest.fail("Invalidation started a request for an exited worker")
+
+    client.request = unexpected
+    await client.forget("owner")
+
+
 @pytest.mark.parametrize("field,value", [("owner", "other"), ("units", "in"),
                                         ("frame_id", "other-frame")])
 def test_context_change_evicts_preparation(tmp_path, field, value):

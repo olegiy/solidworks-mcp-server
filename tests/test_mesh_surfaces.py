@@ -81,6 +81,18 @@ def test_coarse_facets_and_small_coverage_are_unusable():
     assert "insufficient_coverage" in result.degeneracies
 
 
+def test_legacy_cylinder_selection_also_checks_facets():
+    from cadnext.mesh.analysis import fit_region
+
+    mesh = cylinder_mesh()
+    # Keep every eighth meridian, preserving the two-triangle strips.
+    points = mesh.vertices.reshape(5, 97, 3)[:, ::8].reshape(-1, 3)
+    faces = [(j*13+i, j*13+i+1, (j+1)*13+i+1) for j in range(4) for i in range(12)]
+    faces += [(j*13+i, (j+1)*13+i+1, (j+1)*13+i) for j in range(4) for i in range(12)]
+    result = fit_region(mesh_data(points, faces), "all", "cylinder", tolerance_mm=.1)
+    assert not result.usable and "facet_error" in result.degeneracies
+
+
 @pytest.mark.parametrize("kind", ["cone", "sphere", "torus"])
 def test_rotated_noisy_shared_vertices_recover_parameters(kind):
     from scipy.spatial.transform import Rotation

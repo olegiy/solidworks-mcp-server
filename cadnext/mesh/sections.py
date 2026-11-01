@@ -144,6 +144,8 @@ def _profile_span(points, tolerance):
     start, end = points[0], points[-1]
     direction = end-start
     length = np.linalg.norm(direction)
+    if len(points) == 2 and length < 1e-14:
+        return {"kind": "line", "max_error_mm": 0.}, 1
     if length < 1e-14:
         return None, len(points)//2
     projection = np.clip((points-start) @ direction/length**2, 0, 1)
@@ -298,6 +300,8 @@ def section_mesh(mesh, frame, *, tolerance_mm) -> SectionResult:
             reasons.append("degenerate_chain")
         if any(s["max_error_mm"] > tolerance/4 for s in segments):
             reasons.append("excessive_approximation_error")
+        if any(np.linalg.norm(np.asarray(s["end_mm"])-s["start_mm"]) < 1e-14 for s in segments):
+            reasons.append("degenerate_segment")
         result.append({"chain_id": prefix, "closed": closed, "role": role,
                        "points_mm": xy.tolist(), "signed_area_mm2": _area(xy) if closed else None,
                        "source_face_ids": sorted(set().union(*sources)), "segments": segments})
